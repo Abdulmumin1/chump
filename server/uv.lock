@@ -192,6 +192,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [{ name = "ai-query", editable = "../ai-query" }]
 
+[package.metadata.requires-dev]
+dev = []
+
 [[package]]
 name = "frozenlist"
 version = "1.8.0"
