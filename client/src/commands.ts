@@ -15,8 +15,10 @@ export function parseSlashCommand(input: string): {
     case "help":
     case "status":
     case "state":
+    case "messages":
     case "clear":
     case "agent":
+    case "session":
     case "events":
     case "quit":
       return { command, args };
@@ -29,7 +31,11 @@ export function printHelp(): void {
   console.log("/help");
   console.log("/status");
   console.log("/state");
+  console.log("/messages");
   console.log("/clear");
+  console.log("/session");
+  console.log("/session new");
+  console.log("/session <id>");
   console.log("/agent <id>");
   console.log("/events on|off");
   console.log("/quit");

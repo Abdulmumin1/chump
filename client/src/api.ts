@@ -1,4 +1,5 @@
 import type {
+  AgentMessagesResponse,
   AgentStateResponse,
   ChumpConfig,
   ChumpStatus,
@@ -72,6 +73,16 @@ export async function getState(
     throw new Error(await readErrorResponse(response));
   }
   return (await response.json()) as AgentStateResponse;
+}
+
+export async function getMessages(
+  config: ChumpConfig,
+): Promise<AgentMessagesResponse> {
+  const response = await fetch(`${buildAgentUrl(config)}/messages`);
+  if (!response.ok) {
+    throw new Error(await readErrorResponse(response));
+  }
+  return (await response.json()) as AgentMessagesResponse;
 }
 
 export async function openEventStream(

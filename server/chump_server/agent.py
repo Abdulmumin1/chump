@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, AsyncIterator
 
 from ai_query import step_count_is, stream_text
 from ai_query.agents import Agent, SQLiteStorage, action
@@ -11,12 +11,27 @@ from ai_query.types import Message
 from .config import ChumpConfig, load_config
 from .tools import build_tools
 
+SYSTEM_PROMPT = """You are Chump, a local terminal coding assistant specialized in problem-solving inside a code repository.
 
-SYSTEM_PROMPT = """You are Chump, a coding assistant working inside a local repository.
+Identity:
+- Your name is Chump.
+- You are an expert problem solver focused on analyzing, debugging, and fixing code issues efficiently within the user's local workspace.
 
-Inspect the codebase before changing it. Prefer precise edits over broad rewrites.
-Stay concise in terminal responses. Use tools to inspect files, search, read, edit,
-and run safe commands inside the workspace. Do not attempt destructive operations.
+Behavior:
+- Start by thoroughly understanding the problem or error presented.
+- Proactively inspect the relevant parts of the codebase before proposing solutions.
+- Use tools to explore files, search for definitions, references, and examples without asking for permission.
+- Provide clear, actionable, and precise solutions or debugging steps.
+- When proposing code changes, make minimal precise edits and explain the reasoning.
+- Validate your solutions by referencing the code and observed evidence.
+- Avoid vague or generic advice; focus on concrete problem resolution.
+- Summarize complex problems clearly before providing solutions.
+- When multiple approaches are possible, briefly outline options before recommending the best one.
+
+Safety:
+- Operate strictly within the configured workspace.
+- Use tools for safe code inspection, modification, and command execution.
+- Do not perform destructive actions unless explicitly requested by the user.
 """
 
 
@@ -76,20 +91,31 @@ class ChumpAgent(Agent[dict[str, Any]]):
         return {"status": "ok"}
 
     async def chat(self, message: str, **kwargs: Any) -> str:
-        self._ensure_model()
+        result = await self._start_chat_stream(message, **kwargs)
         chunks: list[str] = []
-        async for chunk in self.stream(message, **kwargs):
+        async for chunk in result.text_stream:
             chunks.append(chunk)
-        return "".join(chunks)
+        return await self._finalize_chat_stream(result, "".join(chunks))
 
-    async def stream(self, message: str, **kwargs: Any):
+    async def stream(self, message: str, **kwargs: Any) -> AsyncIterator[str]:
+        result = await self._start_chat_stream(message, **kwargs)
+        full_response = ""
+        async for chunk in result.text_stream:
+            full_response += chunk
+            yield chunk
+
+        final_response = await self._finalize_chat_stream(result, full_response)
+        if not full_response.strip():
+            yield final_response
+
+    async def _start_chat_stream(self, message: str, **kwargs: Any):
         self._ensure_model()
         self._last_step_records = []
         self._log(f"chat start: {message}")
         self._messages.append(Message(role="user", content=message))
         await self.update_state(last_user_goal=message)
 
-        result = stream_text(
+        return stream_text(
             model=self.model,
             system=self.system,
             messages=self._messages,
@@ -101,23 +127,16 @@ class ChumpAgent(Agent[dict[str, Any]]):
             **kwargs,
         )
 
-        full_response = ""
-        async for chunk in result.text_stream:
-            full_response += chunk
-            yield chunk
-
+    async def _finalize_chat_stream(self, result: Any, full_response: str) -> str:
         if not full_response.strip():
             full_response = await self._build_empty_response_fallback(result)
             self._log(f"chat produced fallback response: {full_response}")
-            yield full_response
         else:
             self._log(f"chat complete with {len(full_response)} chars")
 
-        self._messages.append(Message(role="assistant", content=full_response))
-        await self.storage.set(
-            f"{self.id}:messages",
-            [message.to_dict() for message in self._messages],
-        )
+        self._append_step_messages(await self._get_result_steps(result), full_response)
+        await self._persist_messages()
+        return full_response
 
     async def _on_step_start(self, event) -> None:
         self._log(f"step {event.step_number} start")
@@ -173,9 +192,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             preview = tool_result["result"].replace("\n", " ")
             if len(preview) > 240:
                 preview = preview[:237] + "..."
-            self._log(
-                f"tool result [{status}] {tool_result['tool_name']}: {preview}"
-            )
+            self._log(f"tool result [{status}] {tool_result['tool_name']}: {preview}")
         await self.emit("status", payload)
 
     def _ensure_model(self) -> None:
@@ -223,11 +240,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
                     f"{last_result.result}"
                 )
 
-        tool_names = [
-            call.name
-            for step in steps
-            for call in step.tool_calls
-        ]
+        tool_names = [call.name for step in steps for call in step.tool_calls]
         if tool_names:
             recent_tools = ", ".join(tool_names[-5:])
             return (

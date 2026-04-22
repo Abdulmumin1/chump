@@ -9,6 +9,8 @@ export type ChumpStatus = {
   workspace_root: string;
   provider: string;
   model: string;
+  max_steps: number;
+  verbose: boolean;
   message_count: number;
   last_user_goal: string | null;
 };
@@ -26,6 +28,15 @@ export type AgentStateResponse = {
   state: ChumpState;
 };
 
+export type StoredMessage = {
+  role: string;
+  content: unknown;
+};
+
+export type AgentMessagesResponse = {
+  messages: StoredMessage[];
+};
+
 export type SseEvent = {
   event: string;
   data: string;
@@ -36,7 +47,9 @@ export type SlashCommand =
   | "help"
   | "status"
   | "state"
+  | "messages"
   | "clear"
   | "agent"
+  | "session"
   | "events"
   | "quit";
