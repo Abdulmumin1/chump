@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "ai-query"
 ]
+keywords = ["ai", "agent", "cli", "backend", "chump"]
 
 [project.scripts]
 chump-server = "chump_server.main:main"
@@ -14,6 +15,9 @@ chump-server = "chump_server.main:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = []
 
 [tool.uv.sources]
 ai-query = { path = "../ai-query", editable = true }

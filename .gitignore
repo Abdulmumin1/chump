@@ -9,6 +9,7 @@ client/node_modules/
 client/dist/
 client/.turbo/
 client/.cache/
+node_modules/
 
 server/.venv/
 server/.pytest_cache/

@@ -1,21 +1,44 @@
 {
   "name": "chump-cli",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",
+  "packageManager": "pnpm@10.14.0",
   "bin": {
     "chump": "./src/chump.ts"
   },
   "scripts": {
     "dev": "node src/chump.ts",
     "start": "node src/chump.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm run typecheck",
+    "bin:install": "pnpm link --global",
+    "bin:uninstall": "pnpm unlink --global chump-cli"
   },
   "engines": {
     "node": ">=22.0.0"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "package.json",
+    "README.md"
+  ],
+  "keywords": [
+    "cli",
+    "ai",
+    "coding-agent",
+    "chump"
+  ],
+  "license": "MIT",
   "devDependencies": {
+    "@types/node": "^24.6.1",
     "typescript": "^5.9.3"
+  },
+  "changeset": {
+    "access": "public"
   }
 }
-
