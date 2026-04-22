@@ -1,0 +1,20 @@
+[project]
+name = "chump-server"
+version = "0.1.0"
+description = "Python backend for the chump coding assistant"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ai-query"
+]
+
+[project.scripts]
+chump-server = "chump_server.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+ai-query = { path = "../ai-query", editable = true }
+

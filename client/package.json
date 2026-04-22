@@ -1,0 +1,21 @@
+{
+  "name": "chump-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "chump": "./src/chump.ts"
+  },
+  "scripts": {
+    "dev": "node src/chump.ts",
+    "start": "node src/chump.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
+
