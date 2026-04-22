@@ -1,7 +1,7 @@
 # chump
 
-`chump` is a local coding assistant scaffold built around a fast TypeScript CLI
-and a Python backend powered by `ai-query`.
+`chump` is a local coding assistant built around a fast TypeScript CLI and a
+Python backend powered by `ai-query`.
 
 ## Workspace Layout
 
@@ -36,6 +36,9 @@ npm run dev
 
 ## Current Status
 
-This is an initial scaffold. The server and CLI are intentionally minimal but
-named and structured for the first implementation pass.
+The project now has the first real integration pass in place:
 
+- the CLI can stream chat responses from the backend
+- `/status`, `/state`, and `/clear` call backend routes
+- `/events on` opens the backend SSE stream for agent events
+- the backend exposes safe filesystem and shell tools to `ChumpAgent`

@@ -21,8 +21,7 @@ export function renderBanner(config: ChumpConfig): string {
     `server: ${config.serverUrl}`,
     `workspace: ${config.workspaceRoot.replace(os.homedir(), "~")}`,
     "",
-    "Scaffold mode: backend and CLI wiring come next.",
-    "Type /help or /quit.",
+    "Live chat, status, state, clear, and event-stream wiring are enabled.",
+    "Type /help for commands or /quit to exit.",
   ].join("\n");
 }
-

@@ -17,4 +17,3 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 ai-query = { path = "../ai-query", editable = true }
-

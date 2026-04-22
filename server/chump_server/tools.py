@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 
 from ai_query import Field, tool
 
@@ -13,18 +12,36 @@ from .safety import SafetyError, WorkspaceGuard, validate_command
 def build_tools(agent, config: ChumpConfig):
     guard = WorkspaceGuard(config.workspace_root)
 
+    def log(message: str) -> None:
+        if config.verbose:
+            print(f"[chump:{agent.id}:tool] {message}", flush=True)
+
     async def emit(event: str, **data: object) -> None:
         await agent.emit(event, data)
 
     async def wrap_tool(name: str, payload: dict[str, object], runner):
+        log(f"start {name} {json.dumps(payload, ensure_ascii=True)}")
         await emit("tool_call", tool=name, payload=payload)
         try:
             result = await runner()
             await emit("tool_result", tool=name, ok=True, preview=_preview(result))
+            log(f"ok {name}: {_preview(result, 240)}")
             return result
         except Exception as exc:
             await emit("tool_result", tool=name, ok=False, preview=str(exc))
+            log(f"error {name}: {exc}")
             raise
+
+    async def note_file(path: str) -> None:
+        files_touched = list(agent.state.get("files_touched", []))
+        if path not in files_touched:
+            files_touched.append(path)
+            await agent.update_state(files_touched=files_touched)
+
+    async def note_command(command: str) -> None:
+        commands_run = list(agent.state.get("commands_run", []))
+        commands_run.append(command)
+        await agent.update_state(commands_run=commands_run[-20:])
 
     @tool(description="List files and directories within the workspace.")
     async def list_files(
@@ -90,6 +107,7 @@ def build_tools(agent, config: ChumpConfig):
             if not file_path.exists():
                 raise SafetyError(f"file does not exist: {path}")
 
+            await note_file(path)
             contents = file_path.read_text(encoding="utf-8")
             lines = contents.splitlines()
             start_index = max(start_line - 1, 0)
@@ -115,6 +133,7 @@ def build_tools(agent, config: ChumpConfig):
             file_path = guard.ensure_text_file(path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
+            await note_file(path)
             return f"Wrote {path} ({len(content)} bytes)"
 
         return await wrap_tool("write_file", {"path": path}, runner)
@@ -141,6 +160,7 @@ def build_tools(agent, config: ChumpConfig):
                 updated = contents.replace(old_text, new_text, 1)
 
             file_path.write_text(updated, encoding="utf-8")
+            await note_file(path)
             return f"Updated {path}"
 
         return await wrap_tool(
@@ -160,6 +180,7 @@ def build_tools(agent, config: ChumpConfig):
             if not directory.exists():
                 raise SafetyError(f"directory does not exist: {cwd}")
 
+            await note_command(command)
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=str(directory),
@@ -200,4 +221,3 @@ def _preview(value: str, limit: int = 160) -> str:
     if len(compact) <= limit:
         return compact
     return compact[: limit - 3] + "..."
-

@@ -18,4 +18,5 @@ uv run chump-server
 - `CHUMP_DATA_DIR`: default `.chump`
 - `CHUMP_PROVIDER`: default `openai`
 - `CHUMP_MODEL`: default `gpt-4.1-mini`
-
+- `CHUMP_MAX_STEPS`: default `64`
+- `CHUMP_VERBOSE`: default `1`

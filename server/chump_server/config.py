@@ -13,6 +13,8 @@ class ChumpConfig:
     data_dir: Path
     provider: str
     model: str
+    max_steps: int
+    verbose: bool
 
 
 def load_config() -> ChumpConfig:
@@ -32,5 +34,6 @@ def load_config() -> ChumpConfig:
         data_dir=data_dir,
         provider=os.environ.get("CHUMP_PROVIDER", "openai"),
         model=os.environ.get("CHUMP_MODEL", "gpt-4.1-mini"),
+        max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
+        verbose=os.environ.get("CHUMP_VERBOSE", "1").lower() not in {"0", "false", "no"},
     )
-

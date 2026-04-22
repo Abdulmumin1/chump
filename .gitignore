@@ -2,6 +2,7 @@
 .env
 .env.*
 .plans/
+.chump/
 ai-query/
 
 client/node_modules/
@@ -21,4 +22,3 @@ server/*.sqlite3
 
 __pycache__/
 *.pyc
-
