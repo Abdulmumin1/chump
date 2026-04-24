@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
+import process, { stdin as input, stdout as output } from "node:process";
 
 import {
   clearMessages,
@@ -12,14 +12,61 @@ import {
   streamChat,
 } from "./api.ts";
 import { parseSlashCommand, printHelp, switchAgent } from "./commands.ts";
-import { createSessionId, loadConfig, renderBanner } from "./config.ts";
-import type { ChumpConfig, SseEvent } from "./types.ts";
+import {
+  createSessionId,
+  loadConfig,
+  renderBanner,
+  resolveWorkspaceRoot,
+} from "./config.ts";
+import {
+  ensureServerTarget,
+  parseCliArgs,
+  printCliUsage,
+  startServerCommand,
+  stopManagedServer,
+} from "./runtime.ts";
+import type { ChumpConfig, ManagedServerMetadata, SseEvent } from "./types.ts";
 
 async function main(): Promise<void> {
-  let config = loadConfig();
+  const options = parseCliArgs(process.argv.slice(2));
+  const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+
+  if (options.mode === "help") {
+    printCliUsage();
+    return;
+  }
+
+  if (options.mode === "stop") {
+    console.log(await stopManagedServer(workspaceRoot));
+    return;
+  }
+
+  if (options.mode === "server") {
+    const result = await startServerCommand(workspaceRoot);
+    if (!result.started) {
+      console.log(`server already running at ${result.metadata.url}`);
+    }
+    return;
+  }
+
+  const target = await ensureServerTarget(workspaceRoot, options);
+  let config = loadConfig({
+    serverUrl: target.serverUrl,
+    serverSource: target.serverSource,
+  });
+
+  if (options.mode === "status") {
+    const status = await getStatus(config);
+    renderServerStatus(status, target.metadata);
+    return;
+  }
+
   const rl = readline.createInterface({ input, output });
   let closeEventStream: (() => void) | null = null;
 
+  if (target.note) {
+    console.log(`[server] ${target.note}`);
+  }
   console.log(renderBanner(config));
   closeEventStream = await startEventStream(config);
 
@@ -281,4 +328,19 @@ function formatStoredPart(part: unknown): string {
   }
 
   return JSON.stringify(value, null, 2);
+}
+
+function renderServerStatus(
+  status: unknown,
+  metadata: ManagedServerMetadata | null,
+): void {
+  if (!metadata) {
+    console.log(JSON.stringify(status, null, 2));
+    return;
+  }
+
+  console.log(JSON.stringify({
+    server: metadata,
+    agent: status,
+  }, null, 2));
 }

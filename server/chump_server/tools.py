@@ -65,6 +65,32 @@ def build_tools(agent, config: ChumpConfig):
 
         return await wrap_tool("list_files", {"path": path}, runner)
 
+    @tool(description="Find files or directories by name or path fragment within the workspace.")
+    async def find_files(
+        query: str = Field(description="Filename or path fragment to locate"),
+        path: str = Field(description="Directory path relative to workspace root", default="."),
+    ) -> str:
+        async def runner() -> str:
+            directory = guard.ensure_directory(path)
+            if not directory.exists():
+                raise SafetyError(f"directory does not exist: {path}")
+
+            needle = query.lower()
+            matches: list[str] = []
+            for candidate in directory.rglob("*"):
+                relative_path = str(candidate.relative_to(config.workspace_root))
+                if needle in candidate.name.lower() or needle in relative_path.lower():
+                    matches.append(relative_path)
+                if len(matches) >= 200:
+                    break
+
+            if not matches:
+                return "No matching files found."
+
+            return "\n".join(matches)
+
+        return await wrap_tool("find_files", {"query": query, "path": path}, runner)
+
     @tool(description="Search for text within workspace files using ripgrep when available.")
     async def search_files(
         query: str = Field(description="Literal or regex text to search for"),
@@ -99,8 +125,8 @@ def build_tools(agent, config: ChumpConfig):
     @tool(description="Read a UTF-8 text file from the workspace.")
     async def read_file(
         path: str = Field(description="File path relative to workspace root"),
-        start_line: int = Field(description="First line number to read", default=1),
-        end_line: int = Field(description="Last line number to read", default=200),
+        offset: int = Field(description="Zero-based line offset to start reading from", default=0),
+        limit: int = Field(description="Maximum number of lines to read", default=200),
     ) -> str:
         async def runner() -> str:
             file_path = guard.ensure_text_file(path)
@@ -110,8 +136,9 @@ def build_tools(agent, config: ChumpConfig):
             await note_file(path)
             contents = file_path.read_text(encoding="utf-8")
             lines = contents.splitlines()
-            start_index = max(start_line - 1, 0)
-            end_index = max(end_line, start_line)
+            start_index = max(offset, 0)
+            line_count = max(limit, 1)
+            end_index = start_index + line_count
             numbered = [
                 f"{index + 1}: {line}"
                 for index, line in enumerate(lines[start_index:end_index], start=start_index)
@@ -120,7 +147,7 @@ def build_tools(agent, config: ChumpConfig):
 
         return await wrap_tool(
             "read_file",
-            {"path": path, "start_line": start_line, "end_line": end_line},
+            {"path": path, "offset": offset, "limit": limit},
             runner,
         )
 
@@ -202,6 +229,7 @@ def build_tools(agent, config: ChumpConfig):
 
     return {
         "list_files": list_files,
+        "find_files": find_files,
         "search_files": search_files,
         "read_file": read_file,
         "write_file": write_file,

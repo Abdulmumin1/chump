@@ -1,7 +1,26 @@
 export type ChumpConfig = {
   agentId: string;
   serverUrl: string;
+  serverSource: "managed" | "direct";
   workspaceRoot: string;
+};
+
+export type CliMode = "interactive" | "client" | "server" | "status" | "stop" | "help";
+
+export type CliOptions = {
+  mode: CliMode;
+  connectUrl: string | null;
+  autoStartServer: boolean;
+};
+
+export type ManagedServerMetadata = {
+  url: string;
+  port: number;
+  pid: number | null;
+  workspace_root: string;
+  data_dir: string;
+  log_path: string;
+  started_at: string;
 };
 
 export type ChumpStatus = {
