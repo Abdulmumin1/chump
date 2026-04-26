@@ -5,7 +5,9 @@ import process, { stdin as input, stdout as output } from "node:process";
 
 import {
   clearMessages,
+  getHealth,
   getMessages,
+  getSessions,
   getState,
   getStatus,
   openEventStream,
@@ -56,8 +58,11 @@ async function main(): Promise<void> {
   });
 
   if (options.mode === "status") {
-    const status = await getStatus(config);
-    renderServerStatus(status, target.metadata);
+    const [health, status] = await Promise.all([
+      getHealth(config),
+      getStatus(config),
+    ]);
+    renderServerStatus(health, status, target.metadata);
     return;
   }
 
@@ -90,8 +95,11 @@ async function main(): Promise<void> {
             printHelp();
             break;
           case "status": {
-            const status = await getStatus(config);
-            console.log(JSON.stringify(status, null, 2));
+            const [health, status] = await Promise.all([
+              getHealth(config),
+              getStatus(config),
+            ]);
+            renderServerStatus(health, status, target.metadata);
             break;
           }
           case "state": {
@@ -102,6 +110,11 @@ async function main(): Promise<void> {
           case "messages": {
             const response = await getMessages(config);
             renderStoredMessages(response.messages);
+            break;
+          }
+          case "sessions": {
+            const response = await getSessions(config);
+            renderSessions(response.sessions);
             break;
           }
           case "clear": {
@@ -211,15 +224,19 @@ function logEvent(event: SseEvent): void {
   const payload = parseEventPayload(event.data);
 
   if (event.event === "tool_call" && payload) {
-    const toolName = typeof payload.tool === "string" ? payload.tool : "tool";
-    const args = payload.payload ? compactJson(payload.payload) : "";
-    console.log(`\n[tool:start] ${toolName}${args ? ` ${args}` : ""}`);
+    const toolName = readToolName(payload);
+    const args = payload.args ?? payload.payload;
+    const renderedArgs = args ? compactJson(args) : "";
+    console.log(`\n[tool:start] ${toolName}${renderedArgs ? ` ${renderedArgs}` : ""}`);
     return;
   }
 
   if (event.event === "tool_result" && payload) {
-    const toolName = typeof payload.tool === "string" ? payload.tool : "tool";
-    const ok = payload.ok === true ? "ok" : "error";
+    const toolName = readToolName(payload);
+    const ok =
+      typeof payload.status === "string"
+        ? payload.status
+        : payload.ok === true ? "ok" : "error";
     const preview =
       typeof payload.preview === "string" ? payload.preview : compactJson(payload);
     console.log(`\n[tool:${ok}] ${toolName} ${preview}`);
@@ -275,6 +292,16 @@ function compactJson(value: unknown): string {
   return `${encoded.slice(0, 117)}...`;
 }
 
+function readToolName(payload: Record<string, unknown>): string {
+  if (typeof payload.name === "string") {
+    return payload.name;
+  }
+  if (typeof payload.tool === "string") {
+    return payload.tool;
+  }
+  return "tool";
+}
+
 function renderStoredMessages(
   messages: Array<{ role: string; content: unknown }>,
 ): void {
@@ -286,6 +313,29 @@ function renderStoredMessages(
   for (const [index, message] of messages.entries()) {
     console.log(`[${index + 1}] ${message.role}`);
     console.log(formatStoredContent(message.content));
+  }
+}
+
+function renderSessions(
+  sessions: Array<{
+    id: string;
+    active: boolean;
+    message_count: number;
+    event_count: number;
+    last_user_goal: string | null;
+  }>,
+): void {
+  if (sessions.length === 0) {
+    console.log("(no stored sessions)");
+    return;
+  }
+
+  for (const session of sessions) {
+    const active = session.active ? "active" : "stored";
+    const goal = session.last_user_goal ? ` ${session.last_user_goal}` : "";
+    console.log(
+      `${session.id} ${active} messages=${session.message_count} events=${session.event_count}${goal}`,
+    );
   }
 }
 
@@ -331,16 +381,21 @@ function formatStoredPart(part: unknown): string {
 }
 
 function renderServerStatus(
+  health: unknown,
   status: unknown,
   metadata: ManagedServerMetadata | null,
 ): void {
   if (!metadata) {
-    console.log(JSON.stringify(status, null, 2));
+    console.log(JSON.stringify({
+      health,
+      agent: status,
+    }, null, 2));
     return;
   }
 
   console.log(JSON.stringify({
     server: metadata,
+    health,
     agent: status,
   }, null, 2));
 }

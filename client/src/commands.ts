@@ -16,6 +16,7 @@ export function parseSlashCommand(input: string): {
     case "status":
     case "state":
     case "messages":
+    case "sessions":
     case "clear":
     case "agent":
     case "session":
@@ -32,6 +33,7 @@ export function printHelp(): void {
   console.log("/status");
   console.log("/state");
   console.log("/messages");
+  console.log("/sessions");
   console.log("/clear");
   console.log("/session");
   console.log("/session new");

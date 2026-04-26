@@ -34,6 +34,20 @@ export type ChumpStatus = {
   last_user_goal: string | null;
 };
 
+export type ChumpHealth = {
+  status: string;
+  version: string;
+  ai_query_version: string;
+  workspace_root: string;
+  data_dir: string;
+  provider: string;
+  model: string;
+  max_steps: number;
+  verbose: boolean;
+  active_sessions: number;
+  uptime_seconds: number;
+};
+
 export type ChumpState = {
   workspace_root: string;
   last_user_goal: string | null;
@@ -56,6 +70,20 @@ export type AgentMessagesResponse = {
   messages: StoredMessage[];
 };
 
+export type SessionSummary = {
+  id: string;
+  active: boolean;
+  message_count: number;
+  event_count: number;
+  last_user_goal: string | null;
+  last_activity: number | null;
+  connections: number;
+};
+
+export type SessionsResponse = {
+  sessions: SessionSummary[];
+};
+
 export type SseEvent = {
   event: string;
   data: string;
@@ -67,6 +95,7 @@ export type SlashCommand =
   | "status"
   | "state"
   | "messages"
+  | "sessions"
   | "clear"
   | "agent"
   | "session"

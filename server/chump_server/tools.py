@@ -21,14 +21,31 @@ def build_tools(agent, config: ChumpConfig):
 
     async def wrap_tool(name: str, payload: dict[str, object], runner):
         log(f"start {name} {json.dumps(payload, ensure_ascii=True)}")
-        await emit("tool_call", tool=name, payload=payload)
+        await emit("tool_call", tool=name, name=name, payload=payload, args=payload)
         try:
             result = await runner()
-            await emit("tool_result", tool=name, ok=True, preview=_preview(result))
+            await emit(
+                "tool_result",
+                tool=name,
+                name=name,
+                ok=True,
+                status="ok",
+                preview=_preview(result),
+                metadata=_result_metadata(result),
+            )
             log(f"ok {name}: {_preview(result, 240)}")
             return result
         except Exception as exc:
-            await emit("tool_result", tool=name, ok=False, preview=str(exc))
+            await emit(
+                "tool_result",
+                tool=name,
+                name=name,
+                ok=False,
+                status="error",
+                error=str(exc),
+                preview=str(exc),
+                metadata={"chars": len(str(exc)), "truncated": False},
+            )
             log(f"error {name}: {exc}")
             raise
 
@@ -249,3 +266,12 @@ def _preview(value: str, limit: int = 160) -> str:
     if len(compact) <= limit:
         return compact
     return compact[: limit - 3] + "..."
+
+
+def _result_metadata(value: str, limit: int = 160) -> dict[str, object]:
+    compact = " ".join(value.split())
+    return {
+        "chars": len(value),
+        "preview_chars": min(len(compact), limit),
+        "truncated": len(compact) > limit,
+    }

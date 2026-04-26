@@ -448,11 +448,11 @@ async function waitForServerExit(url: string, timeoutMs: number): Promise<boolea
 
 async function isServerHealthy(url: string): Promise<boolean> {
   try {
-    const response = await fetch(url, {
+    const response = await fetch(`${url}/health`, {
       method: "GET",
       signal: AbortSignal.timeout(1_000),
     });
-    return response.status < 500;
+    return response.ok;
   } catch {
     return false;
   }

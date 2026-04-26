@@ -2,7 +2,9 @@ import type {
   AgentMessagesResponse,
   AgentStateResponse,
   ChumpConfig,
+  ChumpHealth,
   ChumpStatus,
+  SessionsResponse,
   SseEvent,
 } from "./types.ts";
 
@@ -57,6 +59,24 @@ export async function streamChat(
 
 export async function getStatus(config: ChumpConfig): Promise<ChumpStatus> {
   return await invokeAction<ChumpStatus>(config, "status");
+}
+
+export async function getHealth(config: ChumpConfig): Promise<ChumpHealth> {
+  const response = await fetch(`${config.serverUrl}/health`);
+  if (!response.ok) {
+    throw new Error(await readErrorResponse(response));
+  }
+  return (await response.json()) as ChumpHealth;
+}
+
+export async function getSessions(
+  config: ChumpConfig,
+): Promise<SessionsResponse> {
+  const response = await fetch(`${config.serverUrl}/sessions`);
+  if (!response.ok) {
+    throw new Error(await readErrorResponse(response));
+  }
+  return (await response.json()) as SessionsResponse;
 }
 
 export async function clearMessages(

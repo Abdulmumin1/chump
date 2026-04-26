@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.14.0",
   "scripts": {
     "typecheck": "pnpm --filter chump-cli run typecheck",
+    "smoke": "pnpm --filter chump-cli run smoke",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish"
@@ -12,4 +13,3 @@
     "@changesets/cli": "^2.29.7"
   }
 }
-
