@@ -9,6 +9,9 @@ const palette = {
   foregroundStrong: "#d0d0d0",
   muted: "#8a8a8a",
   danger: "#ff6b6b",
+  dangerMuted: "#b56b63",
+  successMuted: "#8fad33",
+  editHeader: "#c5c5c5",
 };
 
 function ansi(code: string, value: string): string {
@@ -25,6 +28,15 @@ function fg(hex: string, value: string): string {
     Number.parseInt(hex.slice(5, 7), 16),
   ];
   return ansi(`\x1b[38;2;${red};${green};${blue}m`, value);
+}
+
+function bg(hex: string, value: string): string {
+  const [red, green, blue] = [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ];
+  return ansi(`\x1b[48;2;${red};${green};${blue}m`, value);
 }
 
 function bold(value: string): string {
@@ -181,6 +193,72 @@ export function renderToolDone(name: string, args: string): string {
   return `${success("·")} ${accent(name)}${suffix}`;
 }
 
+export type FileEditDiff = {
+  path: string;
+  added: number;
+  removed: number;
+  changes?: FileEditChange[];
+  lines?: string[];
+  truncated: boolean;
+};
+
+export type FileEditChange = {
+  type: "add" | "remove";
+  oldLine: number | null;
+  newLine: number | null;
+  text: string;
+};
+
+export function renderFileEditDiff(diff: FileEditDiff): string {
+  const header = `${muted("•")} ${bold(fg(palette.editHeader, "Edited"))} ${foreground(diff.path)} ${success(`(+${diff.added}`)} ${danger(`-${diff.removed})`)}`;
+  const lines = diff.changes
+    ? diff.changes.map((change) => renderDiffChange(change))
+    : (diff.lines ?? [])
+      .filter((line) => line.startsWith("+") || line.startsWith("-"))
+      .map((line) => renderDiffLine(line));
+  if (diff.truncated) {
+    lines.push(muted("... diff truncated"));
+  }
+  return [header, ...lines].join("\n");
+}
+
+function renderDiffChange(change: FileEditChange): string {
+  const lineNumber = change.type === "add" ? change.newLine : change.oldLine;
+  const number = `${lineNumber ?? ""}`.padStart(4, " ");
+  const content = change.text.length > 0 ? change.text : " ";
+  if (change.type === "add") {
+    return bg(
+      "#26330f",
+      `${muted(number)} ${success("+ ")}${fg(palette.successMuted, padDiffContent(content))}`,
+    );
+  }
+  return bg(
+    "#3a1f1c",
+    `${muted(number)} ${danger("- ")}${fg(palette.dangerMuted, padDiffContent(content))}`,
+  );
+}
+
+function renderDiffLine(line: string): string {
+  const marker = line.slice(0, 1);
+  const content = line.slice(1);
+  const padded = content.length > 0 ? content : " ";
+  if (line.startsWith("@@")) {
+    return muted(`    ${line}`);
+  }
+  if (line.startsWith("+")) {
+    return bg("#26330f", `${success(" + ")}${fg(palette.successMuted, padDiffContent(padded))}`);
+  }
+  if (line.startsWith("-")) {
+    return bg("#3a1f1c", `${danger(" - ")}${fg(palette.dangerMuted, padDiffContent(padded))}`);
+  }
+  return muted(`   ${marker === " " ? " " : ""}${content}`);
+}
+
+function padDiffContent(value: string): string {
+  const minWidth = 72;
+  return value.length >= minWidth ? value : value.padEnd(minWidth, " ");
+}
+
 export function renderCommand(command: string): string {
   return `${accent("$")} ${foreground(command)}`;
 }
@@ -210,6 +288,10 @@ export function renderError(message: string): string {
 
 export function renderMuted(message: string): string {
   return muted(message);
+}
+
+export function renderAccent(message: string): string {
+  return accent(message);
 }
 
 export function renderFooterStatus(parts: string[]): string {

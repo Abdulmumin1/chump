@@ -5,6 +5,7 @@ import {
   renderCommand,
   renderCommandOutput,
   renderError,
+  renderFileEditDiff,
   renderToolDone,
   renderToolResult,
 } from "./render.ts";
@@ -15,6 +16,8 @@ const pendingTools: Array<{
   name: string;
   args: string;
 }> = [];
+
+let activitySinceReset = false;
 
 export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {
   try {
@@ -37,10 +40,12 @@ function logEvent(event: SseEvent): void {
     const renderedArgs = formatToolArgs(toolName, payload.args ?? payload.payload);
     if (toolName === "bash") {
       writeOutputLine(`\n${renderCommand(renderedArgs)}`);
+      activitySinceReset = true;
       return;
     }
     if (toolName === "read_file") {
       writeOutputLine(`\n${renderToolDone(toolName, renderedArgs)}`);
+      activitySinceReset = true;
       pendingTools.push({ name: toolName, args: renderedArgs });
       return;
     }
@@ -58,6 +63,15 @@ function logEvent(event: SseEvent): void {
       typeof payload.preview === "string" ? payload.preview : compactJson(payload);
     if (toolName === "bash") {
       writeOutputLine(renderCommandOutput(ok, truncatePreview(preview, 500)));
+      activitySinceReset = true;
+      return;
+    }
+
+    const diff = readFileEditDiff(payload);
+    if (ok === "ok" && diff && (toolName === "write_file" || toolName === "replace_in_file")) {
+      takePendingTool(toolName);
+      writeOutputLine(`\n${renderFileEditDiff(diff)}`);
+      activitySinceReset = true;
       return;
     }
 
@@ -68,11 +82,19 @@ function logEvent(event: SseEvent): void {
 
     if (ok === "ok" && pending) {
       writeOutputLine(`\n${renderToolDone(toolName, pending.args)}`);
+      activitySinceReset = true;
       return;
     }
 
     writeOutputLine(`\n${renderToolResult(ok, toolName, preview)}`);
+    activitySinceReset = true;
   }
+}
+
+export function consumeToolActivity(): boolean {
+  const hadActivity = activitySinceReset;
+  activitySinceReset = false;
+  return hadActivity;
 }
 
 function takePendingTool(name: string): {
@@ -118,6 +140,75 @@ function readToolName(payload: Record<string, unknown>): string {
     return payload.tool;
   }
   return "tool";
+}
+
+function readFileEditDiff(payload: Record<string, unknown>): {
+  path: string;
+  added: number;
+  removed: number;
+  changes?: Array<{
+    type: "add" | "remove";
+    oldLine: number | null;
+    newLine: number | null;
+    text: string;
+  }>;
+  lines?: string[];
+  truncated: boolean;
+} | null {
+  const metadata = payload.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const diff = (metadata as Record<string, unknown>).diff;
+  if (!diff || typeof diff !== "object") {
+    return null;
+  }
+  const value = diff as Record<string, unknown>;
+  if (
+    typeof value.path !== "string" ||
+    typeof value.added !== "number" ||
+    typeof value.removed !== "number"
+  ) {
+    return null;
+  }
+  const changes = Array.isArray(value.changes)
+    ? value.changes.map(readFileEditChange).filter((change) => change !== null)
+    : undefined;
+  const lines = Array.isArray(value.lines)
+    ? value.lines.filter((line): line is string => typeof line === "string")
+    : undefined;
+  return {
+    path: value.path,
+    added: value.added,
+    removed: value.removed,
+    changes,
+    lines,
+    truncated: value.truncated === true,
+  };
+}
+
+function readFileEditChange(value: unknown): {
+  type: "add" | "remove";
+  oldLine: number | null;
+  newLine: number | null;
+  text: string;
+} | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const change = value as Record<string, unknown>;
+  if (
+    (change.type !== "add" && change.type !== "remove") ||
+    typeof change.text !== "string"
+  ) {
+    return null;
+  }
+  return {
+    type: change.type,
+    oldLine: typeof change.old_line === "number" ? change.old_line : null,
+    newLine: typeof change.new_line === "number" ? change.new_line : null,
+    text: change.text,
+  };
 }
 
 function formatToolArgs(toolName: string, value: unknown): string {

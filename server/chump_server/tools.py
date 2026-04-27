@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import hashlib
 import json
 from pathlib import Path
+from typing import Literal
 
 from ai_query import Field, tool
 
@@ -26,6 +28,11 @@ def build_tools(agent, config: ChumpConfig):
         await emit("tool_call", tool=name, name=name, payload=payload, args=payload)
         try:
             result = await runner()
+            if isinstance(result, tuple):
+                result, extra_metadata = result
+                metadata = {**_result_metadata(result), **extra_metadata}
+            else:
+                metadata = _result_metadata(result)
             await emit(
                 "tool_result",
                 tool=name,
@@ -33,7 +40,7 @@ def build_tools(agent, config: ChumpConfig):
                 ok=True,
                 status="ok",
                 preview=_preview(result),
-                metadata=_result_metadata(result),
+                metadata=metadata,
             )
             log(f"ok {name}: {_preview(result, 240)}")
             return result
@@ -128,10 +135,14 @@ def build_tools(agent, config: ChumpConfig):
         async def runner() -> str:
             file_path = guard.ensure_text_file(path)
             require_fresh_read(path, file_path)
+            before = file_path.read_text(encoding="utf-8") if file_path.exists() else ""
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             await note_file(path)
-            return f"Wrote {path} ({len(content)} bytes)"
+            return (
+                f"Wrote {path} ({len(content)} bytes)",
+                {"diff": _diff_metadata(path, before, content)},
+            )
 
         return await wrap_tool("write_file", {"path": path}, runner)
 
@@ -159,7 +170,10 @@ def build_tools(agent, config: ChumpConfig):
 
             file_path.write_text(updated, encoding="utf-8")
             await note_file(path)
-            return f"Updated {path}"
+            return (
+                f"Updated {path}",
+                {"diff": _diff_metadata(path, contents, updated)},
+            )
 
         return await wrap_tool(
             "replace_in_file",
@@ -186,10 +200,15 @@ def build_tools(agent, config: ChumpConfig):
                 stderr=asyncio.subprocess.PIPE,
             )
             try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20)
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=config.command_timeout,
+                )
             except asyncio.TimeoutError:
                 process.kill()
-                raise RuntimeError("command timed out after 20 seconds")
+                raise RuntimeError(
+                    f"command timed out after {config.command_timeout} seconds"
+                )
 
             output = _truncate((stdout + stderr).decode().strip())
             if process.returncode != 0:
@@ -225,6 +244,58 @@ def _result_metadata(value: str, limit: int = 160) -> dict[str, object]:
         "chars": len(value),
         "preview_chars": min(len(compact), limit),
         "truncated": len(compact) > limit,
+    }
+
+
+def _diff_metadata(path: str, before: str, after: str, limit: int = 80) -> dict[str, object]:
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    changes = _diff_changes(before_lines, after_lines)
+    added = sum(1 for change in changes if change["type"] == "add")
+    removed = sum(1 for change in changes if change["type"] == "remove")
+    truncated = len(changes) > limit
+    return {
+        "path": path,
+        "added": added,
+        "removed": removed,
+        "changes": changes[:limit],
+        "truncated": truncated,
+    }
+
+
+def _diff_changes(
+    before_lines: list[str],
+    after_lines: list[str],
+) -> list[dict[str, int | str | None]]:
+    changes: list[dict[str, int | str | None]] = []
+    matcher = difflib.SequenceMatcher(a=before_lines, b=after_lines)
+    for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag in ("replace", "delete"):
+            changes.extend(
+                _line_change("remove", index + 1, None, before_lines[index])
+                for index in range(old_start, old_end)
+            )
+        if tag in ("replace", "insert"):
+            changes.extend(
+                _line_change("add", None, index + 1, after_lines[index])
+                for index in range(new_start, new_end)
+            )
+    return changes
+
+
+def _line_change(
+    kind: Literal["add", "remove"],
+    old_line: int | None,
+    new_line: int | None,
+    text: str,
+) -> dict[str, int | str | None]:
+    return {
+        "type": kind,
+        "old_line": old_line,
+        "new_line": new_line,
+        "text": text,
     }
 
 

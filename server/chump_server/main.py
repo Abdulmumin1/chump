@@ -34,6 +34,8 @@ class ChumpServer(AgentServer):
             "provider": self.chump_config.provider,
             "model": self.chump_config.model,
             "max_steps": self.chump_config.max_steps,
+            "command_timeout": self.chump_config.command_timeout,
+            "reasoning": self.chump_config.reasoning,
             "verbose": self.chump_config.verbose,
             "active_sessions": len(self._agents),
             "uptime_seconds": round(time.time() - self.started_at, 3),
@@ -97,6 +99,8 @@ def main() -> None:
             f"provider={config.provider} "
             f"model={config.model} "
             f"max_steps={config.max_steps} "
+            f"command_timeout={config.command_timeout} "
+            f"reasoning={config.reasoning} "
             f"workspace={config.workspace_root}",
             flush=True,
         )

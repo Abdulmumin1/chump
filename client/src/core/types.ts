@@ -29,6 +29,8 @@ export type ChumpStatus = {
   provider: string;
   model: string;
   max_steps: number;
+  command_timeout: number;
+  reasoning: Record<string, unknown> | null;
   verbose: boolean;
   message_count: number;
   last_user_goal: string | null;
@@ -43,6 +45,8 @@ export type ChumpHealth = {
   provider: string;
   model: string;
   max_steps: number;
+  command_timeout: number;
+  reasoning: Record<string, unknown> | null;
   verbose: boolean;
   active_sessions: number;
   uptime_seconds: number;

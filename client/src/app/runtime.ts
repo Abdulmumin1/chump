@@ -93,11 +93,25 @@ export async function ensureServerTarget(
 
   const metadata = await readManagedServerMetadata(workspaceRoot);
   if (metadata && await isServerHealthy(metadata.url)) {
+    if (!(await managedServerMatchesEnvironment(metadata.url))) {
+      await stopManagedServer(workspaceRoot);
+    } else {
+      return {
+        serverUrl: metadata.url,
+        serverSource: "managed",
+        note: null,
+        metadata,
+      };
+    }
+  }
+
+  const refreshedMetadata = await readManagedServerMetadata(workspaceRoot);
+  if (refreshedMetadata && await isServerHealthy(refreshedMetadata.url)) {
     return {
-      serverUrl: metadata.url,
+      serverUrl: refreshedMetadata.url,
       serverSource: "managed",
       note: null,
-      metadata,
+      metadata: refreshedMetadata,
     };
   }
 
@@ -176,14 +190,26 @@ async function ensureManagedServer(workspaceRoot: string): Promise<{
   metadata: ManagedServerMetadata;
 }> {
   const current = await readManagedServerMetadata(workspaceRoot);
-  if (current && await isServerHealthy(current.url)) {
+  if (
+    current &&
+    await isServerHealthy(current.url) &&
+    await managedServerMatchesEnvironment(current.url)
+  ) {
     return { started: false, metadata: current };
   }
 
   return await withWorkspaceLock(workspaceRoot, async () => {
     const existing = await readManagedServerMetadata(workspaceRoot);
-    if (existing && await isServerHealthy(existing.url)) {
+    if (
+      existing &&
+      await isServerHealthy(existing.url) &&
+      await managedServerMatchesEnvironment(existing.url)
+    ) {
       return { started: false, metadata: existing };
+    }
+
+    if (existing && await isServerHealthy(existing.url)) {
+      await stopManagedServer(workspaceRoot);
     }
 
     const metadata = await spawnManagedServer(workspaceRoot);
@@ -479,6 +505,68 @@ async function assertServerHealthy(url: string): Promise<void> {
     return;
   }
   throw new Error(`could not reach server at ${url}`);
+}
+
+async function readServerHealth(url: string): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetch(`${url}/health`, {
+      method: "GET",
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json() as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function managedServerMatchesEnvironment(url: string): Promise<boolean> {
+  const health = await readServerHealth(url);
+  if (!health) {
+    return false;
+  }
+
+  return [
+    matchesEnvString("CHUMP_PROVIDER", health.provider),
+    matchesEnvString("CHUMP_MODEL", health.model),
+    matchesEnvNumber("CHUMP_MAX_STEPS", health.max_steps),
+    matchesEnvNumber("CHUMP_COMMAND_TIMEOUT", health.command_timeout),
+    matchesReasoningEnv(health.reasoning),
+  ].every(Boolean);
+}
+
+function matchesEnvString(name: string, actual: unknown): boolean {
+  const expected = process.env[name];
+  return expected === undefined || actual === expected;
+}
+
+function matchesEnvNumber(name: string, actual: unknown): boolean {
+  const rawExpected = process.env[name];
+  if (rawExpected === undefined) {
+    return true;
+  }
+  return actual === Number(rawExpected);
+}
+
+function matchesReasoningEnv(actual: unknown): boolean {
+  const expectedEffort = process.env.CHUMP_REASONING_EFFORT;
+  const expectedBudget = process.env.CHUMP_REASONING_BUDGET;
+  if (expectedEffort === undefined && expectedBudget === undefined) {
+    return true;
+  }
+  if (!actual || typeof actual !== "object") {
+    return false;
+  }
+  const reasoning = actual as Record<string, unknown>;
+  if (expectedEffort !== undefined && reasoning.effort !== expectedEffort) {
+    return false;
+  }
+  if (expectedBudget !== undefined && reasoning.budget !== Number(expectedBudget)) {
+    return false;
+  }
+  return true;
 }
 
 function buildServerUrl(port: number): string {

@@ -165,6 +165,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             },
             tools={},
             stop_when=step_count_is(config.max_steps),
+            reasoning=config.reasoning,
         )
         self._config = config
         self.tools = build_tools(self, config)
@@ -178,6 +179,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "provider": self._config.provider,
             "model": self._config.model,
             "max_steps": self._config.max_steps,
+            "command_timeout": self._config.command_timeout,
+            "reasoning": self._config.reasoning,
             "verbose": self._config.verbose,
             "message_count": len(self.messages),
             "last_user_goal": self.state.get("last_user_goal"),
@@ -221,6 +224,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
             tools=self.tools if self.tools else None,
             stop_when=self.stop_when,
             provider_options=self.provider_options,
+            reasoning=self.reasoning,
+            on_reasoning_event=self._handle_reasoning_event,
             on_step_start=self._on_step_start,
             on_step_finish=self._on_step_finish,
             **kwargs,

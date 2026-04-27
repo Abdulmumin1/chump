@@ -1,6 +1,10 @@
 import { renderMuted } from "./render.ts";
 import { writeOutputLine } from "./terminal.ts";
-import type { ManagedServerMetadata } from "../core/types.ts";
+import type {
+  ChumpHealth,
+  ChumpStatus,
+  ManagedServerMetadata,
+} from "../core/types.ts";
 
 export function renderStoredMessages(
   messages: Array<{ role: string; content: unknown }>,
@@ -40,8 +44,8 @@ export function renderSessions(
 }
 
 export function renderServerStatus(
-  health: unknown,
-  status: unknown,
+  health: ChumpHealth,
+  status: ChumpStatus,
   metadata: ManagedServerMetadata | null,
 ): void {
   if (!metadata) {

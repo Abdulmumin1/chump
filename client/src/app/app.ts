@@ -21,7 +21,7 @@ import {
   renderBanner,
   resolveWorkspaceRoot,
 } from "./config.ts";
-import { startEventStream } from "../ui/events.ts";
+import { consumeToolActivity, startEventStream } from "../ui/events.ts";
 import { createPromptReader } from "../ui/input.ts";
 import {
   renderServerStatus,
@@ -150,12 +150,19 @@ async function runChatTurn(
   const spinner = createSpinner(setStatus);
   spinner.start();
   let receivedChunk = false;
+  let separatedFromTools = false;
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
 
   await streamChat(config, line, {
     onChunk: (chunk) => {
       spinner.stop();
       receivedChunk = true;
+      if (!separatedFromTools) {
+        if (consumeToolActivity()) {
+          writeOutput("\n");
+        }
+        separatedFromTools = true;
+      }
       markdownStream ??= createMarkdownStream();
       markdownStream.write(chunk);
     },
@@ -350,10 +357,25 @@ async function handleSlashCommand(
   return { config, closeEventStream };
 }
 
-function renderFooter(config: ChumpConfig, health: { provider: string; model: string }): string {
+function renderFooter(
+  config: ChumpConfig,
+  health: { provider: string; model: string; reasoning: Record<string, unknown> | null },
+): string {
   return renderFooterStatus([
     `${health.provider}/${health.model}`,
+    renderReasoning(health.reasoning),
     config.serverSource,
     config.agentId,
   ]);
+}
+
+function renderReasoning(reasoning: Record<string, unknown> | null): string {
+  if (!reasoning) {
+    return "";
+  }
+  const parts = [
+    typeof reasoning.effort === "string" ? reasoning.effort : null,
+    typeof reasoning.budget === "number" ? `${reasoning.budget} tok` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? `thinking ${parts.join(" ")}` : "thinking";
 }
