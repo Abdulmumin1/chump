@@ -6,40 +6,6 @@
 `chump` is a local coding assistant built around a fast TypeScript CLI and a Python backend powered by `ai-query`.
 It starts or reuses one local server per workspace, keeps session history around, streams tool activity live, and helps with software tasks without pretending it definitely knows what your build system is doing today.
 
-## Why this exists
-
-Because sometimes you want an AI coding assistant that:
-
-- lives in your terminal
-- stays pointed at your current repo
-- keeps state between sessions
-- shows you what tools it is using
-- does not immediately try to become a browser tab empire
-
-## What it does
-
-- Opens an interactive CLI chat for the current workspace
-- Starts or reuses a managed local server for that repo
-- Persists sessions and event history in `.chump/chump.sqlite3`
-- Streams tool activity so you can watch it investigate your codebase in real time
-- Exposes health, status, messages, state, and session endpoints for debugging
-- Keeps its hands inside the workspace unless explicitly configured otherwise
-
-## Requirements
-
-- Node.js `>=22`
-- `pnpm` `>=10`
-- Python `>=3.12`
-- `uv`
-- API credentials for your model provider
-
-By default, the backend uses:
-
-- `CHUMP_PROVIDER=openai`
-- `CHUMP_MODEL=gpt-5.4`
-
-You can switch providers with environment variables if you prefer a different robot brain.
-
 ## Quick start
 
 ```bash
