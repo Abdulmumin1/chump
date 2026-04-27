@@ -208,12 +208,12 @@ function createInteractivePromptReader(): {
       return;
     }
 
-    if (isCtrlEnter(sequence)) {
+    if (isInsertNewlineSequence(sequence)) {
       insertText("\n");
       return;
     }
 
-    if (sequence === "\r" || sequence === "\n") {
+    if (sequence === "\r") {
       cursor = value.length;
       finish(value);
       return;
@@ -339,13 +339,26 @@ function createInteractivePromptReader(): {
   };
 }
 
-function isCtrlEnter(sequence: string): boolean {
+function isInsertNewlineSequence(sequence: string): boolean {
+  if (sequence === "\n" || sequence === "\x1b\r" || sequence === "\x1b\n") {
+    return true;
+  }
+
+  if (
+    [
+      "\x1b[13;5u",
+      "\x1b[10;5u",
+      "\x1b[27;5;13~",
+      "\x1b[27;5;10~",
+    ].includes(sequence)
+  ) {
+    return true;
+  }
+
   return [
-    "\x1b[13;5u",
-    "\x1b[10;5u",
-    "\x1b[27;5;13~",
-    "\x1b[27;5;10~",
-  ].includes(sequence);
+    /^\x1b\[(?:10|13);[2-8]u$/u,
+    /^\x1b\[27;[2-8];(?:10|13)~$/u,
+  ].some((pattern) => pattern.test(sequence));
 }
 
 function cursorPosition(value: string, cursor: number): {

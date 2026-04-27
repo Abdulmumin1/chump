@@ -106,8 +106,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       }
       promptReader.popQueuedDisplay();
 
-      const line = nextLine.trim();
-      if (!line) {
+      const line = nextLine;
+      if (!line.trim()) {
         continue;
       }
       writeOutput(`${renderUserMessage(line)}\n`);
