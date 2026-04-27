@@ -1,4 +1,5 @@
 import type { ChumpConfig, SlashCommand } from "../core/types.ts";
+import { writeOutputLine } from "../ui/terminal.ts";
 
 export const SLASH_COMMANDS = [
   "/help",
@@ -58,10 +59,10 @@ export function parseSlashCommand(input: string): {
 
 export function printHelp(): void {
   for (const command of SLASH_COMMANDS) {
-    console.log(command);
+    writeOutputLine(command);
   }
-  console.log("/session <id>");
-  console.log("/agent <id>");
+  writeOutputLine("/session <id>");
+  writeOutputLine("/agent <id>");
 }
 
 export function switchAgent(

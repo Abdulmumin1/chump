@@ -1,3 +1,5 @@
+import { writeOutput } from "./terminal.ts";
+
 const STYLE_RESET = "\x1b[0m";
 
 const palette = {
@@ -66,10 +68,7 @@ export function createMarkdownStream(): {
 
   function flushLine(line: string, includeNewline: boolean): void {
     const rendered = renderMarkdownLine(line, inCodeBlock);
-    process.stdout.write(rendered);
-    if (includeNewline) {
-      process.stdout.write("\n");
-    }
+    writeOutput(includeNewline ? `${rendered}\n` : rendered);
 
     if (line.trimStart().startsWith("```")) {
       inCodeBlock = !inCodeBlock;
@@ -93,7 +92,7 @@ export function createMarkdownStream(): {
     },
     end() {
       if (buffer.length > 0) {
-        flushLine(buffer, false);
+        flushLine(buffer, true);
         buffer = "";
       }
     },
@@ -132,7 +131,8 @@ function renderMarkdownLine(line: string, inCodeBlock: boolean): string {
 }
 
 function renderInlineMarkdown(value: string): string {
-  const pattern = /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)/g;
+  const pattern =
+    /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)/g;
   let rendered = "";
   let index = 0;
 
@@ -165,7 +165,11 @@ export function renderToolStart(name: string, args: string): string {
   return `${muted("✶")} ${accent(name)}${suffix}`;
 }
 
-export function renderToolResult(status: string, name: string, preview: string): string {
+export function renderToolResult(
+  status: string,
+  name: string,
+  preview: string,
+): string {
   if (status === "ok") {
     return `${success("·")} ${accent(name)} ${muted(preview)}`;
   }
@@ -189,11 +193,11 @@ export function renderCommandOutput(status: string, preview: string): string {
 }
 
 export function renderPrompt(): string {
-  return bold(accent("✦ "));
+  return bold(accent("✦  "));
 }
 
 export function renderContinuationPrompt(): string {
-  return muted("· ");
+  return muted("·  ");
 }
 
 export function renderInput(value: string): string {
@@ -206,4 +210,22 @@ export function renderError(message: string): string {
 
 export function renderMuted(message: string): string {
   return muted(message);
+}
+
+export function renderFooterStatus(parts: string[]): string {
+  return muted(parts.filter(Boolean).join(" · "));
+}
+
+export function renderQueuedMessage(message: string): string {
+  const preview = message.replace(/\s+/g, " ").trim();
+  const clipped = preview.length > 96 ? `${preview.slice(0, 93)}...` : preview;
+  return muted(`queued: ${clipped}`);
+}
+
+export function renderUserMessage(message: string): string {
+  const lines = message.split("\n");
+  const [firstLine = "", ...rest] = lines;
+  const head = `${accent("※")} ${foreground(firstLine)}`;
+  const tail = rest.map((line) => `${muted("╎")} ${foreground(line)}`);
+  return ["", head, ...tail, ""].join("\n");
 }

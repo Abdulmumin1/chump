@@ -1,17 +1,18 @@
 import { renderMuted } from "./render.ts";
+import { writeOutputLine } from "./terminal.ts";
 import type { ManagedServerMetadata } from "../core/types.ts";
 
 export function renderStoredMessages(
   messages: Array<{ role: string; content: unknown }>,
 ): void {
   if (messages.length === 0) {
-    console.log("(no stored messages)");
+    writeOutputLine("(no stored messages)");
     return;
   }
 
   for (const [index, message] of messages.entries()) {
-    console.log(`[${index + 1}] ${message.role}`);
-    console.log(formatStoredContent(message.content));
+    writeOutputLine(`[${index + 1}] ${message.role}`);
+    writeOutputLine(formatStoredContent(message.content));
   }
 }
 
@@ -25,14 +26,14 @@ export function renderSessions(
   }>,
 ): void {
   if (sessions.length === 0) {
-    console.log("(no stored sessions)");
+    writeOutputLine("(no stored sessions)");
     return;
   }
 
   for (const session of sessions) {
     const active = session.active ? "active" : "stored";
     const goal = session.last_user_goal ? ` ${session.last_user_goal}` : "";
-    console.log(
+    writeOutputLine(
       `${session.id} ${renderMuted(active)} messages=${session.message_count} events=${session.event_count}${goal}`,
     );
   }
@@ -44,14 +45,14 @@ export function renderServerStatus(
   metadata: ManagedServerMetadata | null,
 ): void {
   if (!metadata) {
-    console.log(JSON.stringify({
+    writeOutputLine(JSON.stringify({
       health,
       agent: status,
     }, null, 2));
     return;
   }
 
-  console.log(JSON.stringify({
+  writeOutputLine(JSON.stringify({
     server: metadata,
     health,
     agent: status,

@@ -22,7 +22,7 @@ import {
   resolveWorkspaceRoot,
 } from "./config.ts";
 import { startEventStream } from "../ui/events.ts";
-import { readPrompt } from "../ui/input.ts";
+import { createPromptReader } from "../ui/input.ts";
 import {
   renderServerStatus,
   renderSessions,
@@ -31,8 +31,11 @@ import {
 import {
   createMarkdownStream,
   renderError,
+  renderFooterStatus,
   renderMuted,
+  renderUserMessage,
 } from "../ui/render.ts";
+import { writeOutput } from "../ui/terminal.ts";
 import {
   ensureServerTarget,
   parseCliArgs,
@@ -81,7 +84,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 
   const fallbackRl = input.isTTY ? null : createInterface({ input, output });
+  const promptReader = createPromptReader(fallbackRl);
+  const lineQueue = new AsyncLineQueue();
   let closeEventStream: (() => void) | null = null;
+  const health = await getHealth(config);
+  promptReader.setFooter(renderFooter(config, health));
 
   if (target.note) {
     console.log(`[server] ${target.note}`);
@@ -89,22 +96,27 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   console.log(renderBanner(config));
   closeEventStream = await startEventStream(config);
 
+  void readInputLoop(promptReader, lineQueue);
+
   try {
     while (true) {
-      const nextLine = await readPrompt(fallbackRl);
+      const nextLine = await lineQueue.shift();
       if (nextLine === null) {
         break;
       }
+      promptReader.popQueuedDisplay();
 
       const line = nextLine.trim();
       if (!line) {
         continue;
       }
+      writeOutput(`${renderUserMessage(line)}\n`);
 
       const commandResult = await handleSlashCommand(line, {
         config,
         closeEventStream,
         metadata: target.metadata,
+        setFooter: (footer) => promptReader.setFooter(footer),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -122,16 +134,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         continue;
       }
 
-      await runChatTurn(config, line);
+      await runChatTurn(config, line, (status) => promptReader.setStatus(status));
     }
   } finally {
+    promptReader.close();
     closeEventStream?.();
-    fallbackRl?.close();
   }
 }
 
-async function runChatTurn(config: ChumpConfig, line: string): Promise<void> {
-  const spinner = createSpinner();
+async function runChatTurn(
+  config: ChumpConfig,
+  line: string,
+  setStatus: (status: string | null) => void,
+): Promise<void> {
+  const spinner = createSpinner(setStatus);
   spinner.start();
   let receivedChunk = false;
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
@@ -146,17 +162,84 @@ async function runChatTurn(config: ChumpConfig, line: string): Promise<void> {
     onEnd: () => {
       spinner.stop();
       if (!receivedChunk) {
-        process.stdout.write(`${renderMuted("(no response)")}\n`);
+        writeOutput(`${renderMuted("(no response)")}\n`);
         return;
       }
       markdownStream?.end();
-      process.stdout.write("\n");
     },
     onError: (message) => {
       spinner.stop();
-      process.stdout.write(`\n${renderError(`[chat] ${message}`)}\n`);
+      writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
     },
   });
+}
+
+async function readInputLoop(
+  promptReader: ReturnType<typeof createPromptReader>,
+  lineQueue: AsyncLineQueue,
+): Promise<void> {
+  try {
+    while (true) {
+      const line = await promptReader.read();
+      if (line === null) {
+        lineQueue.close();
+        return;
+      }
+      lineQueue.push(line);
+    }
+  } catch (error) {
+    lineQueue.fail(error);
+  }
+}
+
+class AsyncLineQueue {
+  private lines: string[] = [];
+  private waiting: ((value: string | null) => void) | null = null;
+  private closed = false;
+  private error: unknown = null;
+
+  push(line: string): void {
+    if (this.closed) {
+      return;
+    }
+    if (this.waiting) {
+      const resolve = this.waiting;
+      this.waiting = null;
+      resolve(line);
+      return;
+    }
+    this.lines.push(line);
+  }
+
+  close(): void {
+    this.closed = true;
+    if (this.waiting) {
+      const resolve = this.waiting;
+      this.waiting = null;
+      resolve(null);
+    }
+  }
+
+  fail(error: unknown): void {
+    this.error = error;
+    this.close();
+  }
+
+  async shift(): Promise<string | null> {
+    if (this.error) {
+      throw this.error;
+    }
+    const line = this.lines.shift();
+    if (line !== undefined) {
+      return line;
+    }
+    if (this.closed) {
+      return null;
+    }
+    return await new Promise((resolve) => {
+      this.waiting = resolve;
+    });
+  }
 }
 
 async function handleSlashCommand(
@@ -165,6 +248,7 @@ async function handleSlashCommand(
     config: ReturnType<typeof loadConfig>;
     closeEventStream: (() => void) | null;
     metadata: ManagedServerMetadata | null;
+    setFooter: (footer: string | null) => void;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
@@ -188,12 +272,13 @@ async function handleSlashCommand(
         getHealth(config),
         getStatus(config),
       ]);
+      context.setFooter(renderFooter(config, health));
       renderServerStatus(health, status, context.metadata);
       break;
     }
     case "state": {
       const state = await getState(config);
-      console.log(JSON.stringify(state, null, 2));
+      writeOutput(`${JSON.stringify(state, null, 2)}\n`);
       break;
     }
     case "messages": {
@@ -208,37 +293,37 @@ async function handleSlashCommand(
     }
     case "clear": {
       const result = await clearMessages(config);
-      console.log(JSON.stringify(result, null, 2));
+      writeOutput(`${JSON.stringify(result, null, 2)}\n`);
       break;
     }
     case "session": {
       const mode = parsed.args[0];
       if (!mode) {
-        console.log(`current session: ${config.agentId}`);
+        writeOutput(`${renderMuted(`current session: ${config.agentId}`)}\n`);
         break;
       }
 
       if (mode === "new") {
         config = switchAgent(config, createSessionId(config.workspaceRoot));
         closeEventStream = await context.restartEventStream(config);
-        console.log(`started new session ${config.agentId}`);
+        writeOutput(`${renderMuted(`started new session ${config.agentId}`)}\n`);
         break;
       }
 
       config = switchAgent(config, mode);
       closeEventStream = await context.restartEventStream(config);
-      console.log(`switched session to ${config.agentId}`);
+      writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
       break;
     }
     case "agent": {
       const nextAgentId = parsed.args[0];
       if (!nextAgentId) {
-        console.log("usage: /agent <id>");
+        writeOutput(`${renderMuted("usage: /agent <id>")}\n`);
         break;
       }
       config = switchAgent(config, nextAgentId);
       closeEventStream = await context.restartEventStream(config);
-      console.log(`switched session to ${config.agentId}`);
+      writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
       break;
     }
     case "events": {
@@ -246,16 +331,16 @@ async function handleSlashCommand(
       if (mode === "on") {
         closeEventStream?.();
         closeEventStream = await startEventStream(config);
-        console.log(`events enabled for ${config.agentId}`);
+        writeOutput(`${renderMuted(`events enabled for ${config.agentId}`)}\n`);
         break;
       }
       if (mode === "off") {
         closeEventStream?.();
         closeEventStream = null;
-        console.log("events disabled");
+        writeOutput(`${renderMuted("events disabled")}\n`);
         break;
       }
-      console.log("usage: /events on|off");
+      writeOutput(`${renderMuted("usage: /events on|off")}\n`);
       break;
     }
     case "quit":
@@ -263,4 +348,12 @@ async function handleSlashCommand(
   }
 
   return { config, closeEventStream };
+}
+
+function renderFooter(config: ChumpConfig, health: { provider: string; model: string }): string {
+  return renderFooterStatus([
+    `${health.provider}/${health.model}`,
+    config.serverSource,
+    config.agentId,
+  ]);
 }

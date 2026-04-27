@@ -8,6 +8,7 @@ import {
   renderToolDone,
   renderToolResult,
 } from "./render.ts";
+import { writeOutputLine } from "./terminal.ts";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
 
 const pendingTools: Array<{
@@ -35,11 +36,11 @@ function logEvent(event: SseEvent): void {
     const toolName = readToolName(payload);
     const renderedArgs = formatToolArgs(toolName, payload.args ?? payload.payload);
     if (toolName === "bash") {
-      console.log(`\n${renderCommand(renderedArgs)}`);
+      writeOutputLine(`\n${renderCommand(renderedArgs)}`);
       return;
     }
     if (toolName === "read_file") {
-      console.log(`\n${renderToolDone(toolName, renderedArgs)}`);
+      writeOutputLine(`\n${renderToolDone(toolName, renderedArgs)}`);
       pendingTools.push({ name: toolName, args: renderedArgs });
       return;
     }
@@ -56,7 +57,7 @@ function logEvent(event: SseEvent): void {
     const preview =
       typeof payload.preview === "string" ? payload.preview : compactJson(payload);
     if (toolName === "bash") {
-      console.log(renderCommandOutput(ok, truncatePreview(preview, 500)));
+      writeOutputLine(renderCommandOutput(ok, truncatePreview(preview, 500)));
       return;
     }
 
@@ -66,11 +67,11 @@ function logEvent(event: SseEvent): void {
     }
 
     if (ok === "ok" && pending) {
-      console.log(`\n${renderToolDone(toolName, pending.args)}`);
+      writeOutputLine(`\n${renderToolDone(toolName, pending.args)}`);
       return;
     }
 
-    console.log(`\n${renderToolResult(ok, toolName, preview)}`);
+    writeOutputLine(`\n${renderToolResult(ok, toolName, preview)}`);
   }
 }
 

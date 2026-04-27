@@ -1,6 +1,6 @@
 import { renderMuted } from "./render.ts";
 
-export function createSpinner(): {
+export function createSpinner(onFrame: (frame: string | null) => void): {
   start: () => void;
   stop: () => void;
 } {
@@ -12,11 +12,11 @@ export function createSpinner(): {
   return {
     start() {
       active = true;
-      process.stdout.write(`${renderMuted(frames[index])} `);
+      onFrame(renderMuted(frames[index] ?? "✶"));
       timer = setInterval(() => {
         index = (index + 1) % frames.length;
-        process.stdout.write(`\r${renderMuted(frames[index])} `);
-      }, 90);
+        onFrame(renderMuted(frames[index] ?? "✶"));
+      }, 120);
     },
     stop() {
       if (!active) {
@@ -27,7 +27,7 @@ export function createSpinner(): {
         clearInterval(timer);
         timer = null;
       }
-      process.stdout.write("\n");
+      onFrame(null);
     },
   };
 }

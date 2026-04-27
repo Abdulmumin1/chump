@@ -159,6 +159,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 "workspace_root": str(config.workspace_root),
                 "last_user_goal": None,
                 "files_touched": [],
+                "read_files": {},
                 "commands_run": [],
                 "notes": [],
             },
@@ -185,7 +186,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
     @action
     async def clear_messages(self) -> dict[str, str]:
         await self.clear()
-        await self.update_state(last_user_goal=None)
+        await self.update_state(last_user_goal=None, read_files={})
         return {"status": "ok"}
 
     async def chat(self, message: str, **kwargs: Any) -> str:
