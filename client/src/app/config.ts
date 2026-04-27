@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ChumpConfig } from "./types.ts";
+import type { ChumpConfig } from "../core/types.ts";
 
 export function loadConfig(
   overrides: Partial<Pick<ChumpConfig, "serverUrl" | "serverSource">> = {},

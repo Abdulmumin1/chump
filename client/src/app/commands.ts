@@ -1,9 +1,37 @@
-import type { ChumpConfig, SlashCommand } from "./types.ts";
+import type { ChumpConfig, SlashCommand } from "../core/types.ts";
+
+export const SLASH_COMMANDS = [
+  "/help",
+  "/status",
+  "/state",
+  "/messages",
+  "/sessions",
+  "/clear",
+  "/session",
+  "/session new",
+  "/agent",
+  "/events on",
+  "/events off",
+  "/quit",
+] as const;
+
+export function completeSlashCommand(line: string): [string[], string] {
+  if (!line.startsWith("/")) {
+    return [[], line];
+  }
+
+  const hits = SLASH_COMMANDS.filter((command) => command.startsWith(line));
+  return [hits.length > 0 ? [...hits] : [...SLASH_COMMANDS], line];
+}
 
 export function parseSlashCommand(input: string): {
   command: SlashCommand;
   args: string[];
 } | null {
+  if (input.trim() === "quit") {
+    return { command: "quit", args: [] };
+  }
+
   if (!input.startsWith("/")) {
     return null;
   }
@@ -29,18 +57,11 @@ export function parseSlashCommand(input: string): {
 }
 
 export function printHelp(): void {
-  console.log("/help");
-  console.log("/status");
-  console.log("/state");
-  console.log("/messages");
-  console.log("/sessions");
-  console.log("/clear");
-  console.log("/session");
-  console.log("/session new");
+  for (const command of SLASH_COMMANDS) {
+    console.log(command);
+  }
   console.log("/session <id>");
   console.log("/agent <id>");
-  console.log("/events on|off");
-  console.log("/quit");
 }
 
 export function switchAgent(

@@ -33,7 +33,8 @@ def load_config() -> ChumpConfig:
         workspace_root=workspace_root,
         data_dir=data_dir,
         provider=os.environ.get("CHUMP_PROVIDER", "openai"),
-        model=os.environ.get("CHUMP_MODEL", "gpt-4.1-mini"),
+        model=os.environ.get("CHUMP_MODEL", "gpt-5.4"),
         max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
-        verbose=os.environ.get("CHUMP_VERBOSE", "1").lower() not in {"0", "false", "no"},
+        verbose=os.environ.get("CHUMP_VERBOSE", "1").lower()
+        not in {"0", "false", "no"},
     )

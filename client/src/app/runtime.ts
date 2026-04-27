@@ -1,5 +1,5 @@
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
@@ -10,9 +10,10 @@ import type {
   CliMode,
   CliOptions,
   ManagedServerMetadata,
-} from "./types.ts";
+} from "../core/types.ts";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
+const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 10_000;
 const SERVER_WAIT_MS = 15_000;
 
@@ -320,6 +321,10 @@ async function withWorkspaceLock<T>(
       if (!isAlreadyExistsError(error)) {
         throw error;
       }
+      if (await isStaleLock(lockDir)) {
+        await rm(lockDir, { recursive: true, force: true });
+        continue;
+      }
       if (Date.now() - startedAt > LOCK_WAIT_MS) {
         throw new Error("timed out waiting for local server lock");
       }
@@ -382,9 +387,8 @@ function getWorkspacePaths(workspaceRoot: string): {
 
 function resolveServerCommand(): { file: string; args: string[] } {
   const sourcePath = fileURLToPath(import.meta.url);
-  const clientSrcDir = path.dirname(sourcePath);
-  const clientDir = path.resolve(clientSrcDir, "..");
-  const repoRoot = path.resolve(clientDir, "..");
+  const appDir = path.dirname(sourcePath);
+  const repoRoot = path.resolve(appDir, "..", "..", "..");
   const siblingServerDir = path.join(repoRoot, "server");
   const siblingProject = path.join(siblingServerDir, "pyproject.toml");
 
@@ -399,6 +403,18 @@ function resolveServerCommand(): { file: string; args: string[] } {
     file: "chump-server",
     args: [],
   };
+}
+
+async function isStaleLock(lockDir: string): Promise<boolean> {
+  try {
+    const stats = await stat(lockDir);
+    return Date.now() - stats.mtimeMs > LOCK_STALE_MS;
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function findAvailablePort(): Promise<number> {
