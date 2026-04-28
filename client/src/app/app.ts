@@ -24,6 +24,7 @@ import {
 } from "./config.ts";
 import {
   consumeToolActivity,
+  setReasoningActivityHook,
   setToolActivityHook,
   startEventStream,
 } from "../ui/events.ts";
@@ -39,6 +40,7 @@ import {
   renderError,
   renderFooterStatus,
   renderMuted,
+  renderThinkingBlock,
   renderUserMessage,
 } from "../ui/render.ts";
 import { writeOutput } from "../ui/terminal.ts";
@@ -158,9 +160,59 @@ async function runChatTurn(
   line: string,
   setStatus: (status: string | null) => void,
 ): Promise<void> {
-  const spinner = createSpinner(setStatus);
+  let spinnerFrame: string | null = null;
+  let reasoningTitle: string | null = null;
+  let reasoningBuffer = "";
+  const hasReasoning = (): boolean => Boolean(reasoningTitle || reasoningBuffer.trim());
+  const clearReasoning = (): void => {
+    reasoningTitle = null;
+    reasoningBuffer = "";
+  };
+  const flushReasoningTranscript = (): void => {
+    if (!hasReasoning()) {
+      return;
+    }
+    const block = renderThinkingBlock(
+      reasoningTitle,
+      reasoningBuffer,
+    );
+    clearReasoning();
+    syncStatus();
+    writeOutput(`\n${block.join("\n")}\n\n`);
+  };
+  const syncStatus = (): void => {
+    const lines: string[] = [];
+    if (reasoningTitle || reasoningBuffer.trim()) {
+      lines.push(...renderThinkingBlock(
+        reasoningTitle,
+        reasoningBuffer,
+      ));
+    }
+    if (spinnerFrame) {
+      lines.push(spinnerFrame);
+    }
+    setStatus(lines.length > 0 ? lines.join("\n") : null);
+  };
+  const spinner = createSpinner((frame) => {
+    spinnerFrame = frame;
+    syncStatus();
+  });
   spinner.start();
-  setToolActivityHook(() => spinner.start());
+  setToolActivityHook(() => {
+    flushReasoningTranscript();
+    spinner.start();
+  });
+  setReasoningActivityHook((payload) => {
+    if (typeof payload.text !== "string" || payload.text.length === 0) {
+      return;
+    }
+    if (payload.kind === "summary") {
+      reasoningTitle = payload.text.trim() || reasoningTitle;
+    } else {
+      reasoningBuffer += payload.text;
+    }
+    syncStatus();
+  });
   let receivedChunk = false;
   let separatedFromTools = false;
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
@@ -168,6 +220,7 @@ async function runChatTurn(
   try {
     await streamChat(config, line, {
       onChunk: (chunk) => {
+        flushReasoningTranscript();
         spinner.stop();
         receivedChunk = true;
         if (!separatedFromTools) {
@@ -180,6 +233,7 @@ async function runChatTurn(
         markdownStream.write(chunk);
       },
       onEnd: () => {
+        flushReasoningTranscript();
         spinner.stop();
         if (!receivedChunk) {
           writeOutput(`${renderMuted("(no response)")}\n`);
@@ -188,6 +242,7 @@ async function runChatTurn(
         markdownStream?.end();
       },
       onError: (message) => {
+        flushReasoningTranscript();
         spinner.stop();
         writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
       },
@@ -195,6 +250,7 @@ async function runChatTurn(
   } finally {
     spinner.stop();
     setToolActivityHook(null);
+    setReasoningActivityHook(null);
   }
 }
 

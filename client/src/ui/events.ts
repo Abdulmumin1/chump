@@ -8,9 +8,16 @@ import type { ChumpConfig, SseEvent } from "../core/types.ts";
 
 const toolActivityRenderer = new ToolActivityRenderer(writeOutputLine);
 let toolActivityHook: (() => void) | null = null;
+let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
 
 export function setToolActivityHook(hook: (() => void) | null): void {
   toolActivityHook = hook;
+}
+
+export function setReasoningActivityHook(
+  hook: ((payload: Record<string, unknown>) => void) | null,
+): void {
+  reasoningActivityHook = hook;
 }
 
 export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {
@@ -37,6 +44,12 @@ function logEvent(event: SseEvent): void {
 
   if (event.event === "tool_result" && payload) {
     toolActivityRenderer.renderToolResult(payload);
+    return;
+  }
+
+  if (event.event === "reasoning" && payload) {
+    reasoningActivityHook?.(payload);
+    return;
   }
 }
 

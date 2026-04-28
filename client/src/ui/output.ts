@@ -3,6 +3,7 @@ import {
   renderMuted,
   renderUserMessage,
 } from "./render.ts";
+import { ReasoningRenderer } from "./reasoning.ts";
 import { writeOutput, writeOutputLine } from "./terminal.ts";
 import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import type {
@@ -36,6 +37,7 @@ export function renderSessionTranscript(
   }
 
   const toolRenderer = new ToolActivityRenderer(writeOutputLine);
+  const reasoningRenderer = new ReasoningRenderer();
   const replayEvents = new TranscriptEventCursor(events);
   let renderedMessages = 0;
 
@@ -46,7 +48,12 @@ export function renderSessionTranscript(
     }
 
     if (message.role === "assistant" || message.role === "tool") {
-      renderedMessages += renderAssistantContent(message.content, toolRenderer, replayEvents);
+      replayEvents.renderLeadingReasoning(reasoningRenderer);
+      renderedMessages += renderAssistantContent(
+        message.content,
+        toolRenderer,
+        replayEvents,
+      );
       continue;
     }
 
@@ -60,6 +67,9 @@ export function renderSessionTranscript(
   if (renderedMessages === 0) {
     writeOutputLine(renderMuted("(no renderable messages in session)"));
   }
+
+  replayEvents.renderLeadingReasoning(reasoningRenderer);
+  reasoningRenderer.flush();
 }
 
 export function renderSessions(
@@ -161,30 +171,52 @@ function renderAssistantContent(
 }
 
 class TranscriptEventCursor {
-  private readonly toolCalls: Record<string, Array<Record<string, unknown>>> = {};
-  private readonly toolResults: Record<string, Array<Record<string, unknown>>> = {};
+  private readonly events: StoredEvent[] = [];
 
   constructor(events: StoredEvent[]) {
     for (const event of events) {
-      if (event.type !== "tool_call" && event.type !== "tool_result") {
+      if (
+        event.type !== "tool_call" &&
+        event.type !== "tool_result" &&
+        event.type !== "reasoning"
+      ) {
         continue;
       }
-      const toolName = readEventToolName(event.data);
-      if (!toolName) {
-        continue;
-      }
-      const target = event.type === "tool_call" ? this.toolCalls : this.toolResults;
-      target[toolName] ??= [];
-      target[toolName].push(event.data);
+      this.events.push(event);
     }
   }
 
   takeToolCall(toolName: string): Record<string, unknown> | null {
-    return this.toolCalls[toolName]?.shift() ?? null;
+    return this.takeNextEvent("tool_call", toolName);
   }
 
   takeToolResult(toolName: string): Record<string, unknown> | null {
-    return this.toolResults[toolName]?.shift() ?? null;
+    return this.takeNextEvent("tool_result", toolName);
+  }
+
+  renderLeadingReasoning(reasoningRenderer: ReasoningRenderer): void {
+    while (this.events[0]?.type === "reasoning") {
+      const event = this.events.shift();
+      if (!event) {
+        break;
+      }
+      reasoningRenderer.render(event.data);
+    }
+  }
+
+  private takeNextEvent(type: "tool_call" | "tool_result", toolName: string): Record<string, unknown> | null {
+    for (let index = 0; index < this.events.length; index += 1) {
+      const event = this.events[index];
+      if (!event || event.type !== type) {
+        continue;
+      }
+      if (readEventToolName(event.data) !== toolName) {
+        continue;
+      }
+      this.events.splice(index, 1);
+      return event.data;
+    }
+    return null;
   }
 }
 

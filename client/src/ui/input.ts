@@ -101,13 +101,14 @@ function createInteractivePromptReader(): {
     const lines = value.split("\n");
     const target = cursorPosition(value, cursor);
     const slashMenu = getVisibleSlashMenu();
+    const statusLines = statusLine ? statusLine.split("\n") : [];
 
     clear();
 
     output.write("\n");
 
-    if (statusLine) {
-      output.write(`${statusLine}\n`);
+    for (const line of statusLines) {
+      output.write(`${line}\n`);
     }
 
     for (const queued of queuedDisplay) {
@@ -148,7 +149,7 @@ function createInteractivePromptReader(): {
     if (column > 0) {
       output.write(`\x1b[${column}C`);
     }
-    cursorLine = 1 + (statusLine ? 1 : 0) + queuedDisplay.length + slashMenu.lineCount + target.line;
+    cursorLine = 1 + statusLines.length + queuedDisplay.length + slashMenu.lineCount + target.line;
   }
 
   function finish(result: string | null): void {

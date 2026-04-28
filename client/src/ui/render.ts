@@ -8,6 +8,8 @@ const palette = {
   foreground: "#b8b8b8",
   foregroundStrong: "#d0d0d0",
   muted: "#8a8a8a",
+  thinkingLabel: "#93a65a",
+  thinkingText: "#737373",
   danger: "#ff6b6b",
   dangerMuted: "#b56b63",
   successMuted: "#8fad33",
@@ -322,6 +324,39 @@ export function renderQueuedMessage(message: string): string {
   return muted(`queued: ${clipped}`);
 }
 
+export function renderThinkingLabel(): string {
+  return italic(fg(palette.thinkingLabel, "Thinking:"));
+}
+
+export function renderThinkingText(message: string): string {
+  return fg(palette.thinkingText, message);
+}
+
+export function renderThinkingStatus(message: string): string {
+  return `${renderThinkingLabel()} ${renderThinkingText(message)}`;
+}
+
+export function renderThinkingBlock(
+  title: string | null,
+  message: string,
+): string[] {
+  const lines: string[] = [];
+  const heading = title?.trim();
+  if (heading) {
+    lines.push(`${renderThinkingLabel()} ${bold(fg("#c79b67", heading))}`);
+  } else {
+    lines.push(renderThinkingLabel());
+  }
+
+  const wrapped = wrapPlainText(message.trim(), Math.max(24, (process.stdout.columns ?? 80) - 4));
+  if (wrapped.length > 0) {
+    lines.push("");
+    lines.push(...wrapped.map((line) => `${muted("│")} ${renderThinkingText(line)}`));
+  }
+
+  return lines;
+}
+
 export function renderSlashCommandMenu(
   items: Array<{ label: string; description: string }>,
   selectedIndex: number,
@@ -384,4 +419,38 @@ export function renderUserMessage(message: string): string {
   const head = `${accent("※")} ${foreground(firstLine)}`;
   const tail = rest.map((line) => `${muted("╎")} ${foreground(line)}`);
   return ["", head, ...tail, ""].join("\n");
+}
+
+function wrapPlainText(value: string, width: number): string[] {
+  if (!value) {
+    return [];
+  }
+
+  const result: string[] = [];
+  for (const sourceLine of value.split("\n")) {
+    const words = sourceLine.split(/\s+/u).filter(Boolean);
+    if (words.length === 0) {
+      result.push("");
+      continue;
+    }
+
+    let current = "";
+    for (const word of words) {
+      if (!current) {
+        current = word;
+        continue;
+      }
+      if ((current.length + 1 + word.length) <= width) {
+        current = `${current} ${word}`;
+        continue;
+      }
+      result.push(current);
+      current = word;
+    }
+    if (current) {
+      result.push(current);
+    }
+  }
+
+  return result;
 }
