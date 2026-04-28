@@ -1,10 +1,9 @@
 # chump
 
-> A local coding assistant for your terminal.  
-> TypeScript in the front, Python in the back, and just enough chaos to stay interesting.
+> A local coding assistant for your terminal.
+> TypeScript in the front, Python in the back.
 
-`chump` is a local coding assistant built around a fast TypeScript CLI and a Python backend powered by `ai-query`.
-It starts or reuses one local server per workspace, keeps session history around, streams tool activity live, and helps with software tasks without pretending it definitely knows what your build system is doing today.
+`chump` is a local coding assistant built around a faster TypeScript CLI and a Python backend powered by `ai-query`.
 
 ## Quick start
 
