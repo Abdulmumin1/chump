@@ -147,6 +147,7 @@ def build_tools(agent, config: ChumpConfig):
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             await note_file(path)
+            await remember_file_read(path, file_path)
             return (
                 f"Wrote {path} ({len(content)} bytes)",
                 {"diff": _diff_metadata(path, before, content)},
@@ -180,6 +181,7 @@ def build_tools(agent, config: ChumpConfig):
 
             file_path.write_text(updated, encoding="utf-8")
             await note_file(path)
+            await remember_file_read(path, file_path)
             return (
                 f"Updated {path}",
                 {"diff": _diff_metadata(path, contents, updated)},
