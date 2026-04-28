@@ -3,6 +3,7 @@ import process, { stdin as input, stdout as output } from "node:process";
 
 import {
   clearMessages,
+  getEventLog,
   getHealth,
   getMessages,
   getSessions,
@@ -24,6 +25,7 @@ import {
 import { consumeToolActivity, startEventStream } from "../ui/events.ts";
 import { createPromptReader } from "../ui/input.ts";
 import {
+  renderSessionTranscript,
   renderServerStatus,
   renderSessions,
   renderStoredMessages,
@@ -320,6 +322,7 @@ async function handleSlashCommand(
       config = switchAgent(config, mode);
       closeEventStream = await context.restartEventStream(config);
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
+      await renderSwitchedSession(config, context.setFooter);
       break;
     }
     case "agent": {
@@ -331,6 +334,7 @@ async function handleSlashCommand(
       config = switchAgent(config, nextAgentId);
       closeEventStream = await context.restartEventStream(config);
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
+      await renderSwitchedSession(config, context.setFooter);
       break;
     }
     case "events": {
@@ -355,6 +359,19 @@ async function handleSlashCommand(
   }
 
   return { config, closeEventStream };
+}
+
+async function renderSwitchedSession(
+  config: ChumpConfig,
+  setFooter: (footer: string | null) => void,
+): Promise<void> {
+  const [health, response] = await Promise.all([
+    getHealth(config),
+    getMessages(config),
+  ]);
+  setFooter(renderFooter(config, health));
+  const eventLog = await getEventLog(config);
+  renderSessionTranscript(response.messages, eventLog.events);
 }
 
 function renderFooter(

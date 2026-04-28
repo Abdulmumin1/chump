@@ -74,6 +74,16 @@ export type AgentMessagesResponse = {
   messages: StoredMessage[];
 };
 
+export type StoredEvent = {
+  id: number;
+  type: string;
+  data: Record<string, unknown>;
+};
+
+export type AgentEventLogResponse = {
+  events: StoredEvent[];
+};
+
 export type SessionSummary = {
   id: string;
   active: boolean;

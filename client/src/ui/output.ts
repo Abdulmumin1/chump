@@ -1,9 +1,15 @@
-import { renderMuted } from "./render.ts";
-import { writeOutputLine } from "./terminal.ts";
+import {
+  renderMarkdownBlock,
+  renderMuted,
+  renderUserMessage,
+} from "./render.ts";
+import { writeOutput, writeOutputLine } from "./terminal.ts";
+import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import type {
   ChumpHealth,
   ChumpStatus,
   ManagedServerMetadata,
+  StoredEvent,
 } from "../core/types.ts";
 
 export function renderStoredMessages(
@@ -17,6 +23,42 @@ export function renderStoredMessages(
   for (const [index, message] of messages.entries()) {
     writeOutputLine(`[${index + 1}] ${message.role}`);
     writeOutputLine(formatStoredContent(message.content));
+  }
+}
+
+export function renderSessionTranscript(
+  messages: Array<{ role: string; content: unknown }>,
+  events: StoredEvent[] = [],
+): void {
+  if (messages.length === 0) {
+    writeOutputLine(renderMuted("(no messages in session)"));
+    return;
+  }
+
+  const toolRenderer = new ToolActivityRenderer(writeOutputLine);
+  const replayEvents = new TranscriptEventCursor(events);
+  let renderedMessages = 0;
+
+  for (const message of messages) {
+    if (message.role === "user" && renderUserContent(message.content)) {
+      renderedMessages += 1;
+      continue;
+    }
+
+    if (message.role === "assistant" || message.role === "tool") {
+      renderedMessages += renderAssistantContent(message.content, toolRenderer, replayEvents);
+      continue;
+    }
+
+    const text = extractTextContent(message.content).trim();
+    if (text.length > 0) {
+      writeOutputLine(renderMuted(`[${message.role}] ${text}`));
+      renderedMessages += 1;
+    }
+  }
+
+  if (renderedMessages === 0) {
+    writeOutputLine(renderMuted("(no renderable messages in session)"));
   }
 }
 
@@ -63,6 +105,195 @@ export function renderServerStatus(
   }, null, 2));
 }
 
+function renderUserContent(content: unknown): boolean {
+  const text = extractTextContent(content).trim();
+  if (text.length === 0) {
+    return false;
+  }
+  writeOutput(`${renderUserMessage(text)}\n`);
+  return true;
+}
+
+function renderAssistantContent(
+  content: unknown,
+  toolRenderer: ToolActivityRenderer,
+  replayEvents: TranscriptEventCursor,
+): number {
+  if (typeof content === "string") {
+    return renderAssistantText(content);
+  }
+
+  if (!Array.isArray(content)) {
+    return 0;
+  }
+
+  let renderedParts = 0;
+  for (const part of content) {
+    const text = readTextPart(part);
+    if (text !== null) {
+      renderedParts += renderAssistantText(text);
+      continue;
+    }
+
+    const toolCall = readToolCallPart(part);
+    if (toolCall) {
+      toolRenderer.renderToolCall(replayEvents.takeToolCall(toolCall.name) ?? {
+        name: toolCall.name,
+        args: toolCall.arguments,
+      });
+      renderedParts += 1;
+      continue;
+    }
+
+    const toolResult = readToolResultPart(part);
+    if (toolResult) {
+      toolRenderer.renderToolResult(replayEvents.takeToolResult(toolResult.toolName) ?? {
+        name: toolResult.toolName,
+        ok: !toolResult.isError,
+        status: toolResult.isError ? "error" : "ok",
+        preview: toolResult.result,
+      });
+      renderedParts += 1;
+    }
+  }
+
+  return renderedParts;
+}
+
+class TranscriptEventCursor {
+  private readonly toolCalls: Record<string, Array<Record<string, unknown>>> = {};
+  private readonly toolResults: Record<string, Array<Record<string, unknown>>> = {};
+
+  constructor(events: StoredEvent[]) {
+    for (const event of events) {
+      if (event.type !== "tool_call" && event.type !== "tool_result") {
+        continue;
+      }
+      const toolName = readEventToolName(event.data);
+      if (!toolName) {
+        continue;
+      }
+      const target = event.type === "tool_call" ? this.toolCalls : this.toolResults;
+      target[toolName] ??= [];
+      target[toolName].push(event.data);
+    }
+  }
+
+  takeToolCall(toolName: string): Record<string, unknown> | null {
+    return this.toolCalls[toolName]?.shift() ?? null;
+  }
+
+  takeToolResult(toolName: string): Record<string, unknown> | null {
+    return this.toolResults[toolName]?.shift() ?? null;
+  }
+}
+
+function readEventToolName(data: Record<string, unknown>): string | null {
+  if (typeof data.name === "string") {
+    return data.name;
+  }
+  if (typeof data.tool === "string") {
+    return data.tool;
+  }
+  if (typeof data.tool_name === "string") {
+    return data.tool_name;
+  }
+  return null;
+}
+
+function renderAssistantText(text: string): number {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return 0;
+  }
+  writeOutput(`${renderMarkdownBlock(trimmed)}\n`);
+  return 1;
+}
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => extractTextPart(part))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return "";
+}
+
+function extractTextPart(part: unknown): string {
+  return readTextPart(part) ?? "";
+}
+
+function readTextPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") {
+    return typeof part === "string" ? part : null;
+  }
+
+  const value = part as Record<string, unknown>;
+  if (value.type === "text" && typeof value.text === "string") {
+    return value.text;
+  }
+
+  return null;
+}
+
+function readToolCallPart(part: unknown): {
+  name: string;
+  arguments: Record<string, unknown>;
+} | null {
+  if (!part || typeof part !== "object") {
+    return null;
+  }
+  const value = part as Record<string, unknown>;
+  if (value.type !== "tool_call" || !value.tool_call || typeof value.tool_call !== "object") {
+    return null;
+  }
+  const call = value.tool_call as Record<string, unknown>;
+  if (typeof call.name !== "string") {
+    return null;
+  }
+  return {
+    name: call.name,
+    arguments: (
+      call.arguments && typeof call.arguments === "object"
+        ? call.arguments
+        : {}
+    ) as Record<string, unknown>,
+  };
+}
+
+function readToolResultPart(part: unknown): {
+  toolName: string;
+  result: string;
+  isError: boolean;
+} | null {
+  if (!part || typeof part !== "object") {
+    return null;
+  }
+  const value = part as Record<string, unknown>;
+  if (
+    value.type !== "tool_result" ||
+    !value.tool_result ||
+    typeof value.tool_result !== "object"
+  ) {
+    return null;
+  }
+  const result = value.tool_result as Record<string, unknown>;
+  if (typeof result.tool_name !== "string") {
+    return null;
+  }
+  return {
+    toolName: result.tool_name,
+    result: typeof result.result === "string" ? result.result : compactJson(result.result),
+    isError: result.is_error === true,
+  };
+}
+
 function formatStoredContent(content: unknown): string {
   if (typeof content === "string") {
     return content;
@@ -102,15 +333,4 @@ function formatStoredPart(part: unknown): string {
   }
 
   return JSON.stringify(value, null, 2);
-}
-
-function compactJson(value: unknown): string {
-  const encoded = JSON.stringify(value);
-  if (!encoded) {
-    return "";
-  }
-  if (encoded.length <= 120) {
-    return encoded;
-  }
-  return `${encoded.slice(0, 117)}...`;
 }

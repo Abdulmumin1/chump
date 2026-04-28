@@ -104,7 +104,9 @@ def build_tools(agent, config: ChumpConfig):
     @tool(description="Read a UTF-8 text file from the workspace.")
     async def read_file(
         path: str = Field(description="File path relative to workspace root"),
-        offset: int = Field(description="Zero-based line offset to start reading from", default=0),
+        offset: int = Field(
+            description="Zero-based line offset to start reading from", default=0
+        ),
         limit: int = Field(description="Maximum number of lines to read", default=200),
     ) -> str:
         async def runner() -> str:
@@ -121,7 +123,9 @@ def build_tools(agent, config: ChumpConfig):
             end_index = start_index + line_count
             numbered = [
                 f"{index + 1}: {line}"
-                for index, line in enumerate(lines[start_index:end_index], start=start_index)
+                for index, line in enumerate(
+                    lines[start_index:end_index], start=start_index
+                )
             ]
             return "\n".join(numbered)
 
@@ -155,7 +159,9 @@ def build_tools(agent, config: ChumpConfig):
         path: str = Field(description="File path relative to workspace root"),
         old_text: str = Field(description="Text to replace"),
         new_text: str = Field(description="Replacement text"),
-        replace_all: bool = Field(description="Replace all matches when true", default=False),
+        replace_all: bool = Field(
+            description="Replace all matches when true", default=False
+        ),
     ) -> str:
         async def runner() -> str:
             file_path = guard.ensure_text_file(path)
@@ -185,10 +191,12 @@ def build_tools(agent, config: ChumpConfig):
             runner,
         )
 
-    @tool(description="Run a non-destructive bash command inside the workspace.")
+    @tool(description="Run a shell command inside the workspace.")
     async def bash(
         command: str = Field(description="Shell command to execute"),
-        cwd: str = Field(description="Working directory relative to workspace root", default="."),
+        cwd: str = Field(
+            description="Working directory relative to workspace root", default="."
+        ),
     ) -> str:
         async def runner() -> str:
             validate_command(command)
@@ -216,7 +224,9 @@ def build_tools(agent, config: ChumpConfig):
 
             output = _truncate((stdout + stderr).decode().strip())
             if process.returncode != 0:
-                raise RuntimeError(output or f"command failed with exit code {process.returncode}")
+                raise RuntimeError(
+                    output or f"command failed with exit code {process.returncode}"
+                )
             return output or "(command produced no output)"
 
         return await wrap_tool("bash", {"command": command, "cwd": cwd}, runner)

@@ -161,6 +161,73 @@ function createInteractivePromptReader(): {
     redraw();
   }
 
+  function deleteRange(start: number, end: number): void {
+    if (start === end) {
+      return;
+    }
+    value = `${value.slice(0, start)}${value.slice(end)}`;
+    cursor = start;
+    historyIndex = inputHistory.length;
+    redraw();
+  }
+
+  function clearDraft(): void {
+    if (value.length === 0) {
+      return;
+    }
+    value = "";
+    cursor = 0;
+    historyIndex = inputHistory.length;
+    redraw();
+  }
+
+  function deletePreviousWord(): void {
+    if (cursor === 0) {
+      return;
+    }
+    deleteRange(previousWordStart(value, cursor), cursor);
+  }
+
+  function deleteNextWord(): void {
+    if (cursor >= value.length) {
+      return;
+    }
+    deleteRange(cursor, nextWordEnd(value, cursor));
+  }
+
+  function moveCursor(nextCursor: number): void {
+    const clampedCursor = Math.max(0, Math.min(value.length, nextCursor));
+    if (clampedCursor === cursor) {
+      return;
+    }
+    cursor = clampedCursor;
+    redraw();
+  }
+
+  function moveWordLeft(): void {
+    moveCursor(previousWordStart(value, cursor));
+  }
+
+  function moveWordRight(): void {
+    moveCursor(nextWordEnd(value, cursor));
+  }
+
+  function moveLineStart(): void {
+    moveCursor(lineStartIndex(value, cursor));
+  }
+
+  function moveLineEnd(): void {
+    moveCursor(lineEndIndex(value, cursor));
+  }
+
+  function moveDraftStart(): void {
+    moveCursor(0);
+  }
+
+  function moveDraftEnd(): void {
+    moveCursor(value.length);
+  }
+
   function recallHistory(nextIndex: number): void {
     historyIndex = Math.max(0, Math.min(inputHistory.length, nextIndex));
     value = historyIndex === inputHistory.length ? "" : inputHistory[historyIndex] ?? "";
@@ -235,29 +302,56 @@ function createInteractivePromptReader(): {
       return;
     }
 
+    if (isClearDraftSequence(sequence)) {
+      clearDraft();
+      return;
+    }
+
+    if (isDeletePreviousWordSequence(sequence)) {
+      deletePreviousWord();
+      return;
+    }
+
+    if (isDeleteNextWordSequence(sequence)) {
+      deleteNextWord();
+      return;
+    }
+
     if (sequence === "\u007f" || sequence === "\b") {
       if (cursor === 0) {
         return;
       }
-      value = `${value.slice(0, cursor - 1)}${value.slice(cursor)}`;
-      cursor -= 1;
-      redraw();
+      deleteRange(cursor - 1, cursor);
+      return;
+    }
+
+    if (isMoveWordLeftSequence(sequence)) {
+      moveWordLeft();
+      return;
+    }
+
+    if (isMoveWordRightSequence(sequence)) {
+      moveWordRight();
       return;
     }
 
     if (sequence === "\x1b[D") {
-      if (cursor > 0) {
-        cursor -= 1;
-        redraw();
-      }
+      moveCursor(cursor - 1);
       return;
     }
 
     if (sequence === "\x1b[C") {
-      if (cursor < value.length) {
-        cursor += 1;
-        redraw();
-      }
+      moveCursor(cursor + 1);
+      return;
+    }
+
+    if (isMoveDraftStartSequence(sequence)) {
+      moveDraftStart();
+      return;
+    }
+
+    if (isMoveDraftEndSequence(sequence)) {
+      moveDraftEnd();
       return;
     }
 
@@ -273,21 +367,18 @@ function createInteractivePromptReader(): {
 
     if (sequence === "\x1b[3~") {
       if (cursor < value.length) {
-        value = `${value.slice(0, cursor)}${value.slice(cursor + 1)}`;
-        redraw();
+        deleteRange(cursor, cursor + 1);
       }
       return;
     }
 
-    if (sequence === "\x1b[H" || sequence === "\x1b[1~") {
-      cursor = lineStartIndex(value, cursor);
-      redraw();
+    if (isMoveLineStartSequence(sequence)) {
+      moveLineStart();
       return;
     }
 
-    if (sequence === "\x1b[F" || sequence === "\x1b[4~") {
-      cursor = lineEndIndex(value, cursor);
-      redraw();
+    if (isMoveLineEndSequence(sequence)) {
+      moveLineEnd();
       return;
     }
 
@@ -361,6 +452,62 @@ function isInsertNewlineSequence(sequence: string): boolean {
   ].some((pattern) => pattern.test(sequence));
 }
 
+function isClearDraftSequence(sequence: string): boolean {
+  if (sequence === "\u0015") {
+    return true;
+  }
+
+  return [
+    /^\x1b\[(?:8|127);9u$/u,
+    /^\x1b\[27;9;(?:8|127)~$/u,
+  ].some((pattern) => pattern.test(sequence));
+}
+
+function isDeletePreviousWordSequence(sequence: string): boolean {
+  if (["\u0017", "\x1b\u007f", "\x1b\b"].includes(sequence)) {
+    return true;
+  }
+
+  return [
+    /^\x1b\[(?:8|127);(?:3|5|7)u$/u,
+    /^\x1b\[27;(?:3|5|7);(?:8|127)~$/u,
+  ].some((pattern) => pattern.test(sequence));
+}
+
+function isDeleteNextWordSequence(sequence: string): boolean {
+  if (sequence === "\x1bd") {
+    return true;
+  }
+
+  return [
+    /^\x1b\[3;(?:3|5|7|9)~$/u,
+  ].some((pattern) => pattern.test(sequence));
+}
+
+function isMoveWordLeftSequence(sequence: string): boolean {
+  return ["\x1bb", "\x1b\x1b[D", "\x1b[5D"].includes(sequence) || /^\x1b\[1;(?:3|5|7)D$/u.test(sequence);
+}
+
+function isMoveWordRightSequence(sequence: string): boolean {
+  return ["\x1bf", "\x1b\x1b[C", "\x1b[5C"].includes(sequence) || /^\x1b\[1;(?:3|5|7)C$/u.test(sequence);
+}
+
+function isMoveDraftStartSequence(sequence: string): boolean {
+  return ["\x1b[1;9A", "\x1b[1;5H", "\x1b[7;5~"].includes(sequence);
+}
+
+function isMoveDraftEndSequence(sequence: string): boolean {
+  return ["\x1b[1;9B", "\x1b[1;5F", "\x1b[8;5~"].includes(sequence);
+}
+
+function isMoveLineStartSequence(sequence: string): boolean {
+  return ["\u0001", "\x1b[H", "\x1bOH", "\x1b[1~", "\x1b[7~", "\x1b[1;9D", "\x1b[1;9H"].includes(sequence);
+}
+
+function isMoveLineEndSequence(sequence: string): boolean {
+  return ["\u0005", "\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~", "\x1b[1;9C", "\x1b[1;9F"].includes(sequence);
+}
+
 function cursorPosition(value: string, cursor: number): {
   line: number;
   column: number;
@@ -379,6 +526,34 @@ function indexFromPosition(lines: string[], line: number, column: number): numbe
     index += (lines[currentLine]?.length ?? 0) + 1;
   }
   return index + Math.min(column, lines[line]?.length ?? 0);
+}
+
+function previousWordStart(value: string, cursor: number): number {
+  let index = cursor;
+
+  while (index > 0 && /\s/u.test(value[index - 1] ?? "")) {
+    index -= 1;
+  }
+
+  while (index > 0 && !/\s/u.test(value[index - 1] ?? "")) {
+    index -= 1;
+  }
+
+  return index;
+}
+
+function nextWordEnd(value: string, cursor: number): number {
+  let index = cursor;
+
+  while (index < value.length && /\s/u.test(value[index] ?? "")) {
+    index += 1;
+  }
+
+  while (index < value.length && !/\s/u.test(value[index] ?? "")) {
+    index += 1;
+  }
+
+  return index;
 }
 
 function lineStartIndex(value: string, cursor: number): number {

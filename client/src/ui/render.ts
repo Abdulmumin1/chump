@@ -111,6 +111,18 @@ export function createMarkdownStream(): {
   };
 }
 
+export function renderMarkdownBlock(value: string): string {
+  let inCodeBlock = false;
+  const rendered = value.split("\n").map((line) => {
+    const renderedLine = renderMarkdownLine(line, inCodeBlock);
+    if (line.trimStart().startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+    }
+    return renderedLine;
+  });
+  return rendered.join("\n");
+}
+
 function renderMarkdownLine(line: string, inCodeBlock: boolean): string {
   const trimmedStart = line.trimStart();
   const indent = line.slice(0, line.length - trimmedStart.length);
@@ -200,6 +212,8 @@ export type FileEditDiff = {
   changes?: FileEditChange[];
   lines?: string[];
   truncated: boolean;
+  shownChanges?: number;
+  totalChanges?: number;
 };
 
 export type FileEditChange = {
@@ -217,7 +231,11 @@ export function renderFileEditDiff(diff: FileEditDiff): string {
       .filter((line) => line.startsWith("+") || line.startsWith("-"))
       .map((line) => renderDiffLine(line));
   if (diff.truncated) {
-    lines.push(muted("... diff truncated"));
+    const detail =
+      typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"
+        ? ` (showing ${diff.shownChanges} of ${diff.totalChanges} changed lines)`
+        : "";
+    lines.push(muted(`... diff truncated${detail}`));
   }
   return [header, ...lines].join("\n");
 }

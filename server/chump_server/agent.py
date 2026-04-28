@@ -192,6 +192,10 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self.update_state(last_user_goal=None, read_files={})
         return {"status": "ok"}
 
+    @action
+    async def event_log(self) -> dict[str, Any]:
+        return {"events": list(self._event_log)}
+
     async def chat(self, message: str, **kwargs: Any) -> str:
         result = await self._start_chat_stream(message, **kwargs)
         chunks: list[str] = []

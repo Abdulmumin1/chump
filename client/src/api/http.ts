@@ -1,4 +1,5 @@
 import type {
+  AgentEventLogResponse,
   AgentMessagesResponse,
   AgentStateResponse,
   ChumpConfig,
@@ -103,6 +104,12 @@ export async function getMessages(
     throw new Error(await readErrorResponse(response));
   }
   return (await response.json()) as AgentMessagesResponse;
+}
+
+export async function getEventLog(
+  config: ChumpConfig,
+): Promise<AgentEventLogResponse> {
+  return await invokeAction<AgentEventLogResponse>(config, "event_log");
 }
 
 async function invokeAction<T>(
