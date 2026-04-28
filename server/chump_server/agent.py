@@ -5,7 +5,7 @@ from typing import Any, AsyncIterator
 
 from ai_query import step_count_is, stream_text
 from ai_query.agents import Agent, SQLiteStorage, action
-from ai_query.providers import anthropic, google, openai
+from ai_query.providers import anthropic, google, openai, workers_ai
 from ai_query.types import Message
 
 from .config import ChumpConfig, load_config
@@ -141,6 +141,8 @@ def resolve_model(config: ChumpConfig):
         return google(config.model)
     if provider_name == "anthropic":
         return anthropic(config.model)
+    if provider_name == "workers_ai":
+        return workers_ai(config.model)
     raise ValueError(f"unsupported provider: {config.provider}")
 
 

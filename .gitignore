@@ -4,6 +4,7 @@
 .plans/
 .chump/
 ai-query/
+opencode/
 
 client/node_modules/
 client/dist/

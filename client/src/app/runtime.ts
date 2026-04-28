@@ -539,7 +539,13 @@ async function managedServerMatchesEnvironment(url: string): Promise<boolean> {
 
 function matchesEnvString(name: string, actual: unknown): boolean {
   const expected = process.env[name];
-  return expected === undefined || actual === expected;
+  if (expected === undefined) {
+    return true;
+  }
+  if (name === "CHUMP_PROVIDER") {
+    return normalizeProviderName(actual) === normalizeProviderName(expected);
+  }
+  return actual === expected;
 }
 
 function matchesEnvNumber(name: string, actual: unknown): boolean {
@@ -571,6 +577,17 @@ function matchesReasoningEnv(actual: unknown): boolean {
 
 function buildServerUrl(port: number): string {
   return `http://127.0.0.1:${port}`;
+}
+
+function normalizeProviderName(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.trim().toLowerCase().replace(/-/g, "_");
+  if (normalized === "workersai") {
+    return "workers_ai";
+  }
+  return normalized;
 }
 
 function isAlreadyExistsError(error: unknown): boolean {

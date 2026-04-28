@@ -16,7 +16,7 @@ uv run chump-server
 - `CHUMP_PORT`: default `8080`
 - `CHUMP_WORKSPACE_ROOT`: defaults to the parent directory of `server/`
 - `CHUMP_DATA_DIR`: default `.chump`
-- `CHUMP_PROVIDER`: default `openai`
-- `CHUMP_MODEL`: default `gpt-4.1-mini`
+- `CHUMP_PROVIDER`: default `openai`; also supports `workers_ai`
+- `CHUMP_MODEL`: provider-specific default
 - `CHUMP_MAX_STEPS`: default `64`
 - `CHUMP_VERBOSE`: default `1`

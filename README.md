@@ -114,8 +114,8 @@ If you want to script against the backend or just poke it with `curl` because th
 - `CHUMP_PORT` — default `8080` when set manually, random free port when auto-managed
 - `CHUMP_WORKSPACE_ROOT` — workspace root override
 - `CHUMP_DATA_DIR` — where `.chump` data lives
-- `CHUMP_PROVIDER` — `openai`, `google`, or `anthropic`
-- `CHUMP_MODEL` — default `gpt-5.4`
+- `CHUMP_PROVIDER` — `openai`, `google`, `anthropic`, or `workers_ai`
+- `CHUMP_MODEL` — provider-specific default
 - `CHUMP_MAX_STEPS` — default `64`
 - `CHUMP_COMMAND_TIMEOUT` — default `120`
 - `CHUMP_REASONING_EFFORT` — one of `none|minimal|low|medium|high|xhigh`
