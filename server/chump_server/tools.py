@@ -13,6 +13,10 @@ from .config import ChumpConfig
 from .safety import SafetyError, WorkspaceGuard, validate_command
 
 
+DEFAULT_DIFF_CHANGE_LIMIT = 400
+DEFAULT_DIFF_TEXT_BUDGET = 32_000
+
+
 def build_tools(agent, config: ChumpConfig):
     guard = WorkspaceGuard(config.workspace_root)
 
@@ -247,19 +251,40 @@ def _result_metadata(value: str, limit: int = 160) -> dict[str, object]:
     }
 
 
-def _diff_metadata(path: str, before: str, after: str, limit: int = 80) -> dict[str, object]:
+def _diff_metadata(
+    path: str,
+    before: str,
+    after: str,
+    limit: int = DEFAULT_DIFF_CHANGE_LIMIT,
+    text_budget: int = DEFAULT_DIFF_TEXT_BUDGET,
+) -> dict[str, object]:
     before_lines = before.splitlines()
     after_lines = after.splitlines()
     changes = _diff_changes(before_lines, after_lines)
     added = sum(1 for change in changes if change["type"] == "add")
     removed = sum(1 for change in changes if change["type"] == "remove")
-    truncated = len(changes) > limit
+
+    visible_changes: list[dict[str, int | str | None]] = []
+    visible_text = 0
+    for change in changes:
+        text = change["text"]
+        text_size = len(text) if isinstance(text, str) else len(str(text))
+        over_limit = len(visible_changes) >= limit
+        over_budget = bool(visible_changes) and visible_text + text_size > text_budget
+        if over_limit or over_budget:
+            break
+        visible_changes.append(change)
+        visible_text += text_size
+
+    truncated = len(visible_changes) < len(changes)
     return {
         "path": path,
         "added": added,
         "removed": removed,
-        "changes": changes[:limit],
+        "changes": visible_changes,
         "truncated": truncated,
+        "shown_changes": len(visible_changes),
+        "total_changes": len(changes),
     }
 
 
