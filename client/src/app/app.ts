@@ -22,7 +22,11 @@ import {
   renderBanner,
   resolveWorkspaceRoot,
 } from "./config.ts";
-import { consumeToolActivity, startEventStream } from "../ui/events.ts";
+import {
+  consumeToolActivity,
+  setToolActivityHook,
+  startEventStream,
+} from "../ui/events.ts";
 import { createPromptReader } from "../ui/input.ts";
 import {
   renderSessionTranscript,
@@ -151,36 +155,42 @@ async function runChatTurn(
 ): Promise<void> {
   const spinner = createSpinner(setStatus);
   spinner.start();
+  setToolActivityHook(() => spinner.start());
   let receivedChunk = false;
   let separatedFromTools = false;
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
 
-  await streamChat(config, line, {
-    onChunk: (chunk) => {
-      spinner.stop();
-      receivedChunk = true;
-      if (!separatedFromTools) {
-        if (consumeToolActivity()) {
-          writeOutput("\n");
+  try {
+    await streamChat(config, line, {
+      onChunk: (chunk) => {
+        spinner.stop();
+        receivedChunk = true;
+        if (!separatedFromTools) {
+          if (consumeToolActivity()) {
+            writeOutput("\n");
+          }
+          separatedFromTools = true;
         }
-        separatedFromTools = true;
-      }
-      markdownStream ??= createMarkdownStream();
-      markdownStream.write(chunk);
-    },
-    onEnd: () => {
-      spinner.stop();
-      if (!receivedChunk) {
-        writeOutput(`${renderMuted("(no response)")}\n`);
-        return;
-      }
-      markdownStream?.end();
-    },
-    onError: (message) => {
-      spinner.stop();
-      writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
-    },
-  });
+        markdownStream ??= createMarkdownStream();
+        markdownStream.write(chunk);
+      },
+      onEnd: () => {
+        spinner.stop();
+        if (!receivedChunk) {
+          writeOutput(`${renderMuted("(no response)")}\n`);
+          return;
+        }
+        markdownStream?.end();
+      },
+      onError: (message) => {
+        spinner.stop();
+        writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
+      },
+    });
+  } finally {
+    spinner.stop();
+    setToolActivityHook(null);
+  }
 }
 
 async function readInputLoop(

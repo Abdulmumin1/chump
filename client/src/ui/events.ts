@@ -7,6 +7,11 @@ import { ToolActivityRenderer } from "./tool-activity.ts";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
 
 const toolActivityRenderer = new ToolActivityRenderer(writeOutputLine);
+let toolActivityHook: (() => void) | null = null;
+
+export function setToolActivityHook(hook: (() => void) | null): void {
+  toolActivityHook = hook;
+}
 
 export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {
   try {
@@ -25,6 +30,7 @@ function logEvent(event: SseEvent): void {
   const payload = parseEventPayload(event.data);
 
   if (event.event === "tool_call" && payload) {
+    toolActivityHook?.();
     toolActivityRenderer.renderToolCall(payload);
     return;
   }

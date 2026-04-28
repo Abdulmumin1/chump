@@ -12,6 +12,9 @@ export function createSpinner(onFrame: (frame: string | null) => void): {
 
   return {
     start() {
+      if (active) {
+        return;
+      }
       active = true;
       onFrame(renderFrame(frames[index] ?? "✶", label, index));
       timer = setInterval(() => {
