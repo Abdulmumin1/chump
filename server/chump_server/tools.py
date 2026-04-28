@@ -4,10 +4,13 @@ import asyncio
 import difflib
 import hashlib
 import json
+import os
 from pathlib import Path
+import signal
 from typing import Literal
 
 from ai_query import Field, tool
+from ai_query.types import AbortError
 
 from .config import ChumpConfig
 from .safety import SafetyError, WorkspaceGuard, validate_command
@@ -207,22 +210,52 @@ def build_tools(agent, config: ChumpConfig):
                 raise SafetyError(f"directory does not exist: {cwd}")
 
             await note_command(command)
+            abort_signal = getattr(agent, "current_abort_signal", None)
+            if abort_signal:
+                abort_signal.throw_if_aborted()
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=str(directory),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+
+            communicate_task = asyncio.create_task(process.communicate())
+            timeout_task = asyncio.create_task(asyncio.sleep(config.command_timeout))
+            abort_task = (
+                asyncio.create_task(abort_signal.wait())
+                if abort_signal
+                else None
             )
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=config.command_timeout,
+                wait_tasks = [communicate_task, timeout_task]
+                if abort_task:
+                    wait_tasks.append(abort_task)
+
+                done, pending = await asyncio.wait(
+                    wait_tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-            except asyncio.TimeoutError:
-                process.kill()
-                raise RuntimeError(
-                    f"command timed out after {config.command_timeout} seconds"
-                )
+
+                for task in pending:
+                    task.cancel()
+
+                if abort_task and abort_task in done:
+                    await _terminate_process(process)
+                    raise AbortError(abort_signal.reason)
+
+                if timeout_task in done:
+                    await _terminate_process(process)
+                    raise RuntimeError(
+                        f"command timed out after {config.command_timeout} seconds"
+                    )
+
+                stdout, stderr = communicate_task.result()
+            finally:
+                timeout_task.cancel()
+                if abort_task:
+                    abort_task.cancel()
 
             output = _truncate((stdout + stderr).decode().strip())
             if process.returncode != 0:
@@ -338,6 +371,26 @@ def _line_change(
 
 def _workspace_key(path: Path) -> str:
     return str(path)
+
+
+async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    try:
+        if process.returncode is not None:
+            return
+        if process.pid and hasattr(os, "killpg"):
+            os.killpg(process.pid, signal.SIGTERM)
+        else:
+            process.terminate()
+        await asyncio.wait_for(process.wait(), timeout=1)
+    except Exception:
+        try:
+            if process.pid and hasattr(os, "killpg"):
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+            await asyncio.wait_for(process.wait(), timeout=1)
+        except Exception:
+            pass
 
 
 def _fingerprint(path: Path) -> dict[str, object]:

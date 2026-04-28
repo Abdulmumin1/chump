@@ -2,6 +2,7 @@ import { createInterface } from "node:readline/promises";
 import process, { stdin as input, stdout as output } from "node:process";
 
 import {
+  abortCurrentTurn,
   clearMessages,
   getEventLog,
   getHealth,
@@ -101,6 +102,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   ]);
   promptReader.setFooter(renderFooter(config, health));
   promptReader.setSessionSuggestions(sessions.sessions);
+  promptReader.setAbortHandler(null);
 
   if (target.note) {
     console.log(`[server] ${target.note}`);
@@ -147,7 +149,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         continue;
       }
 
-      await runChatTurn(config, line, (status) => promptReader.setStatus(status));
+      await runChatTurn(
+        config,
+        line,
+        (status) => promptReader.setStatus(status),
+        (handler) => promptReader.setAbortHandler(handler),
+      );
     }
   } finally {
     promptReader.close();
@@ -159,10 +166,21 @@ async function runChatTurn(
   config: ChumpConfig,
   line: string,
   setStatus: (status: string | null) => void,
+  setAbortHandler: (handler: (() => void) | null) => void,
 ): Promise<void> {
+  const streamAbortController = new AbortController();
   let spinnerFrame: string | null = null;
   let reasoningTitle: string | null = null;
   let reasoningBuffer = "";
+  let aborting = false;
+  const abortTurn = (): void => {
+    if (aborting) {
+      return;
+    }
+    aborting = true;
+    void abortCurrentTurn(config).catch(() => {});
+    setStatus(renderMuted("Aborting..."));
+  };
   const hasReasoning = (): boolean => Boolean(reasoningTitle || reasoningBuffer.trim());
   const clearReasoning = (): void => {
     reasoningTitle = null;
@@ -197,6 +215,7 @@ async function runChatTurn(
     spinnerFrame = frame;
     syncStatus();
   });
+  setAbortHandler(abortTurn);
   spinner.start();
   setToolActivityHook(() => {
     flushReasoningTranscript();
@@ -235,6 +254,10 @@ async function runChatTurn(
       onEnd: () => {
         flushReasoningTranscript();
         spinner.stop();
+        if (aborting && !receivedChunk) {
+          writeOutput(`${renderMuted("(aborted)")}\n`);
+          return;
+        }
         if (!receivedChunk) {
           writeOutput(`${renderMuted("(no response)")}\n`);
           return;
@@ -244,11 +267,17 @@ async function runChatTurn(
       onError: (message) => {
         flushReasoningTranscript();
         spinner.stop();
+        if (aborting || /aborted/i.test(message)) {
+          writeOutput(`${renderMuted("(aborted)")}\n`);
+          return;
+        }
         writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
       },
-    });
+    }, streamAbortController.signal);
   } finally {
+    streamAbortController.abort();
     spinner.stop();
+    setAbortHandler(null);
     setToolActivityHook(null);
     setReasoningActivityHook(null);
   }

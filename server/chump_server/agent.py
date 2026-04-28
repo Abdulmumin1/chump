@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, AsyncIterator
 
 from ai_query import step_count_is, stream_text
 from ai_query.agents import Agent, SQLiteStorage, action
 from ai_query.providers import anthropic, google, openai, workers_ai
-from ai_query.types import Message
+from ai_query.types import AbortController, AbortError, AbortSignal, Message
 
 from .config import ChumpConfig, load_config
 from .tools import build_tools
@@ -152,6 +153,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
     def __init__(self, id: str):
         config = load_config()
         config.data_dir.mkdir(parents=True, exist_ok=True)
+        now = time.time()
         super().__init__(
             id,
             model=None,
@@ -159,6 +161,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
             storage=SQLiteStorage(str(config.data_dir / "chump.sqlite3")),
             initial_state={
                 "workspace_root": str(config.workspace_root),
+                "title": None,
+                "created_at": now,
+                "updated_at": now,
                 "last_user_goal": None,
                 "files_touched": [],
                 "read_files": {},
@@ -172,6 +177,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._config = config
         self.tools = build_tools(self, config)
         self._last_step_records: list[dict[str, Any]] = []
+        self._current_abort_controller: AbortController | None = None
 
     @action
     async def status(self) -> dict[str, Any]:
@@ -185,43 +191,94 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "reasoning": self._config.reasoning,
             "verbose": self._config.verbose,
             "message_count": len(self.messages),
+            "title": self.state.get("title"),
+            "created_at": self.state.get("created_at"),
+            "updated_at": self.state.get("updated_at"),
             "last_user_goal": self.state.get("last_user_goal"),
         }
 
     @action
     async def clear_messages(self) -> dict[str, str]:
+        now = time.time()
         await self.clear()
-        await self.update_state(last_user_goal=None, read_files={})
+        await self.update_state(last_user_goal=None, read_files={}, updated_at=now)
         return {"status": "ok"}
 
     @action
     async def event_log(self) -> dict[str, Any]:
         return {"events": list(self._event_log)}
 
-    async def chat(self, message: str, **kwargs: Any) -> str:
-        result = await self._start_chat_stream(message, **kwargs)
-        chunks: list[str] = []
-        async for chunk in result.text_stream:
-            chunks.append(chunk)
-        return await self._finalize_chat_stream(result, "".join(chunks))
+    @action
+    async def abort_current_turn(self) -> dict[str, Any]:
+        controller = self._current_abort_controller
+        if controller is None:
+            return {"status": "idle"}
+        controller.abort("aborted by user")
+        return {"status": "aborting"}
 
-    async def stream(self, message: str, **kwargs: Any) -> AsyncIterator[str]:
-        result = await self._start_chat_stream(message, **kwargs)
-        full_response = ""
-        async for chunk in result.text_stream:
-            full_response += chunk
-            yield chunk
+    @property
+    def current_abort_signal(self) -> AbortSignal | None:
+        controller = self._current_abort_controller
+        return controller.signal if controller else None
 
-        final_response = await self._finalize_chat_stream(result, full_response)
-        if not full_response.strip():
-            yield final_response
+    async def chat(
+        self,
+        message: str,
+        *,
+        signal: AbortSignal | None = None,
+        **kwargs: Any,
+    ) -> str:
+        try:
+            result = await self._start_chat_stream(message, signal=signal, **kwargs)
+            chunks: list[str] = []
+            async for chunk in result.text_stream:
+                chunks.append(chunk)
+            return await self._finalize_chat_stream(result, "".join(chunks))
+        except AbortError:
+            self._discard_last_user_message(message)
+            raise
 
-    async def _start_chat_stream(self, message: str, **kwargs: Any):
+    async def stream(
+        self,
+        message: str,
+        *,
+        signal: AbortSignal | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        try:
+            result = await self._start_chat_stream(message, signal=signal, **kwargs)
+            full_response = ""
+            async for chunk in result.text_stream:
+                full_response += chunk
+                yield chunk
+
+            final_response = await self._finalize_chat_stream(result, full_response)
+            if not full_response.strip():
+                yield final_response
+        except AbortError:
+            self._discard_last_user_message(message)
+            raise
+
+    async def _start_chat_stream(
+        self,
+        message: str,
+        *,
+        signal: AbortSignal | None = None,
+        **kwargs: Any,
+    ):
         self._ensure_model()
         self._last_step_records = []
         self._log(f"chat start: {message}")
         self._messages.append(Message(role="user", content=message))
-        await self.update_state(last_user_goal=message)
+        now = time.time()
+        created_at = self.state.get("created_at")
+        title = self.state.get("title")
+        await self.update_state(
+            title=title or build_session_title(message),
+            created_at=created_at if isinstance(created_at, (int, float)) else now,
+            updated_at=now,
+            last_user_goal=message,
+        )
 
         return stream_text(
             model=self.model,
@@ -231,11 +288,41 @@ class ChumpAgent(Agent[dict[str, Any]]):
             stop_when=self.stop_when,
             provider_options=self.provider_options,
             reasoning=self.reasoning,
+            signal=signal,
             on_reasoning_event=self._handle_reasoning_event,
             on_step_start=self._on_step_start,
             on_step_finish=self._on_step_finish,
             **kwargs,
         )
+
+    async def handle_request_stream(
+        self, request: dict[str, Any]
+    ) -> AsyncIterator[str]:
+        if self._state is None:
+            await self.start()
+
+        if request.get("action", "chat") != "chat":
+            yield 'event: error\ndata: "Streaming not supported for this action"\n\n'
+            return
+
+        message = request.get("message", "")
+        controller = AbortController()
+        self._current_abort_controller = controller
+
+        try:
+            yield "event: start\ndata: \n\n"
+
+            full_text = ""
+            async for chunk in self.stream(message, signal=controller.signal):
+                full_text += chunk
+                yield f"event: chunk\ndata: {json.dumps(chunk)}\n\n"
+
+            yield f"event: end\ndata: {json.dumps(full_text)}\n\n"
+        except Exception as exc:
+            yield f"event: error\ndata: {json.dumps(str(exc))}\n\n"
+        finally:
+            if self._current_abort_controller is controller:
+                self._current_abort_controller = None
 
     async def _finalize_chat_stream(self, result: Any, full_response: str) -> str:
         if not full_response.strip():
@@ -369,3 +456,19 @@ class ChumpAgent(Agent[dict[str, Any]]):
         if not self._config.verbose:
             return
         print(f"[chump:{self.id}] {message}", flush=True)
+
+    def _discard_last_user_message(self, message: str) -> None:
+        if not self._messages:
+            return
+        last = self._messages[-1]
+        if last.role == "user" and last.content == message:
+            self._messages.pop()
+
+
+def build_session_title(message: str) -> str:
+    normalized = " ".join(message.strip().split())
+    if not normalized:
+        return "Untitled session"
+    if len(normalized) <= 72:
+        return normalized
+    return normalized[:69].rstrip() + "..."

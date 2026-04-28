@@ -33,6 +33,9 @@ export type ChumpStatus = {
   reasoning: Record<string, unknown> | null;
   verbose: boolean;
   message_count: number;
+  title: string | null;
+  created_at: number | null;
+  updated_at: number | null;
   last_user_goal: string | null;
 };
 
@@ -54,6 +57,9 @@ export type ChumpHealth = {
 
 export type ChumpState = {
   workspace_root: string;
+  title: string | null;
+  created_at: number | null;
+  updated_at: number | null;
   last_user_goal: string | null;
   files_touched: string[];
   commands_run: string[];
@@ -89,6 +95,9 @@ export type SessionSummary = {
   active: boolean;
   message_count: number;
   event_count: number;
+  title: string | null;
+  created_at: number | null;
+  updated_at: number | null;
   last_user_goal: string | null;
   last_activity: number | null;
   connections: number;

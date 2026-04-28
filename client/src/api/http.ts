@@ -18,11 +18,13 @@ export async function streamChat(
     onEnd?: (fullText: string) => void;
     onError?: (message: string) => void;
   } = {},
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(
     `${buildAgentUrl(config)}/chat?stream=true`,
     {
       method: "POST",
+      signal,
       headers: {
         "content-type": "application/json",
       },
@@ -110,6 +112,12 @@ export async function getEventLog(
   config: ChumpConfig,
 ): Promise<AgentEventLogResponse> {
   return await invokeAction<AgentEventLogResponse>(config, "event_log");
+}
+
+export async function abortCurrentTurn(
+  config: ChumpConfig,
+): Promise<{ status: string }> {
+  return await invokeAction<{ status: string }>(config, "abort_current_turn");
 }
 
 async function invokeAction<T>(

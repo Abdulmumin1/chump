@@ -38,6 +38,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   read: () => Promise<string | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
@@ -47,6 +48,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       read: () => readPrompt(fallbackRl),
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
+      setAbortHandler: () => {},
       setSessionSuggestions: () => {},
       setStatus: () => {},
       setFooter: () => {},
@@ -65,6 +67,7 @@ function createInteractivePromptReader(): {
   read: () => Promise<string | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
@@ -83,6 +86,8 @@ function createInteractivePromptReader(): {
   let closed = false;
   let slashSelection = 0;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [] };
+  let abortHandler: (() => void) | null = null;
+  let lastEscapeAt = 0;
 
   function clear(): void {
     output.write("\r");
@@ -102,54 +107,56 @@ function createInteractivePromptReader(): {
     const target = cursorPosition(value, cursor);
     const slashMenu = getVisibleSlashMenu();
     const statusLines = statusLine ? statusLine.split("\n") : [];
-
-    clear();
-
-    output.write("\n");
-
-    for (const line of statusLines) {
-      output.write(`${line}\n`);
-    }
-
-    for (const queued of queuedDisplay) {
-      output.write(`${renderQueuedMessage(queued)}\n`);
-    }
-
-    for (const menuLine of renderSlashCommandMenu(
+    const footerLines = footerLine ? footerLine.split("\n") : [];
+    const menuLines = renderSlashCommandMenu(
       slashMenu.items,
       slashMenu.selectedIndex,
       {
         hiddenAbove: slashMenu.hiddenAbove,
         hiddenBelow: slashMenu.hiddenBelow,
       },
-    )) {
-      output.write(`${menuLine}\n`);
-    }
+    );
+    const promptLines = lines.map((line, index) =>
+      `${index === 0 ? renderPrompt() : renderContinuationPrompt()}${renderInput(line)}`
+    );
+    const frameLines = [
+      ...statusLines,
+      ...queuedDisplay.map((queued) => renderQueuedMessage(queued)),
+      ...menuLines,
+      ...promptLines,
+      ...footerLines,
+    ];
+    const cursorFrameLineIndex =
+      statusLines.length +
+      queuedDisplay.length +
+      menuLines.length +
+      target.line;
 
-    for (const [index, line] of lines.entries()) {
+    clear();
+
+    output.write("\n");
+
+    for (const [index, line] of frameLines.entries()) {
       if (index > 0) {
         output.write("\n");
       }
-      output.write(`${index === 0 ? renderPrompt() : renderContinuationPrompt()}${renderInput(line)}`);
+      output.write(line);
     }
 
-    if (footerLine) {
-      output.write(`\n${footerLine}`);
-    }
-
-    const rowsDown = lines.length - 1 - target.line;
-    if (footerLine) {
-      output.write("\x1b[1A");
-    }
-    if (rowsDown > 0) {
-      output.write(`\x1b[${rowsDown}A`);
+    const layout = measureFrameLayout(
+      frameLines,
+      cursorFrameLineIndex,
+      visibleLength(indexedPromptPrefix(target.line)) + target.column,
+    );
+    const rowsUp = layout.totalRows - 1 - layout.cursorRow;
+    if (rowsUp > 0) {
+      output.write(`\x1b[${rowsUp}A`);
     }
     output.write("\r");
-    const column = 3 + target.column;
-    if (column > 0) {
-      output.write(`\x1b[${column}C`);
+    if (layout.cursorColumn > 0) {
+      output.write(`\x1b[${layout.cursorColumn}C`);
     }
-    cursorLine = 1 + statusLines.length + queuedDisplay.length + slashMenu.lineCount + target.line;
+    cursorLine = layout.cursorRow;
   }
 
   function finish(result: string | null): void {
@@ -408,6 +415,19 @@ function createInteractivePromptReader(): {
       return;
     }
 
+    if (sequence === "\x1b") {
+      const now = Date.now();
+      if (abortHandler && now - lastEscapeAt <= 600) {
+        lastEscapeAt = 0;
+        abortHandler();
+        return;
+      }
+      lastEscapeAt = now;
+      return;
+    }
+
+    lastEscapeAt = 0;
+
     if (isInsertNewlineSequence(sequence)) {
       insertText("\n");
       return;
@@ -549,6 +569,10 @@ function createInteractivePromptReader(): {
       queuedDisplay.shift();
       redraw();
     },
+    setAbortHandler(handler: (() => void) | null) {
+      abortHandler = handler;
+      lastEscapeAt = 0;
+    },
     setSessionSuggestions(sessions: SessionSummary[]) {
       slashMenuContext = { sessions };
       syncSlashSelection();
@@ -563,6 +587,59 @@ function createInteractivePromptReader(): {
       redraw();
     },
   };
+}
+
+function measureFrameLayout(
+  lines: string[],
+  cursorLineIndex: number,
+  cursorColumn: number,
+): {
+  totalRows: number;
+  cursorRow: number;
+  cursorColumn: number;
+} {
+  let totalRows = 1;
+  let cursorRow = 1;
+
+  for (const [index, line] of lines.entries()) {
+    const rows = visualRows(line);
+    if (index < cursorLineIndex) {
+      cursorRow += rows;
+    }
+    totalRows += rows;
+  }
+
+  const width = terminalColumns();
+  const normalizedCursorColumn = Math.max(0, cursorColumn);
+  cursorRow += Math.floor(normalizedCursorColumn / width);
+
+  return {
+    totalRows,
+    cursorRow,
+    cursorColumn: normalizedCursorColumn % width,
+  };
+}
+
+function indexedPromptPrefix(line: number): string {
+  return line === 0 ? renderPrompt() : renderContinuationPrompt();
+}
+
+function visualRows(value: string): number {
+  const width = terminalColumns();
+  const length = Math.max(visibleLength(value), 1);
+  return Math.ceil(length / width);
+}
+
+function visibleLength(value: string): number {
+  return Array.from(stripAnsi(value)).length;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function terminalColumns(): number {
+  return Math.max(process.stdout.columns ?? 80, 20);
 }
 
 function isInsertNewlineSequence(sequence: string): boolean {

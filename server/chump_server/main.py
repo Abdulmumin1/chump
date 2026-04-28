@@ -75,11 +75,28 @@ class ChumpServer(AgentServer):
             messages = values.get(f"{session_id}:messages") or []
             event_log = values.get(f"{session_id}:event_log") or []
             active_meta = self._agents.get(session_id)
+            created_at = (
+                state.get("created_at")
+                if isinstance(state, dict)
+                else None
+            )
+            updated_at = (
+                state.get("updated_at")
+                if isinstance(state, dict)
+                else None
+            )
             sessions.append({
                 "id": session_id,
                 "active": session_id in active_ids,
                 "message_count": len(messages) if isinstance(messages, list) else 0,
                 "event_count": len(event_log) if isinstance(event_log, list) else 0,
+                "title": (
+                    state.get("title")
+                    if isinstance(state, dict)
+                    else None
+                ),
+                "created_at": created_at if isinstance(created_at, (int, float)) else None,
+                "updated_at": updated_at if isinstance(updated_at, (int, float)) else None,
                 "last_user_goal": (
                     state.get("last_user_goal")
                     if isinstance(state, dict)
@@ -88,6 +105,13 @@ class ChumpServer(AgentServer):
                 "last_activity": active_meta.last_activity if active_meta else None,
                 "connections": active_meta.connection_count if active_meta else 0,
             })
+        sessions.sort(
+            key=lambda session: (
+                session.get("updated_at") or session.get("created_at") or session.get("last_activity") or 0,
+                session["id"],
+            ),
+            reverse=True,
+        )
         return sessions
 
 

@@ -65,11 +65,17 @@ function completeSessionCommand(
     return [];
   }
 
-  const query = line.slice("/session".length).trim();
+  const query = line.slice("/session".length).trim().toLowerCase();
   return sessions
-    .filter((session) => query.length === 0 || session.id.startsWith(query))
+    .filter((session) => {
+      if (query.length === 0) {
+        return true;
+      }
+      const title = sessionTitle(session).toLowerCase();
+      return title.includes(query) || session.id.toLowerCase().startsWith(query);
+    })
     .map((session) => ({
-      label: session.id,
+      label: sessionTitle(session),
       command: `/session ${session.id}`,
       description: describeSession(session),
       action: "submit" as const,
@@ -77,14 +83,32 @@ function completeSessionCommand(
 }
 
 function describeSession(session: SessionSummary): string {
-  const parts = [`${session.message_count} msgs`];
-  if (session.active) {
-    parts.push("active");
-  }
-  if (session.last_user_goal) {
-    parts.push(session.last_user_goal);
-  }
+  const parts = [
+    session.updated_at ? `updated ${formatSessionTime(session.updated_at)}` : null,
+    session.created_at ? `created ${formatSessionTime(session.created_at)}` : null,
+  ].filter(Boolean);
   return parts.join(" · ");
+}
+
+function sessionTitle(session: SessionSummary): string {
+  const title = session.title?.trim() || session.last_user_goal?.trim();
+  return clipSessionTitle(title || "Untitled session");
+}
+
+function clipSessionTitle(value: string): string {
+  if (value.length <= 72) {
+    return value;
+  }
+  return `${value.slice(0, 69).trimEnd()}...`;
+}
+
+function formatSessionTime(value: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value * 1000));
 }
 
 function toSuggestion(command: {

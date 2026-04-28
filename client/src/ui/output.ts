@@ -78,6 +78,9 @@ export function renderSessions(
     active: boolean;
     message_count: number;
     event_count: number;
+    title: string | null;
+    created_at: number | null;
+    updated_at: number | null;
     last_user_goal: string | null;
   }>,
 ): void {
@@ -87,10 +90,15 @@ export function renderSessions(
   }
 
   for (const session of sessions) {
-    const active = session.active ? "active" : "stored";
-    const goal = session.last_user_goal ? ` ${session.last_user_goal}` : "";
+    const title = sessionTitle(session);
+    const updated = session.updated_at ? `updated ${formatSessionTime(session.updated_at)}` : null;
+    const created = session.created_at ? `created ${formatSessionTime(session.created_at)}` : null;
+    const details = [
+      updated ? renderMuted(updated) : null,
+      created ? renderMuted(created) : null,
+    ].filter(Boolean).join(" · ");
     writeOutputLine(
-      `${session.id} ${renderMuted(active)} messages=${session.message_count} events=${session.event_count}${goal}`,
+      details ? `${title}\n${details}` : title,
     );
   }
 }
@@ -365,4 +373,28 @@ function formatStoredPart(part: unknown): string {
   }
 
   return JSON.stringify(value, null, 2);
+}
+
+function formatSessionTime(value: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value * 1000));
+}
+
+function sessionTitle(session: {
+  title: string | null;
+  last_user_goal: string | null;
+}): string {
+  const title = session.title?.trim() || session.last_user_goal?.trim();
+  return clipSessionTitle(title || "Untitled session");
+}
+
+function clipSessionTitle(value: string): string {
+  if (value.length <= 72) {
+    return value;
+  }
+  return `${value.slice(0, 69).trimEnd()}...`;
 }

@@ -1,11 +1,11 @@
 import {
-  renderThinkingLabel,
-  renderThinkingText,
+  renderThinkingBlock,
 } from "./render.ts";
 import { writeOutput } from "./terminal.ts";
 
 export class ReasoningRenderer {
-  private active = false;
+  private title: string | null = null;
+  private buffer = "";
   private activity = false;
 
   consumeActivity(): boolean {
@@ -20,20 +20,22 @@ export class ReasoningRenderer {
       return;
     }
 
-    if (!this.active) {
-      writeOutput(`\n${renderThinkingLabel()} `);
-      this.active = true;
+    if (payload.kind === "summary") {
+      this.title = text.trim() || this.title;
+    } else {
+      this.buffer += text;
     }
-
-    writeOutput(renderThinkingText(text));
     this.activity = true;
   }
 
   flush(): void {
-    if (!this.active) {
+    const content = this.buffer.trim();
+    if (!this.title && !content) {
       return;
     }
-    writeOutput("\n\n");
-    this.active = false;
+    const block = renderThinkingBlock(this.title, this.buffer);
+    writeOutput(`\n${block.join("\n")}\n\n`);
+    this.title = null;
+    this.buffer = "";
   }
 }
