@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from chump_server.tools import DEFAULT_DIFF_CHANGE_LIMIT, _diff_metadata
+from chump_server.tools._utils import DEFAULT_DIFF_CHANGE_LIMIT, _diff_metadata
 
 
 class DiffMetadataTests(unittest.TestCase):

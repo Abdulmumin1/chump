@@ -28,14 +28,15 @@ export class ToolActivityRenderer {
 
   renderToolCall(payload: Record<string, unknown>): void {
     const toolName = readToolName(payload);
+    const label = displayToolName(toolName);
     const renderedArgs = formatToolArgs(toolName, payload.args ?? payload.payload);
     if (toolName === "bash") {
       this.writeLine(`\n${renderCommand(renderedArgs)}`);
       this.activity = true;
       return;
     }
-    if (toolName === "read_file") {
-      this.writeLine(`\n${renderToolDone(toolName, renderedArgs)}`);
+    if (toolName === "read_file" || toolName === "web_fetch" || toolName === "website") {
+      this.writeLine(`\n${renderToolDone(label, renderedArgs)}`);
       this.activity = true;
       this.pendingTools.push({ name: toolName, args: renderedArgs });
       return;
@@ -45,6 +46,7 @@ export class ToolActivityRenderer {
 
   renderToolResult(payload: Record<string, unknown>): void {
     const toolName = readToolName(payload);
+    const label = displayToolName(toolName);
     const ok =
       typeof payload.status === "string"
         ? payload.status
@@ -57,26 +59,30 @@ export class ToolActivityRenderer {
       return;
     }
 
-    const diff = readFileEditDiff(payload);
-    if (ok === "ok" && diff && (toolName === "write_file" || toolName === "replace_in_file")) {
+    const diffs = readFileEditDiffs(payload);
+    if (
+      ok === "ok" &&
+      diffs.length > 0 &&
+      (toolName === "write_file" || toolName === "replace_in_file" || toolName === "apply_patch")
+    ) {
       this.takePendingTool(toolName);
-      this.writeLine(`\n${renderFileEditDiff(diff)}`);
+      this.writeLine(`\n${diffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`);
       this.activity = true;
       return;
     }
 
     const pending = this.takePendingTool(toolName);
-    if (ok === "ok" && toolName === "read_file") {
+    if (ok === "ok" && (toolName === "read_file" || toolName === "web_fetch" || toolName === "website")) {
       return;
     }
 
     if (ok === "ok" && pending) {
-      this.writeLine(`\n${renderToolDone(toolName, pending.args)}`);
+      this.writeLine(`\n${renderToolDone(label, pending.args)}`);
       this.activity = true;
       return;
     }
 
-    this.writeLine(`\n${renderToolResult(ok, toolName, preview)}`);
+    this.writeLine(`\n${renderToolResult(ok, label, preview)}`);
     this.activity = true;
   }
 
@@ -106,6 +112,16 @@ export function readToolName(payload: Record<string, unknown>): string {
   return "tool";
 }
 
+function displayToolName(name: string): string {
+  if (name === "web_fetch") {
+    return "fetch";
+  }
+  if (name === "website") {
+    return "web search";
+  }
+  return name;
+}
+
 export function formatToolArgs(toolName: string, value: unknown): string {
   if (!value || typeof value !== "object") {
     return "";
@@ -127,6 +143,18 @@ export function formatToolArgs(toolName: string, value: unknown): string {
     return typeof args.command === "string" ? args.command : "";
   }
 
+  if (toolName === "apply_patch") {
+    return "";
+  }
+
+  if (toolName === "web_fetch") {
+    return typeof args.url === "string" ? args.url : "";
+  }
+
+  if (toolName === "website") {
+    return typeof args.query === "string" ? args.query : "";
+  }
+
   return compactJson(value);
 }
 
@@ -141,8 +169,10 @@ export function compactJson(value: unknown): string {
   return `${encoded.slice(0, 117)}...`;
 }
 
-function readFileEditDiff(payload: Record<string, unknown>): {
+type FileEditDiffPayload = {
   path: string;
+  kind?: "add" | "update" | "delete" | "move";
+  sourcePath?: string | null;
   added: number;
   removed: number;
   changes?: Array<{
@@ -155,38 +185,43 @@ function readFileEditDiff(payload: Record<string, unknown>): {
   truncated: boolean;
   shownChanges?: number;
   totalChanges?: number;
-} | null {
-  const metadata = payload.metadata;
-  if (!metadata || typeof metadata !== "object") {
+};
+
+function readFileEditDiff(value: unknown): FileEditDiffPayload | null {
+  if (!value || typeof value !== "object") {
     return null;
   }
-  const diff = (metadata as Record<string, unknown>).diff;
-  if (!diff || typeof diff !== "object") {
-    return null;
-  }
-  const value = diff as Record<string, unknown>;
+  const diff = value as Record<string, unknown>;
   if (
-    typeof value.path !== "string" ||
-    typeof value.added !== "number" ||
-    typeof value.removed !== "number"
+    typeof diff.path !== "string" ||
+    typeof diff.added !== "number" ||
+    typeof diff.removed !== "number"
   ) {
     return null;
   }
-  const changes = Array.isArray(value.changes)
-    ? value.changes.map(readFileEditChange).filter((change) => change !== null)
+  const changes = Array.isArray(diff.changes)
+    ? diff.changes.map(readFileEditChange).filter((change) => change !== null)
     : undefined;
-  const lines = Array.isArray(value.lines)
-    ? value.lines.filter((line): line is string => typeof line === "string")
+  const lines = Array.isArray(diff.lines)
+    ? diff.lines.filter((line): line is string => typeof line === "string")
     : undefined;
   return {
-    path: value.path,
-    added: value.added,
-    removed: value.removed,
+    path: diff.path,
+    kind:
+      diff.kind === "add" ||
+      diff.kind === "update" ||
+      diff.kind === "delete" ||
+      diff.kind === "move"
+        ? diff.kind
+        : undefined,
+    sourcePath: typeof diff.source_path === "string" ? diff.source_path : null,
+    added: diff.added,
+    removed: diff.removed,
     changes,
     lines,
-    truncated: value.truncated === true,
-    shownChanges: typeof value.shown_changes === "number" ? value.shown_changes : undefined,
-    totalChanges: typeof value.total_changes === "number" ? value.total_changes : undefined,
+    truncated: diff.truncated === true,
+    shownChanges: typeof diff.shown_changes === "number" ? diff.shown_changes : undefined,
+    totalChanges: typeof diff.total_changes === "number" ? diff.total_changes : undefined,
   };
 }
 
@@ -212,6 +247,24 @@ function readFileEditChange(value: unknown): {
     newLine: typeof change.new_line === "number" ? change.new_line : null,
     text: change.text,
   };
+}
+
+function readFileEditDiffs(payload: Record<string, unknown>): FileEditDiffPayload[] {
+  const metadata = payload.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return [];
+  }
+
+  const value = metadata as Record<string, unknown>;
+  const files = Array.isArray(value.files)
+    ? value.files.map(readFileEditDiff).filter((diff) => diff !== null)
+    : [];
+  if (files.length > 0) {
+    return files;
+  }
+
+  const diff = readFileEditDiff(value.diff);
+  return diff ? [diff] : [];
 }
 
 function truncatePreview(value: string, limit: number): string {

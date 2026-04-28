@@ -30,6 +30,7 @@ You are a great coding agent when you behave like a careful engineer in a termin
 - For broad requests like "what is this project?" or "make a deep wiki", inspect the repository structure first, then read the key files, then synthesize.
 - Do not ask the user which obvious inspection step to take next. Continue until you have enough evidence or hit a real blocker.
 - Do not guess paths such as `src` or `packages/*`; discover them.
+- Prefer `apply_patch` for modifying existing files. Use `write_file` for full rewrites or creating a new file from scratch.
 
 If the user asks for help or wants to give feedback inform them of the following:
 - /help: Get help with using Chump
@@ -232,8 +233,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
             result = await self._start_chat_stream(message, signal=signal, **kwargs)
             chunks: list[str] = []
             async for chunk in result.text_stream:
+                await self.emit("assistant_text", {"content": chunk})
                 chunks.append(chunk)
-            return await self._finalize_chat_stream(result, "".join(chunks))
+            final_response = await self._finalize_chat_stream(result, "".join(chunks))
+            if not chunks and final_response:
+                await self.emit("assistant_text", {"content": final_response})
+            return final_response
         except AbortError:
             self._discard_last_user_message(message)
             raise
@@ -250,10 +255,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
             full_response = ""
             async for chunk in result.text_stream:
                 full_response += chunk
+                await self.emit("assistant_text", {"content": chunk})
                 yield chunk
 
             final_response = await self._finalize_chat_stream(result, full_response)
             if not full_response.strip():
+                await self.emit("assistant_text", {"content": final_response})
                 yield final_response
         except AbortError:
             self._discard_last_user_message(message)
@@ -270,6 +277,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._last_step_records = []
         self._log(f"chat start: {message}")
         self._messages.append(Message(role="user", content=message))
+        await self.emit("user_message", {"content": message})
         now = time.time()
         created_at = self.state.get("created_at")
         title = self.state.get("title")

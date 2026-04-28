@@ -209,6 +209,8 @@ export function renderToolDone(name: string, args: string): string {
 
 export type FileEditDiff = {
   path: string;
+  kind?: "add" | "update" | "delete" | "move";
+  sourcePath?: string | null;
   added: number;
   removed: number;
   changes?: FileEditChange[];
@@ -226,7 +228,7 @@ export type FileEditChange = {
 };
 
 export function renderFileEditDiff(diff: FileEditDiff): string {
-  const header = `${muted("•")} ${bold(fg(palette.editHeader, "Edited"))} ${foreground(diff.path)} ${success(`(+${diff.added}`)} ${danger(`-${diff.removed})`)}`;
+  const header = `${muted("•")} ${bold(fg(palette.editHeader, renderEditVerb(diff)))} ${foreground(renderEditTarget(diff))} ${success(`(+${diff.added}`)} ${danger(`-${diff.removed})`)}`;
   const lines = diff.changes
     ? diff.changes.map((change) => renderDiffChange(change))
     : (diff.lines ?? [])
@@ -240,6 +242,26 @@ export function renderFileEditDiff(diff: FileEditDiff): string {
     lines.push(muted(`... diff truncated${detail}`));
   }
   return [header, ...lines].join("\n");
+}
+
+function renderEditVerb(diff: FileEditDiff): string {
+  if (diff.kind === "add") {
+    return "Added";
+  }
+  if (diff.kind === "delete") {
+    return "Deleted";
+  }
+  if (diff.kind === "move") {
+    return "Moved";
+  }
+  return "Edited";
+}
+
+function renderEditTarget(diff: FileEditDiff): string {
+  if (diff.kind === "move" && diff.sourcePath) {
+    return `${diff.sourcePath} → ${diff.path}`;
+  }
+  return diff.path;
 }
 
 function renderDiffChange(change: FileEditChange): string {

@@ -1,4 +1,5 @@
 import {
+  createMarkdownStream,
   renderMarkdownBlock,
   renderMuted,
   renderUserMessage,
@@ -31,6 +32,18 @@ export function renderSessionTranscript(
   messages: Array<{ role: string; content: unknown }>,
   events: StoredEvent[] = [],
 ): void {
+  if (hasExactTranscript(events)) {
+    renderEventTimeline(events);
+    return;
+  }
+
+  renderApproximateTranscript(messages, events);
+}
+
+function renderApproximateTranscript(
+  messages: Array<{ role: string; content: unknown }>,
+  events: StoredEvent[] = [],
+): void {
   if (messages.length === 0) {
     writeOutputLine(renderMuted("(no messages in session)"));
     return;
@@ -49,6 +62,7 @@ export function renderSessionTranscript(
 
     if (message.role === "assistant" || message.role === "tool") {
       replayEvents.renderLeadingReasoning(reasoningRenderer);
+      reasoningRenderer.flush();
       renderedMessages += renderAssistantContent(
         message.content,
         toolRenderer,
@@ -59,6 +73,7 @@ export function renderSessionTranscript(
 
     const text = extractTextContent(message.content).trim();
     if (text.length > 0) {
+      reasoningRenderer.flush();
       writeOutputLine(renderMuted(`[${message.role}] ${text}`));
       renderedMessages += 1;
     }
@@ -70,6 +85,71 @@ export function renderSessionTranscript(
 
   replayEvents.renderLeadingReasoning(reasoningRenderer);
   reasoningRenderer.flush();
+}
+
+function renderEventTimeline(events: StoredEvent[]): void {
+  const toolRenderer = new ToolActivityRenderer(writeOutputLine);
+  const reasoningRenderer = new ReasoningRenderer();
+  let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
+  let renderedItems = 0;
+
+  const flushAssistantText = (): void => {
+    markdownStream?.end();
+    markdownStream = null;
+  };
+
+  for (const event of events) {
+    switch (event.type) {
+      case "user_message": {
+        flushAssistantText();
+        reasoningRenderer.flush();
+        const text = typeof event.data.content === "string" ? event.data.content.trim() : "";
+        if (!text) {
+          break;
+        }
+        writeOutput(`${renderUserMessage(text)}\n`);
+        renderedItems += 1;
+        break;
+      }
+      case "reasoning":
+        flushAssistantText();
+        reasoningRenderer.render(event.data);
+        renderedItems += 1;
+        break;
+      case "assistant_text": {
+        reasoningRenderer.flush();
+        const text = typeof event.data.content === "string" ? event.data.content : "";
+        if (!text) {
+          break;
+        }
+        markdownStream ??= createMarkdownStream();
+        markdownStream.write(text);
+        renderedItems += 1;
+        break;
+      }
+      case "tool_call":
+        flushAssistantText();
+        reasoningRenderer.flush();
+        toolRenderer.renderToolCall(event.data);
+        renderedItems += 1;
+        break;
+      case "tool_result":
+        flushAssistantText();
+        reasoningRenderer.flush();
+        toolRenderer.renderToolResult(event.data);
+        renderedItems += 1;
+        break;
+      default:
+        break;
+    }
+  }
+
+  flushAssistantText();
+  reasoningRenderer.flush();
+
+  if (renderedItems === 0) {
+    writeOutputLine(renderMuted("(no renderable messages in session)"));
+  }
 }
 
 export function renderSessions(
@@ -226,6 +306,10 @@ class TranscriptEventCursor {
     }
     return null;
   }
+}
+
+function hasExactTranscript(events: StoredEvent[]): boolean {
+  return events.some((event) => event.type === "user_message" || event.type === "assistant_text");
 }
 
 function readEventToolName(data: Record<string, unknown>): string | null {
