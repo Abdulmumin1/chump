@@ -322,6 +322,62 @@ export function renderQueuedMessage(message: string): string {
   return muted(`queued: ${clipped}`);
 }
 
+export function renderSlashCommandMenu(
+  items: Array<{ label: string; description: string }>,
+  selectedIndex: number,
+  meta: {
+    hiddenAbove: number;
+    hiddenBelow: number;
+  } = { hiddenAbove: 0, hiddenBelow: 0 },
+): string[] {
+  const width = Math.max(48, Math.min(process.stdout.columns ?? 80, 96));
+  const commandWidth = Math.max(
+    12,
+    Math.min(
+      18,
+      items.reduce((max, item) => Math.max(max, item.label.length), 0) + 2,
+    ),
+  );
+
+  const lines: string[] = [];
+  if (meta.hiddenAbove > 0) {
+    lines.push(muted(`  ${meta.hiddenAbove} more`));
+  }
+
+  lines.push(...items.map((item, index) =>
+    renderSlashCommandMenuItem(item.label, item.description, index === selectedIndex, width, commandWidth)
+  ));
+
+  if (meta.hiddenBelow > 0) {
+    lines.push(muted(`  ${meta.hiddenBelow} more`));
+  }
+
+  return lines;
+}
+
+function renderSlashCommandMenuItem(
+  command: string,
+  description: string,
+  selected: boolean,
+  width: number,
+  commandWidth: number,
+): string {
+  const gap = "  ";
+  const raw = `${command.padEnd(commandWidth, " ")}${gap}${description}`;
+  const clipped = raw.length > width ? `${raw.slice(0, width - 3)}...` : raw.padEnd(width, " ");
+  if (!selected) {
+    return `${foreground(command.padEnd(commandWidth, " "))}${muted(gap)}${muted(clipped.slice(commandWidth + gap.length))}`;
+  }
+
+  const commandPart = clipped.slice(0, commandWidth);
+  const gapPart = clipped.slice(commandWidth, commandWidth + gap.length);
+  const descriptionPart = clipped.slice(commandWidth + gap.length);
+  return bg(
+    "#494d54",
+    `${bold(accent(commandPart))}${muted(gapPart)}${bold(foreground(descriptionPart))}`,
+  );
+}
+
 export function renderUserMessage(message: string): string {
   const lines = message.split("\n");
   const [firstLine = "", ...rest] = lines;

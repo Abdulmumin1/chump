@@ -34,7 +34,7 @@ export function renderBanner(config: ChumpConfig): string {
     `workspace: ${config.workspaceRoot.replace(os.homedir(), "~")}`,
     "",
     "Live chat, tool activity, status, state, and clear commands are enabled.",
-    "Type /help for commands, /session new for a fresh session, or /quit to exit.",
+    "Type /help for commands, /new for a fresh session, or /quit to exit.",
   ].join("\n");
 }
 

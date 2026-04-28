@@ -104,6 +104,23 @@ export type SseEvent = {
   id?: string;
 };
 
+export type SlashCommandSuggestion = {
+  label: string;
+  command: string;
+  description: string;
+  action: "submit" | "fill";
+};
+
+export type SlashCommandMenuContext = {
+  sessions: SessionSummary[];
+};
+
+export type SlashCommandSuggestionView = {
+  label: string;
+  command: string;
+  description: string;
+};
+
 export type SlashCommand =
   | "help"
   | "status"

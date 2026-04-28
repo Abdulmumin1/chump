@@ -3,12 +3,19 @@ import type { Interface } from "node:readline/promises";
 import process, { stdin as input, stdout as output } from "node:process";
 
 import { completeSlashCommand } from "../app/commands.ts";
+import type {
+  SessionSummary,
+  SlashCommandMenuContext,
+  SlashCommandSuggestion,
+  SlashCommandSuggestionView,
+} from "../core/types.ts";
 import { setActiveDraft } from "./terminal.ts";
 import {
   renderContinuationPrompt,
   renderInput,
   renderPrompt,
   renderQueuedMessage,
+  renderSlashCommandMenu,
 } from "./render.ts";
 
 const inputHistory: string[] = [];
@@ -31,6 +38,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   read: () => Promise<string | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
 } {
@@ -39,6 +47,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       read: () => readPrompt(fallbackRl),
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
+      setSessionSuggestions: () => {},
       setStatus: () => {},
       setFooter: () => {},
     };
@@ -56,6 +65,7 @@ function createInteractivePromptReader(): {
   read: () => Promise<string | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
 } {
@@ -71,6 +81,8 @@ function createInteractivePromptReader(): {
   let statusLine: string | null = null;
   let footerLine: string | null = null;
   let closed = false;
+  let slashSelection = 0;
+  let slashMenuContext: SlashCommandMenuContext = { sessions: [] };
 
   function clear(): void {
     output.write("\r");
@@ -88,6 +100,7 @@ function createInteractivePromptReader(): {
 
     const lines = value.split("\n");
     const target = cursorPosition(value, cursor);
+    const slashMenu = getVisibleSlashMenu();
 
     clear();
 
@@ -99,6 +112,17 @@ function createInteractivePromptReader(): {
 
     for (const queued of queuedDisplay) {
       output.write(`${renderQueuedMessage(queued)}\n`);
+    }
+
+    for (const menuLine of renderSlashCommandMenu(
+      slashMenu.items,
+      slashMenu.selectedIndex,
+      {
+        hiddenAbove: slashMenu.hiddenAbove,
+        hiddenBelow: slashMenu.hiddenBelow,
+      },
+    )) {
+      output.write(`${menuLine}\n`);
     }
 
     for (const [index, line] of lines.entries()) {
@@ -124,7 +148,7 @@ function createInteractivePromptReader(): {
     if (column > 0) {
       output.write(`\x1b[${column}C`);
     }
-    cursorLine = 1 + (statusLine ? 1 : 0) + queuedDisplay.length + target.line;
+    cursorLine = 1 + (statusLine ? 1 : 0) + queuedDisplay.length + slashMenu.lineCount + target.line;
   }
 
   function finish(result: string | null): void {
@@ -158,6 +182,8 @@ function createInteractivePromptReader(): {
     value = `${value.slice(0, cursor)}${text}${value.slice(cursor)}`;
     cursor += text.length;
     historyIndex = inputHistory.length;
+    slashSelection = 0;
+    syncSlashSelection();
     redraw();
   }
 
@@ -168,6 +194,8 @@ function createInteractivePromptReader(): {
     value = `${value.slice(0, start)}${value.slice(end)}`;
     cursor = start;
     historyIndex = inputHistory.length;
+    slashSelection = 0;
+    syncSlashSelection();
     redraw();
   }
 
@@ -178,6 +206,8 @@ function createInteractivePromptReader(): {
     value = "";
     cursor = 0;
     historyIndex = inputHistory.length;
+    slashSelection = 0;
+    syncSlashSelection();
     redraw();
   }
 
@@ -232,10 +262,112 @@ function createInteractivePromptReader(): {
     historyIndex = Math.max(0, Math.min(inputHistory.length, nextIndex));
     value = historyIndex === inputHistory.length ? "" : inputHistory[historyIndex] ?? "";
     cursor = value.length;
+    slashSelection = 0;
+    syncSlashSelection();
     redraw();
   }
 
+  function getSlashMenuState(): {
+    views: SlashCommandSuggestionView[];
+    suggestions: SlashCommandSuggestion[];
+  } {
+    if (value.includes("\n") || !value.startsWith("/")) {
+      return { views: [], suggestions: [] };
+    }
+    const [views, , suggestions] = completeSlashCommand(value, slashMenuContext);
+    return {
+      views,
+      suggestions,
+    };
+  }
+
+  function getVisibleSlashMenu(): {
+    items: SlashCommandSuggestionView[];
+    selectedIndex: number;
+    hiddenAbove: number;
+    hiddenBelow: number;
+    lineCount: number;
+  } {
+    const state = getSlashMenuState();
+    if (state.views.length === 0) {
+      return {
+        items: [],
+        selectedIndex: 0,
+        hiddenAbove: 0,
+        hiddenBelow: 0,
+        lineCount: 0,
+      };
+    }
+
+    const maxVisible = 6;
+    const total = state.views.length;
+    const start = Math.max(
+      0,
+      Math.min(total - maxVisible, slashSelection - Math.floor(maxVisible / 2)),
+    );
+    const end = Math.min(total, start + maxVisible);
+    const items = state.views.slice(start, end);
+    const hiddenAbove = start;
+    const hiddenBelow = total - end;
+
+    return {
+      items,
+      selectedIndex: slashSelection - start,
+      hiddenAbove,
+      hiddenBelow,
+      lineCount: items.length + (hiddenAbove > 0 ? 1 : 0) + (hiddenBelow > 0 ? 1 : 0),
+    };
+  }
+
+  function syncSlashSelection(): void {
+    const state = getSlashMenuState();
+    if (state.suggestions.length === 0) {
+      slashSelection = 0;
+      return;
+    }
+    slashSelection = Math.max(0, Math.min(slashSelection, state.suggestions.length - 1));
+  }
+
+  function moveSlashSelection(direction: -1 | 1): boolean {
+    const state = getSlashMenuState();
+    if (state.suggestions.length === 0) {
+      return false;
+    }
+    slashSelection = (slashSelection + direction + state.suggestions.length) % state.suggestions.length;
+    redraw();
+    return true;
+  }
+
+  function applySlashSelection(submitIfSelected: boolean): boolean {
+    const state = getSlashMenuState();
+    if (state.suggestions.length === 0) {
+      return false;
+    }
+    const selected = state.suggestions[slashSelection];
+    if (!selected) {
+      return false;
+    }
+    if (selected.action === "submit" && submitIfSelected) {
+      cursor = selected.command.length;
+      finish(selected.command);
+      return true;
+    }
+    if (value === selected.command) {
+      return false;
+    }
+    value = selected.command;
+    cursor = value.length;
+    historyIndex = inputHistory.length;
+    syncSlashSelection();
+    redraw();
+    return true;
+  }
+
   function moveVertical(direction: -1 | 1): void {
+    if (moveSlashSelection(direction)) {
+      return;
+    }
+
     const position = cursorPosition(value, cursor);
     const lines = value.split("\n");
     const targetLine = position.line + direction;
@@ -280,23 +412,10 @@ function createInteractivePromptReader(): {
       return;
     }
 
-    if (sequence === "\r") {
-      cursor = value.length;
-      finish(value);
-      return;
-    }
-
     if (sequence === "\t") {
       if (!value.includes("\n") && value.startsWith("/")) {
-        const [matches] = completeSlashCommand(value);
-        if (matches.length === 1) {
-          value = matches[0];
-          cursor = value.length;
-          redraw();
-        } else if (matches.length > 1) {
-          clear();
-          output.write(`${matches.join("  ")}\n`);
-          redraw();
+        if (!applySlashSelection(false)) {
+          moveSlashSelection(1);
         }
       }
       return;
@@ -365,6 +484,15 @@ function createInteractivePromptReader(): {
       return;
     }
 
+    if (sequence === "\r") {
+      if (value.startsWith("/") && applySlashSelection(true)) {
+        return;
+      }
+      cursor = value.length;
+      finish(value);
+      return;
+    }
+
     if (sequence === "\x1b[3~") {
       if (cursor < value.length) {
         deleteRange(cursor, cursor + 1);
@@ -399,6 +527,7 @@ function createInteractivePromptReader(): {
       return new Promise((resolve) => {
         value = "";
         cursor = 0;
+        slashSelection = 0;
         historyIndex = inputHistory.length;
         pendingResolve = resolve;
         setActiveDraft({ clear, redraw });
@@ -417,6 +546,11 @@ function createInteractivePromptReader(): {
     },
     popQueuedDisplay() {
       queuedDisplay.shift();
+      redraw();
+    },
+    setSessionSuggestions(sessions: SessionSummary[]) {
+      slashMenuContext = { sessions };
+      syncSlashSelection();
       redraw();
     },
     setStatus(status: string | null) {

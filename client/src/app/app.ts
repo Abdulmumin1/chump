@@ -93,8 +93,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const promptReader = createPromptReader(fallbackRl);
   const lineQueue = new AsyncLineQueue();
   let closeEventStream: (() => void) | null = null;
-  const health = await getHealth(config);
+  const [health, sessions] = await Promise.all([
+    getHealth(config),
+    getSessions(config),
+  ]);
   promptReader.setFooter(renderFooter(config, health));
+  promptReader.setSessionSuggestions(sessions.sessions);
 
   if (target.note) {
     console.log(`[server] ${target.note}`);
@@ -123,6 +127,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         closeEventStream,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
+        setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -268,6 +273,7 @@ async function handleSlashCommand(
     closeEventStream: (() => void) | null;
     metadata: ManagedServerMetadata | null;
     setFooter: (footer: string | null) => void;
+    setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
@@ -307,6 +313,7 @@ async function handleSlashCommand(
     }
     case "sessions": {
       const response = await getSessions(config);
+      context.setSessionSuggestions(response.sessions);
       renderSessions(response.sessions);
       break;
     }
@@ -326,13 +333,14 @@ async function handleSlashCommand(
         config = switchAgent(config, createSessionId(config.workspaceRoot));
         closeEventStream = await context.restartEventStream(config);
         writeOutput(`${renderMuted(`started new session ${config.agentId}`)}\n`);
+        await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
         break;
       }
 
       config = switchAgent(config, mode);
       closeEventStream = await context.restartEventStream(config);
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(config, context.setFooter);
+      await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
       break;
     }
     case "agent": {
@@ -344,7 +352,7 @@ async function handleSlashCommand(
       config = switchAgent(config, nextAgentId);
       closeEventStream = await context.restartEventStream(config);
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(config, context.setFooter);
+      await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
       break;
     }
     case "events": {
@@ -374,12 +382,15 @@ async function handleSlashCommand(
 async function renderSwitchedSession(
   config: ChumpConfig,
   setFooter: (footer: string | null) => void,
+  setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
 ): Promise<void> {
-  const [health, response] = await Promise.all([
+  const [health, response, sessions] = await Promise.all([
     getHealth(config),
     getMessages(config),
+    getSessions(config),
   ]);
   setFooter(renderFooter(config, health));
+  setSessionSuggestions(sessions.sessions);
   const eventLog = await getEventLog(config);
   renderSessionTranscript(response.messages, eventLog.events);
 }
