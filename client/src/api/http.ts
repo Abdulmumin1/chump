@@ -120,6 +120,14 @@ export async function abortCurrentTurn(
   return await invokeAction<{ status: string }>(config, "abort_current_turn");
 }
 
+export async function setModel(
+  config: ChumpConfig,
+  provider: string,
+  model: string,
+): Promise<ChumpStatus> {
+  return await invokeAction<ChumpStatus>(config, "set_model", { provider, model });
+}
+
 async function invokeAction<T>(
   config: ChumpConfig,
   actionName: string,

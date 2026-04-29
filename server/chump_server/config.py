@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,9 +39,13 @@ def load_config() -> ChumpConfig:
     data_dir = Path(
         os.environ.get("CHUMP_DATA_DIR", str(project_root / ".chump"))
     ).resolve()
+    auth_config = load_auth_config()
+    apply_auth_environment(auth_config)
 
     provider = normalize_provider_name(
-        os.environ.get("CHUMP_PROVIDER", "openai")
+        os.environ.get("CHUMP_PROVIDER")
+        or string_value(auth_config.get("provider"))
+        or "openai"
     )
 
     return ChumpConfig(
@@ -48,13 +54,67 @@ def load_config() -> ChumpConfig:
         workspace_root=workspace_root,
         data_dir=data_dir,
         provider=provider,
-        model=os.environ.get("CHUMP_MODEL", DEFAULT_MODELS[provider]),
+        model=(
+            os.environ.get("CHUMP_MODEL")
+            or string_value(auth_config.get("model"))
+            or DEFAULT_MODELS[provider]
+        ),
         max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
         command_timeout=int(os.environ.get("CHUMP_COMMAND_TIMEOUT", "120")),
         reasoning=load_reasoning_config(),
         verbose=os.environ.get("CHUMP_VERBOSE", "1").lower()
         not in {"0", "false", "no"},
     )
+
+
+def load_auth_config() -> dict[str, Any]:
+    auth_path = auth_file_path()
+    if not auth_path.exists():
+        return {}
+    try:
+        data = json.loads(auth_path.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid auth config at {auth_path}: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError(f"invalid auth config at {auth_path}: expected object")
+    return data
+
+
+def auth_file_path() -> Path:
+    configured = os.environ.get("CHUMP_AUTH_FILE")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if xdg_data_home := os.environ.get("XDG_DATA_HOME"):
+        return Path(xdg_data_home).expanduser() / "chump" / "auth.json"
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "chump" / "auth.json"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "chump" / "auth.json"
+    return Path.home() / ".local" / "share" / "chump" / "auth.json"
+
+
+def apply_auth_environment(
+    auth_config: dict[str, Any],
+    provider_name: str | None = None,
+) -> None:
+    provider = provider_name or normalize_provider_name(
+        string_value(auth_config.get("provider")) or os.environ.get("CHUMP_PROVIDER", "openai")
+    )
+    credentials = auth_config.get("credentials")
+    if not isinstance(credentials, dict):
+        return
+    provider_credentials = credentials.get(provider)
+    if not isinstance(provider_credentials, dict):
+        return
+    for key, value in provider_credentials.items():
+        if isinstance(key, str) and isinstance(value, str) and key not in os.environ:
+            os.environ[key] = value
+
+
+def string_value(value: Any) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def load_reasoning_config() -> dict[str, Any] | None:

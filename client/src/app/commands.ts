@@ -1,5 +1,6 @@
 import type {
   ChumpConfig,
+  ModelSuggestion,
   SessionSummary,
   SlashCommand,
   SlashCommandMenuContext,
@@ -16,6 +17,7 @@ const ROOT_COMMANDS: Array<{
 }> = [
   { label: "/help", command: "/help", description: "show available commands", action: "submit" },
   { label: "/sessions", command: "/session ", description: "pick a stored session", action: "fill" },
+  { label: "/model", command: "/model ", description: "choose provider and model", action: "fill" },
   { label: "/clear", command: "/clear", description: "clear messages for the current session", action: "submit" },
   { label: "/new", command: "/new", description: "start a fresh session", action: "submit" },
   { label: "/quit", command: "/quit", description: "exit chump", action: "submit" },
@@ -38,6 +40,15 @@ export function completeSlashCommand(
     ];
   }
 
+  const modelSuggestions = completeModelCommand(line, context.models);
+  if (modelSuggestions.length > 0) {
+    return [
+      modelSuggestions.map(toSuggestionView),
+      line,
+      modelSuggestions,
+    ];
+  }
+
   const hits = ROOT_COMMANDS
     .filter((command) => command.label.startsWith(line))
     .map(toSuggestion);
@@ -50,6 +61,30 @@ export function completeSlashCommand(
     line,
     suggestions,
   ];
+}
+
+function completeModelCommand(
+  line: string,
+  models: ModelSuggestion[],
+): SlashCommandSuggestion[] {
+  if (!/^\/model(?:\s|$)/.test(line)) {
+    return [];
+  }
+
+  const query = line.slice("/model".length).trim().toLowerCase();
+  return models
+    .filter((model) => {
+      if (!query) {
+        return true;
+      }
+      return model.label.toLowerCase().includes(query);
+    })
+    .map((model) => ({
+      label: model.label,
+      command: `/model ${model.label}`,
+      description: model.description,
+      action: "submit" as const,
+    }));
 }
 
 function completeSessionCommand(
@@ -160,6 +195,7 @@ export function parseSlashCommand(input: string): {
     case "clear":
     case "agent":
     case "session":
+    case "model":
     case "quit":
       return { command, args };
     default:

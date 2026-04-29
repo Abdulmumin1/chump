@@ -5,7 +5,7 @@ export type ChumpConfig = {
   workspaceRoot: string;
 };
 
-export type CliMode = "interactive" | "client" | "server" | "status" | "stop" | "help";
+export type CliMode = "interactive" | "client" | "server" | "status" | "stop" | "connect" | "help";
 
 export type CliOptions = {
   mode: CliMode;
@@ -123,6 +123,14 @@ export type SlashCommandSuggestion = {
 
 export type SlashCommandMenuContext = {
   sessions: SessionSummary[];
+  models: ModelSuggestion[];
+};
+
+export type ModelSuggestion = {
+  provider: string;
+  model: string;
+  label: string;
+  description: string;
 };
 
 export type SlashCommandSuggestionView = {
@@ -142,4 +150,5 @@ export type SlashCommand =
   | "clear"
   | "agent"
   | "session"
+  | "model"
   | "quit";

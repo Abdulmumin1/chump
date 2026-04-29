@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from dataclasses import replace
 from typing import Any, AsyncIterator
 
 from ai_query import step_count_is, stream_text
@@ -138,11 +140,15 @@ assistant: Clients are marked as failed in the `connectToServer` function in src
 def resolve_model(config: ChumpConfig):
     provider_name = config.provider.lower()
     if provider_name == "openai":
-        return openai(config.model)
+        return openai(
+            config.model,
+            base_url=os.environ.get("OPENAI_BASE_URL"),
+            organization=os.environ.get("OPENAI_ORGANIZATION"),
+        )
     if provider_name == "google":
         return google(config.model)
     if provider_name == "anthropic":
-        return anthropic(config.model)
+        return anthropic(config.model, base_url=os.environ.get("ANTHROPIC_BASE_URL"))
     if provider_name == "workers_ai":
         return workers_ai(config.model)
     raise ValueError(f"unsupported provider: {config.provider}")
@@ -216,6 +222,18 @@ class ChumpAgent(Agent[dict[str, Any]]):
             return {"status": "idle"}
         controller.abort("aborted by user")
         return {"status": "aborting"}
+
+    @action
+    async def set_model(self, provider: str, model: str) -> dict[str, Any]:
+        from .config import apply_auth_environment, load_auth_config, normalize_provider_name
+
+        provider_name = normalize_provider_name(provider)
+        if not model.strip():
+            raise ValueError("model is required")
+        apply_auth_environment(load_auth_config(), provider_name)
+        self._config = replace(self._config, provider=provider_name, model=model.strip())
+        self.model = resolve_model(self._config)
+        return await self.status()
 
     @property
     def current_abort_signal(self) -> AbortSignal | None:

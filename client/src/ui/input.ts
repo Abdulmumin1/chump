@@ -40,6 +40,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   close: () => void;
   popQueuedDisplay: () => void;
   setQueuedLinePopHandler: (handler: (() => string | null) | null) => void;
+  setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
@@ -51,6 +52,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
       setQueuedLinePopHandler: () => {},
+      setModelSuggestions: () => {},
       setAbortHandler: () => {},
       setSessionSuggestions: () => {},
       setStatus: () => {},
@@ -71,6 +73,7 @@ function createInteractivePromptReader(): {
   close: () => void;
   popQueuedDisplay: () => void;
   setQueuedLinePopHandler: (handler: (() => string | null) | null) => void;
+  setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
@@ -89,7 +92,7 @@ function createInteractivePromptReader(): {
   let footerLine: string | null = null;
   let closed = false;
   let slashSelection = 0;
-  let slashMenuContext: SlashCommandMenuContext = { sessions: [] };
+  let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [] };
   let abortHandler: (() => void) | null = null;
   let popQueuedLine: (() => string | null) | null = null;
   let lastEscapeAt = 0;
@@ -608,7 +611,12 @@ function createInteractivePromptReader(): {
       lastEscapeAt = 0;
     },
     setSessionSuggestions(sessions: SessionSummary[]) {
-      slashMenuContext = { sessions };
+      slashMenuContext = { ...slashMenuContext, sessions };
+      syncSlashSelection();
+      redraw();
+    },
+    setModelSuggestions(models: SlashCommandMenuContext["models"]) {
+      slashMenuContext = { ...slashMenuContext, models };
       syncSlashSelection();
       redraw();
     },

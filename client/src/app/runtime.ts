@@ -1,6 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
@@ -41,7 +42,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
       continue;
     }
 
-    if (value === "client" || value === "server" || value === "status" || value === "stop") {
+    if (value === "client" || value === "server" || value === "status" || value === "stop" || value === "connect") {
       mode = value;
       if (value !== "server") {
         autoStartServer = false;
@@ -56,7 +57,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
     autoStartServer = false;
   }
 
-  if (mode === "client" || mode === "status" || mode === "stop") {
+  if (mode === "client" || mode === "status" || mode === "stop" || mode === "connect") {
     autoStartServer = false;
   }
 
@@ -68,6 +69,7 @@ export function printCliUsage(): void {
   console.log("chump -c <server-url>");
   console.log("chump client [-c <server-url>]");
   console.log("chump server");
+  console.log("chump connect");
   console.log("chump status [-c <server-url>]");
   console.log("chump stop");
 }
@@ -238,6 +240,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
         ...process.env,
         CHUMP_WORKSPACE_ROOT: workspaceRoot,
         CHUMP_DATA_DIR: paths.dataDir,
+        CHUMP_AUTH_FILE: globalAuthFilePath(),
         CHUMP_HOST: "127.0.0.1",
         CHUMP_PORT: String(port),
       },
@@ -298,6 +301,7 @@ async function spawnManagedServer(workspaceRoot: string): Promise<ManagedServerM
         ...process.env,
         CHUMP_WORKSPACE_ROOT: workspaceRoot,
         CHUMP_DATA_DIR: paths.dataDir,
+        CHUMP_AUTH_FILE: globalAuthFilePath(),
         CHUMP_HOST: "127.0.0.1",
         CHUMP_PORT: String(port),
       },
@@ -409,6 +413,22 @@ function getWorkspacePaths(workspaceRoot: string): {
     lockDir: path.join(dataDir, "server.lock"),
     logPath: path.join(dataDir, "server.log"),
   };
+}
+
+function globalAuthFilePath(): string {
+  if (process.env.CHUMP_AUTH_FILE) {
+    return process.env.CHUMP_AUTH_FILE;
+  }
+  if (process.env.XDG_DATA_HOME) {
+    return path.join(process.env.XDG_DATA_HOME, "chump", "auth.json");
+  }
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "chump", "auth.json");
+  }
+  if (process.platform === "win32") {
+    return path.join(process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming"), "chump", "auth.json");
+  }
+  return path.join(os.homedir(), ".local", "share", "chump", "auth.json");
 }
 
 function resolveServerCommand(): { file: string; args: string[] } {

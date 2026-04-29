@@ -9,6 +9,7 @@ import {
   getMessages,
   getSessions,
   getStatus,
+  setModel,
   streamChat,
 } from "../api/http.ts";
 import {
@@ -16,6 +17,8 @@ import {
   printHelp,
   switchAgent,
 } from "./commands.ts";
+import { connectProvider, readGlobalAuth, updateGlobalAuth } from "./auth.ts";
+import { listModelChoices } from "./models.ts";
 import {
   createSessionId,
   loadConfig,
@@ -67,6 +70,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
+  if (options.mode === "connect") {
+    await connectProvider();
+    return;
+  }
+
   if (options.mode === "server") {
     const result = await startServerCommand(workspaceRoot);
     if (!result.started) {
@@ -100,6 +108,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   ]);
   promptReader.setFooter(renderFooter(config, health));
   promptReader.setSessionSuggestions(sessions.sessions);
+  promptReader.setModelSuggestions(await loadModelSuggestions());
   promptReader.setAbortHandler(null);
   promptReader.setQueuedLinePopHandler(() => lineQueue.popLast());
 
@@ -131,6 +140,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
+        setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -211,7 +221,10 @@ async function runChatTurn(
       ));
     }
     if (spinnerFrame) {
-      lines.push(spinnerFrame);
+      if (lines.length > 0) {
+        lines.push("");
+      }
+      lines.push(spinnerFrame, "");
     }
     setStatus(lines.length > 0 ? lines.join("\n") : null);
   };
@@ -363,6 +376,7 @@ async function handleSlashCommand(
     metadata: ManagedServerMetadata | null;
     setFooter: (footer: string | null) => void;
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
+    setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
@@ -387,6 +401,20 @@ async function handleSlashCommand(
       renderSessions(response.sessions);
       break;
     }
+    case "model": {
+      const raw = parsed.args.join(" ");
+      const [provider, model] = parseModelSelector(raw);
+      if (!provider || !model) {
+        writeOutput(`${renderMuted("usage: /model <provider>/<model>")}\n`);
+        break;
+      }
+      await updateGlobalAuth({ provider, model });
+      const status = await setModel(config, provider, model);
+      context.setFooter(renderFooter(config, status));
+      context.setModelSuggestions(await loadModelSuggestions());
+      writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
+      break;
+    }
     case "clear": {
       const result = await clearMessages(config);
       writeOutput(`${JSON.stringify(result, null, 2)}\n`);
@@ -403,8 +431,10 @@ async function handleSlashCommand(
         config = switchAgent(config, createSessionId(config.workspaceRoot));
         closeEventStream = await context.restartEventStream(config);
         clearTerminal();
-        writeOutput(`${renderMuted(`started new session ${config.agentId}`)}\n`);
-        await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
+        writeOutput(`${renderBanner(config)}\n`);
+        await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions, {
+          skipEmptyTranscript: true,
+        });
         break;
       }
 
@@ -435,10 +465,26 @@ async function handleSlashCommand(
   return { config, closeEventStream };
 }
 
+async function loadModelSuggestions(): Promise<Awaited<ReturnType<typeof listModelChoices>>> {
+  const auth = await readGlobalAuth();
+  const providers = Object.keys(auth.credentials ?? {});
+  return await listModelChoices(providers);
+}
+
+function parseModelSelector(value: string): [string | null, string | null] {
+  const trimmed = value.trim();
+  const separator = trimmed.indexOf("/");
+  if (separator <= 0 || separator === trimmed.length - 1) {
+    return [null, null];
+  }
+  return [trimmed.slice(0, separator), trimmed.slice(separator + 1)];
+}
+
 async function renderSwitchedSession(
   config: ChumpConfig,
   setFooter: (footer: string | null) => void,
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
+  options: { skipEmptyTranscript?: boolean } = {},
 ): Promise<void> {
   const [health, response, sessions] = await Promise.all([
     getHealth(config),
@@ -447,6 +493,9 @@ async function renderSwitchedSession(
   ]);
   setFooter(renderFooter(config, health));
   setSessionSuggestions(sessions.sessions);
+  if (options.skipEmptyTranscript && response.messages.length === 0) {
+    return;
+  }
   const eventLog = await getEventLog(config);
   renderSessionTranscript(response.messages, eventLog.events);
 }
