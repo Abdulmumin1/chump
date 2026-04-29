@@ -392,6 +392,7 @@ export function renderSlashCommandMenu(
   items: Array<{
     label: string;
     description: string;
+    kind?: "model" | "session" | "command";
     columns?: {
       updated: string;
       created: string;
@@ -405,10 +406,11 @@ export function renderSlashCommandMenu(
   } = { hiddenAbove: 0, hiddenBelow: 0 },
 ): string[] {
   const width = Math.max(48, Math.min(process.stdout.columns ?? 80, 96));
+  const hasModelItems = items.some((item) => item.kind === "model");
   const commandWidth = Math.max(
     12,
     Math.min(
-      18,
+      hasModelItems ? Math.max(28, width - 18) : 18,
       items.reduce((max, item) => Math.max(max, item.label.length), 0) + 2,
     ),
   );
@@ -469,10 +471,12 @@ function renderSlashCommandMenuItem(
   commandWidth: number,
 ): string {
   const gap = "  ";
-  const raw = `${command.padEnd(commandWidth, " ")}${gap}${description}`;
-  const clipped = raw.length > width ? `${raw.slice(0, width - 3)}...` : raw.padEnd(width, " ");
+  const commandText = clipPlain(command, commandWidth).padEnd(commandWidth, " ");
+  const descriptionWidth = Math.max(0, width - commandWidth - gap.length);
+  const descriptionText = clipPlain(description, descriptionWidth).padEnd(descriptionWidth, " ");
+  const clipped = `${commandText}${gap}${descriptionText}`;
   if (!selected) {
-    return `${foreground(command.padEnd(commandWidth, " "))}${muted(gap)}${muted(clipped.slice(commandWidth + gap.length))}`;
+    return `${foreground(commandText)}${muted(gap)}${muted(descriptionText)}`;
   }
 
   const commandPart = clipped.slice(0, commandWidth);

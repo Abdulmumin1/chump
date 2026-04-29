@@ -83,6 +83,7 @@ function completeModelCommand(
       label: model.label,
       command: `/model ${model.label}`,
       description: model.description,
+      kind: "model" as const,
       action: "submit" as const,
     }));
 }
@@ -113,6 +114,7 @@ function completeSessionCommand(
         created: session.created_at ? formatSessionTime(session.created_at) : "-",
         conversation: sessionTitle(session),
       },
+      kind: "session" as const,
       action: "submit" as const,
     }));
 }
@@ -151,6 +153,7 @@ function toSuggestion(command: {
   command: string;
   description: string;
   columns?: SlashCommandSuggestionView["columns"];
+  kind?: SlashCommandSuggestionView["kind"];
   action: "submit" | "fill";
 }): SlashCommandSuggestion {
   return {
@@ -158,6 +161,7 @@ function toSuggestion(command: {
     command: command.command,
     description: command.description,
     action: command.action,
+    kind: command.kind ?? "command",
   };
 }
 
@@ -167,6 +171,7 @@ function toSuggestionView(suggestion: SlashCommandSuggestion): SlashCommandSugge
     command: suggestion.command,
     description: suggestion.description,
     columns: suggestion.columns,
+    kind: suggestion.kind,
   };
 }
 

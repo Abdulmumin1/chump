@@ -118,6 +118,7 @@ export type SlashCommandSuggestion = {
   command: string;
   description: string;
   columns?: SlashCommandSuggestionView["columns"];
+  kind?: SlashCommandSuggestionView["kind"];
   action: "submit" | "fill";
 };
 
@@ -142,6 +143,7 @@ export type SlashCommandSuggestionView = {
     created: string;
     conversation: string;
   };
+  kind?: "model" | "session" | "command";
 };
 
 export type SlashCommand =
