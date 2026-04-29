@@ -560,10 +560,14 @@ function createInteractivePromptReader(): {
         return;
       }
       closed = true;
+      const resolve = pendingResolve;
+      pendingResolve = null;
       clear();
       input.off("data", onData);
       input.setRawMode(false);
+      input.pause();
       setActiveDraft(null);
+      resolve?.(null);
     },
     popQueuedDisplay() {
       queuedDisplay.shift();
