@@ -166,12 +166,12 @@ export async function listModelChoices(providers: string[]): Promise<ModelChoice
       return [];
     }
     return Object.values(entry.models)
-      .filter((model) => isUsableChatModel(model))
+      .filter((model) => isUsableChatModel(provider, model))
       .map((model) => ({
         provider,
         model: model.id,
         label: `${provider}/${model.id}`,
-        description: modelDescription(model),
+        description: modelMetadata(model),
       }))
       .sort((left, right) => modelRank(provider, left.model) - modelRank(provider, right.model) || left.label.localeCompare(right.label));
   });
@@ -256,8 +256,11 @@ function modelCatalogProviderId(provider: string): string {
   return provider;
 }
 
-function isUsableChatModel(model: ModelInfo): boolean {
+function isUsableChatModel(provider: string, model: ModelInfo): boolean {
   if (!model.id) {
+    return false;
+  }
+  if (provider === "openai" && !model.id.startsWith("gpt-5")) {
     return false;
   }
   if (model.status === "deprecated") {
@@ -306,9 +309,8 @@ function modelRank(provider: string, model: string): number {
   return index === -1 ? 1000 : index;
 }
 
-function modelDescription(model: ModelInfo): string {
+function modelMetadata(model: ModelInfo): string {
   const parts = [
-    model.name && model.name !== model.id ? model.name : null,
     model.reasoning ? "reasoning" : null,
     typeof model.limit?.context === "number" ? `${formatNumber(model.limit.context)} ctx` : null,
   ].filter(Boolean);
