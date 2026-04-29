@@ -5,6 +5,15 @@
   "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",
   "packageManager": "pnpm@10.14.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Abdulmumin1/chump",
+    "directory": "client"
+  },
+  "homepage": "https://github.com/Abdulmumin1/chump#readme",
+  "bugs": {
+    "url": "https://github.com/Abdulmumin1/chump/issues"
+  },
   "bin": {
     "chump": "./dist/chump.js"
   },
