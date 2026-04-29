@@ -2,6 +2,16 @@
 
 Use Changesets to track user-visible changes for release.
 
+Changesets currently tracks the npm package only. The Python package should use
+standard Python release tooling instead of custom version scripts.
+
+Preferred Python path:
+
+- Keep building with `uv build` and Hatchling.
+- Publish with `pypa/gh-action-pypi-publish` and PyPI trusted publishing.
+- When we want automatic Python versions, add `hatch-vcs` and derive
+  `chump-server` versions from git tags instead of duplicating Changesets.
+
 Create a new changeset with:
 
 ```bash
@@ -19,4 +29,3 @@ Publish with:
 ```bash
 pnpm release
 ```
-

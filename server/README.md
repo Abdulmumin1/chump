@@ -10,6 +10,24 @@ uv sync
 uv run chump-server
 ```
 
+## Install
+
+Once published, the backend package can be installed or run directly with `uv`:
+
+```bash
+uv tool install chump-server
+chump-server
+```
+
+or:
+
+```bash
+uvx --from chump-server chump-server
+```
+
+During repository development, `uv` still uses the local editable `../ai-query`
+source from `pyproject.toml`.
+
 ## Environment
 
 - `CHUMP_HOST`: default `127.0.0.1`

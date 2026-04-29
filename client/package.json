@@ -1,21 +1,23 @@
 {
-  "name": "chump-cli",
-  "version": "0.1.0",
+  "name": "chump-agent",
+  "version": "0.0.0",
   "private": false,
   "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",
   "packageManager": "pnpm@10.14.0",
   "bin": {
-    "chump": "./src/chump.ts"
+    "chump": "./dist/chump.js"
   },
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "dev": "node src/chump.ts",
     "start": "node src/chump.ts",
     "smoke": "node src/smoke.ts",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm run typecheck",
+    "check": "pnpm run typecheck && pnpm run build",
+    "prepack": "pnpm run build",
     "bin:install": "pnpm link --global",
-    "bin:uninstall": "pnpm unlink --global chump-cli"
+    "bin:uninstall": "pnpm unlink --global chump-agent"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -24,7 +26,7 @@
     "access": "public"
   },
   "files": [
-    "src",
+    "dist",
     "package.json",
     "README.md"
   ],

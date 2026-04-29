@@ -7,6 +7,24 @@
 
 ## Quick start
 
+For people installing `chump`:
+
+```bash
+npm install -g chump-agent
+chump connect
+chump
+```
+
+Requirements:
+
+- Node.js `>=22`
+- `uv` on your `PATH`
+
+The npm package installs the `chump` binary. When `chump` needs a managed
+backend, it starts `chump-server` through `uvx`.
+
+For local development from this repository:
+
 ```bash
 pnpm install
 cd server && uv sync
@@ -63,16 +81,12 @@ Stops the managed local server for the current workspace.
 ## Interactive slash commands
 
 - `/help` — show available commands
-- `/status` — show current agent and server status
-- `/state` — inspect session state
-- `/messages` — show stored messages for the current session
-- `/sessions` — list saved sessions
-- `/session` — show the current session id
-- `/session new` — start a fresh session
-- `/session <id>` — jump back into an older session
+- `/sessions` — pick a saved session
+- `/session <id>` — jump back into an older session directly
+- `/model` — choose a connected provider and model
 - `/agent <id>` — switch agent/session id directly
 - `/clear` — clear stored messages for the current session
-- `/events on|off` — toggle tool and step event rendering
+- `/new` — start a fresh session
 - `/quit` — leave the chat and return to the loving embrace of your shell
 
 ## Local files chump creates
@@ -153,6 +167,25 @@ cd client
 pnpm run bin:install
 chump
 ```
+
+### Package builds
+
+```bash
+pnpm --filter chump-agent run build
+cd server && uv build
+```
+
+The CLI publishes to npm as `chump-agent` and exposes the `chump` binary. The
+server publishes to PyPI as `chump-server`; the CLI uses `uvx --from
+chump-server chump-server` when it is not running from a repository checkout.
+
+### Releases
+
+- npm releases are managed by Changesets through `.github/workflows/release.yml`
+- npm publishing uses npm trusted publishing/OIDC; configure the trusted publisher on npmjs.com for `release.yml`
+- PyPI publishing uses `pypa/gh-action-pypi-publish` through the same workflow's manual dispatch
+- Configure PyPI trusted publishing for `chump-server`
+- Python versioning is currently explicit in `server/pyproject.toml`; when we automate it, use `hatch-vcs` from git tags rather than a custom release script.
 
 ## In one sentence
 

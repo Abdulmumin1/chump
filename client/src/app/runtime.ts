@@ -446,8 +446,8 @@ function resolveServerCommand(): { file: string; args: string[] } {
   }
 
   return {
-    file: "chump-server",
-    args: [],
+    file: "uvx",
+    args: ["--from", "chump-server", "chump-server"],
   };
 }
 

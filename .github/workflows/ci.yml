@@ -32,7 +32,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck client
-        run: pnpm --filter chump-cli run typecheck
+        run: pnpm --filter chump-agent run typecheck
+
+      - name: Build client package
+        run: pnpm --filter chump-agent run build
 
   server:
     name: Server
@@ -66,3 +69,6 @@ jobs:
 
       - name: Compile Python package
         run: uv run python -m compileall chump_server
+
+      - name: Build Python package
+        run: uv build
