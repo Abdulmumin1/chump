@@ -28,6 +28,17 @@ uvx --from chump-server chump-server
 During repository development, `uv` still uses the local editable `../ai-query`
 source from `pyproject.toml`.
 
+## Release
+
+`chump-server` versions come from git tags through `hatch-vcs`.
+
+```bash
+git tag chump-server-v0.1.0
+git push origin chump-server-v0.1.0
+```
+
+Pushing a `chump-server-v*` tag runs the PyPI job in `.github/workflows/release.yml`.
+
 ## Environment
 
 - `CHUMP_HOST`: default `127.0.0.1`

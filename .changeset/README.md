@@ -9,8 +9,8 @@ Preferred Python path:
 
 - Keep building with `uv build` and Hatchling.
 - Publish with `pypa/gh-action-pypi-publish` and PyPI trusted publishing.
-- When we want automatic Python versions, add `hatch-vcs` and derive
-  `chump-server` versions from git tags instead of duplicating Changesets.
+- Python versions come from `chump-server-v*` git tags through `hatch-vcs`
+  instead of duplicating Changesets.
 
 Create a new changeset with:
 

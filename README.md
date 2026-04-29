@@ -183,9 +183,9 @@ chump-server chump-server` when it is not running from a repository checkout.
 
 - npm releases are managed by Changesets through `.github/workflows/release.yml`
 - npm publishing uses npm trusted publishing/OIDC; configure the trusted publisher on npmjs.com for `release.yml`
-- PyPI publishing uses `pypa/gh-action-pypi-publish` through the same workflow's manual dispatch
+- PyPI publishing uses `pypa/gh-action-pypi-publish` when a `chump-server-v*` tag is pushed
 - Configure PyPI trusted publishing for `chump-server`
-- Python versioning is currently explicit in `server/pyproject.toml`; when we automate it, use `hatch-vcs` from git tags rather than a custom release script.
+- Python versioning uses `hatch-vcs` from tags like `chump-server-v0.1.0`.
 
 ## In one sentence
 
