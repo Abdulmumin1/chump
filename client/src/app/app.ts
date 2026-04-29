@@ -8,7 +8,6 @@ import {
   getHealth,
   getMessages,
   getSessions,
-  getState,
   getStatus,
   streamChat,
 } from "../api/http.ts";
@@ -34,7 +33,6 @@ import {
   renderSessionTranscript,
   renderServerStatus,
   renderSessions,
-  renderStoredMessages,
 } from "../ui/output.ts";
 import {
   createMarkdownStream,
@@ -44,7 +42,7 @@ import {
   renderThinkingBlock,
   renderUserMessage,
 } from "../ui/render.ts";
-import { writeOutput } from "../ui/terminal.ts";
+import { clearTerminal, writeOutput } from "../ui/terminal.ts";
 import {
   ensureServerTarget,
   parseCliArgs,
@@ -103,6 +101,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   promptReader.setFooter(renderFooter(config, health));
   promptReader.setSessionSuggestions(sessions.sessions);
   promptReader.setAbortHandler(null);
+  promptReader.setQueuedLinePopHandler(() => lineQueue.popLast());
 
   if (target.note) {
     console.log(`[server] ${target.note}`);
@@ -321,6 +320,10 @@ class AsyncLineQueue {
     this.lines.push(line);
   }
 
+  popLast(): string | null {
+    return this.lines.pop() ?? null;
+  }
+
   close(): void {
     this.closed = true;
     if (this.waiting) {
@@ -378,25 +381,6 @@ async function handleSlashCommand(
     case "help":
       printHelp();
       break;
-    case "status": {
-      const [health, status] = await Promise.all([
-        getHealth(config),
-        getStatus(config),
-      ]);
-      context.setFooter(renderFooter(config, health));
-      renderServerStatus(health, status, context.metadata);
-      break;
-    }
-    case "state": {
-      const state = await getState(config);
-      writeOutput(`${JSON.stringify(state, null, 2)}\n`);
-      break;
-    }
-    case "messages": {
-      const response = await getMessages(config);
-      renderStoredMessages(response.messages);
-      break;
-    }
     case "sessions": {
       const response = await getSessions(config);
       context.setSessionSuggestions(response.sessions);
@@ -418,6 +402,7 @@ async function handleSlashCommand(
       if (mode === "new") {
         config = switchAgent(config, createSessionId(config.workspaceRoot));
         closeEventStream = await context.restartEventStream(config);
+        clearTerminal();
         writeOutput(`${renderMuted(`started new session ${config.agentId}`)}\n`);
         await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
         break;
@@ -425,6 +410,7 @@ async function handleSlashCommand(
 
       config = switchAgent(config, mode);
       closeEventStream = await context.restartEventStream(config);
+      clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
       await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
       break;
@@ -437,25 +423,9 @@ async function handleSlashCommand(
       }
       config = switchAgent(config, nextAgentId);
       closeEventStream = await context.restartEventStream(config);
+      clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
       await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
-      break;
-    }
-    case "events": {
-      const mode = parsed.args[0];
-      if (mode === "on") {
-        closeEventStream?.();
-        closeEventStream = await startEventStream(config);
-        writeOutput(`${renderMuted(`events enabled for ${config.agentId}`)}\n`);
-        break;
-      }
-      if (mode === "off") {
-        closeEventStream?.();
-        closeEventStream = null;
-        writeOutput(`${renderMuted("events disabled")}\n`);
-        break;
-      }
-      writeOutput(`${renderMuted("usage: /events on|off")}\n`);
       break;
     }
     case "quit":

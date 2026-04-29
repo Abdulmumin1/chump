@@ -14,6 +14,9 @@ import type {
   StoredEvent,
 } from "../core/types.ts";
 
+const MAX_REPLAY_USER_TURNS = 20;
+const MAX_REPLAY_MESSAGES = 80;
+
 export function renderStoredMessages(
   messages: Array<{ role: string; content: unknown }>,
 ): void {
@@ -33,11 +36,12 @@ export function renderSessionTranscript(
   events: StoredEvent[] = [],
 ): void {
   if (hasExactTranscript(events)) {
-    renderEventTimeline(events);
+    const replay = recentEventWindow(events);
+    renderEventTimeline(replay.events, replay.skipped);
     return;
   }
 
-  renderApproximateTranscript(messages, events);
+  renderApproximateTranscript(recentMessages(messages), events);
 }
 
 function renderApproximateTranscript(
@@ -87,11 +91,15 @@ function renderApproximateTranscript(
   reasoningRenderer.flush();
 }
 
-function renderEventTimeline(events: StoredEvent[]): void {
+function renderEventTimeline(events: StoredEvent[], skippedEvents = 0): void {
   const toolRenderer = new ToolActivityRenderer(writeOutputLine);
   const reasoningRenderer = new ReasoningRenderer();
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
   let renderedItems = 0;
+
+  if (skippedEvents > 0) {
+    writeOutputLine(renderMuted(`(showing recent transcript; skipped ${skippedEvents} older events)`));
+  }
 
   const flushAssistantText = (): void => {
     markdownStream?.end();
@@ -152,6 +160,36 @@ function renderEventTimeline(events: StoredEvent[]): void {
   }
 }
 
+function recentEventWindow(events: StoredEvent[]): {
+  events: StoredEvent[];
+  skipped: number;
+} {
+  const userMessageIndexes = events
+    .map((event, index) => event.type === "user_message" ? index : -1)
+    .filter((index) => index >= 0);
+
+  if (userMessageIndexes.length <= MAX_REPLAY_USER_TURNS) {
+    return { events, skipped: 0 };
+  }
+
+  const start = userMessageIndexes[userMessageIndexes.length - MAX_REPLAY_USER_TURNS] ?? 0;
+  return {
+    events: events.slice(start),
+    skipped: start,
+  };
+}
+
+function recentMessages(
+  messages: Array<{ role: string; content: unknown }>,
+): Array<{ role: string; content: unknown }> {
+  if (messages.length <= MAX_REPLAY_MESSAGES) {
+    return messages;
+  }
+
+  writeOutputLine(renderMuted(`(showing recent transcript; skipped ${messages.length - MAX_REPLAY_MESSAGES} older messages)`));
+  return messages.slice(-MAX_REPLAY_MESSAGES);
+}
+
 export function renderSessions(
   sessions: Array<{
     id: string;
@@ -169,17 +207,12 @@ export function renderSessions(
     return;
   }
 
+  writeOutputLine(renderMuted(`${"Updated".padEnd(18, " ")}${"Created".padEnd(18, " ")}Conversation`));
   for (const session of sessions) {
     const title = sessionTitle(session);
-    const updated = session.updated_at ? `updated ${formatSessionTime(session.updated_at)}` : null;
-    const created = session.created_at ? `created ${formatSessionTime(session.created_at)}` : null;
-    const details = [
-      updated ? renderMuted(updated) : null,
-      created ? renderMuted(created) : null,
-    ].filter(Boolean).join(" · ");
-    writeOutputLine(
-      details ? `${title}\n${details}` : title,
-    );
+    const updated = session.updated_at ? formatSessionTime(session.updated_at) : "-";
+    const created = session.created_at ? formatSessionTime(session.created_at) : "-";
+    writeOutputLine(`${renderMuted(updated.padEnd(18, " "))}${renderMuted(created.padEnd(18, " "))}${title}`);
   }
 }
 

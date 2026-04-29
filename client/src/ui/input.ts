@@ -14,6 +14,7 @@ import {
   renderContinuationPrompt,
   renderInput,
   renderPrompt,
+  renderQueueHint,
   renderQueuedMessage,
   renderSlashCommandMenu,
 } from "./render.ts";
@@ -38,6 +39,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   read: () => Promise<string | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setQueuedLinePopHandler: (handler: (() => string | null) | null) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
@@ -48,6 +50,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       read: () => readPrompt(fallbackRl),
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
+      setQueuedLinePopHandler: () => {},
       setAbortHandler: () => {},
       setSessionSuggestions: () => {},
       setStatus: () => {},
@@ -67,6 +70,7 @@ function createInteractivePromptReader(): {
   read: () => Promise<string | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setQueuedLinePopHandler: (handler: (() => string | null) | null) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
@@ -87,6 +91,7 @@ function createInteractivePromptReader(): {
   let slashSelection = 0;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [] };
   let abortHandler: (() => void) | null = null;
+  let popQueuedLine: (() => string | null) | null = null;
   let lastEscapeAt = 0;
 
   function clear(): void {
@@ -116,19 +121,25 @@ function createInteractivePromptReader(): {
         hiddenBelow: slashMenu.hiddenBelow,
       },
     );
+    const queueLines = queuedDisplay.length > 0
+      ? [
+          ...queuedDisplay.map((queued) => renderQueuedMessage(queued)),
+          renderQueueHint(),
+        ]
+      : [];
     const promptLines = lines.map((line, index) =>
       `${index === 0 ? renderPrompt() : renderContinuationPrompt()}${renderInput(line)}`
     );
     const frameLines = [
       ...statusLines,
-      ...queuedDisplay.map((queued) => renderQueuedMessage(queued)),
+      ...queueLines,
       ...menuLines,
       ...promptLines,
       ...footerLines,
     ];
     const cursorFrameLineIndex =
       statusLines.length +
-      queuedDisplay.length +
+      queueLines.length +
       menuLines.length +
       target.line;
 
@@ -428,6 +439,22 @@ function createInteractivePromptReader(): {
 
     lastEscapeAt = 0;
 
+    if (isPopQueuedSequence(sequence)) {
+      if (value.length === 0 && queuedDisplay.length > 0) {
+        const queuedLine = popQueuedLine?.() ?? null;
+        if (queuedLine !== null) {
+          queuedDisplay.pop();
+          value = queuedLine;
+          cursor = value.length;
+          historyIndex = inputHistory.length;
+          slashSelection = 0;
+          syncSlashSelection();
+          redraw();
+        }
+      }
+      return;
+    }
+
     if (isInsertNewlineSequence(sequence)) {
       insertText("\n");
       return;
@@ -573,6 +600,9 @@ function createInteractivePromptReader(): {
       queuedDisplay.shift();
       redraw();
     },
+    setQueuedLinePopHandler(handler: (() => string | null) | null) {
+      popQueuedLine = handler;
+    },
     setAbortHandler(handler: (() => void) | null) {
       abortHandler = handler;
       lastEscapeAt = 0;
@@ -583,10 +613,16 @@ function createInteractivePromptReader(): {
       redraw();
     },
     setStatus(status: string | null) {
+      if (statusLine === status) {
+        return;
+      }
       statusLine = status;
       redraw();
     },
     setFooter(footer: string | null) {
+      if (footerLine === footer) {
+        return;
+      }
       footerLine = footer;
       redraw();
     },
@@ -722,6 +758,19 @@ function isMoveLineStartSequence(sequence: string): boolean {
 
 function isMoveLineEndSequence(sequence: string): boolean {
   return ["\u0005", "\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~", "\x1b[1;9C", "\x1b[1;9F"].includes(sequence);
+}
+
+function isPopQueuedSequence(sequence: string): boolean {
+  return [
+    "\x1b[1;3A",
+    "\x1b[1;9A",
+    "\x1b[1;2A",
+    "\x1b[1;4A",
+    "\x1b[1;5A",
+    "\x1b[1;6A",
+    "\x1b[1;7A",
+    "\x1b[1;8A",
+  ].includes(sequence);
 }
 
 function cursorPosition(value: string, cursor: number): {

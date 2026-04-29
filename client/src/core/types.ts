@@ -117,6 +117,7 @@ export type SlashCommandSuggestion = {
   label: string;
   command: string;
   description: string;
+  columns?: SlashCommandSuggestionView["columns"];
   action: "submit" | "fill";
 };
 
@@ -128,16 +129,17 @@ export type SlashCommandSuggestionView = {
   label: string;
   command: string;
   description: string;
+  columns?: {
+    updated: string;
+    created: string;
+    conversation: string;
+  };
 };
 
 export type SlashCommand =
   | "help"
-  | "status"
-  | "state"
-  | "messages"
   | "sessions"
   | "clear"
   | "agent"
   | "session"
-  | "events"
   | "quit";

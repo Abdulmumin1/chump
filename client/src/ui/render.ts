@@ -80,18 +80,19 @@ export function createMarkdownStream(): {
   let buffer = "";
   let inCodeBlock = false;
 
-  function flushLine(line: string, includeNewline: boolean): void {
+  function renderStreamLine(line: string, includeNewline: boolean): string {
     const rendered = renderMarkdownLine(line, inCodeBlock);
-    writeOutput(includeNewline ? `${rendered}\n` : rendered);
 
     if (line.trimStart().startsWith("```")) {
       inCodeBlock = !inCodeBlock;
     }
+    return includeNewline ? `${rendered}\n` : rendered;
   }
 
   return {
     write(chunk: string) {
       buffer += chunk;
+      let output = "";
 
       while (true) {
         const newlineIndex = buffer.indexOf("\n");
@@ -101,12 +102,16 @@ export function createMarkdownStream(): {
 
         const line = buffer.slice(0, newlineIndex);
         buffer = buffer.slice(newlineIndex + 1);
-        flushLine(line, true);
+        output += renderStreamLine(line, true);
+      }
+
+      if (output) {
+        writeOutput(output);
       }
     },
     end() {
       if (buffer.length > 0) {
-        flushLine(buffer, true);
+        writeOutput(renderStreamLine(buffer, true));
         buffer = "";
       }
     },
@@ -346,6 +351,10 @@ export function renderQueuedMessage(message: string): string {
   return muted(`queued: ${clipped}`);
 }
 
+export function renderQueueHint(): string {
+  return muted("option+up to unqueue and edit");
+}
+
 export function renderThinkingLabel(): string {
   return italic(fg(palette.thinkingLabel, "Thinking:"));
 }
@@ -380,7 +389,15 @@ export function renderThinkingBlock(
 }
 
 export function renderSlashCommandMenu(
-  items: Array<{ label: string; description: string }>,
+  items: Array<{
+    label: string;
+    description: string;
+    columns?: {
+      updated: string;
+      created: string;
+      conversation: string;
+    };
+  }>,
   selectedIndex: number,
   meta: {
     hiddenAbove: number;
@@ -397,12 +414,19 @@ export function renderSlashCommandMenu(
   );
 
   const lines: string[] = [];
+  const hasSessionColumns = items.some((item) => item.columns);
+  if (hasSessionColumns) {
+    lines.push(renderSessionMenuHeader(width));
+  }
+
   if (meta.hiddenAbove > 0) {
     lines.push(muted(`  ${meta.hiddenAbove} more`));
   }
 
   lines.push(...items.map((item, index) =>
-    renderSlashCommandMenuItem(item.label, item.description, index === selectedIndex, width, commandWidth)
+    item.columns
+      ? renderSessionMenuItem(item.columns, index === selectedIndex, width)
+      : renderSlashCommandMenuItem(item.label, item.description, index === selectedIndex, width, commandWidth)
   ));
 
   if (meta.hiddenBelow > 0) {
@@ -410,6 +434,31 @@ export function renderSlashCommandMenu(
   }
 
   return lines;
+}
+
+function renderSessionMenuHeader(width: number): string {
+  const raw = `${"Updated".padEnd(18, " ")}${"Created".padEnd(18, " ")}Conversation`;
+  return muted(raw.length > width ? raw.slice(0, width) : raw.padEnd(width, " "));
+}
+
+function renderSessionMenuItem(
+  session: {
+    updated: string;
+    created: string;
+    conversation: string;
+  },
+  selected: boolean,
+  width: number,
+): string {
+  const updated = session.updated.padEnd(18, " ");
+  const created = session.created.padEnd(18, " ");
+  const titleWidth = Math.max(12, width - 36);
+  const conversation = clipPlain(session.conversation, titleWidth).padEnd(titleWidth, " ");
+  const raw = `${updated}${created}${conversation}`;
+  if (!selected) {
+    return `${muted(updated)}${muted(created)}${foreground(conversation)}`;
+  }
+  return bg("#494d54", `${bold(accent(updated))}${bold(foreground(created))}${bold(foreground(raw.slice(36)))}`);
 }
 
 function renderSlashCommandMenuItem(
@@ -433,6 +482,16 @@ function renderSlashCommandMenuItem(
     "#494d54",
     `${bold(accent(commandPart))}${muted(gapPart)}${bold(foreground(descriptionPart))}`,
   );
+}
+
+function clipPlain(value: string, width: number): string {
+  if (value.length <= width) {
+    return value;
+  }
+  if (width <= 3) {
+    return value.slice(0, width);
+  }
+  return `${value.slice(0, width - 3).trimEnd()}...`;
 }
 
 export function renderUserMessage(message: string): string {

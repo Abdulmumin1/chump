@@ -15,14 +15,9 @@ const ROOT_COMMANDS: Array<{
   action: "submit" | "fill";
 }> = [
   { label: "/help", command: "/help", description: "show available commands", action: "submit" },
-  { label: "/status", command: "/status", description: "show server and session status", action: "submit" },
-  { label: "/state", command: "/state", description: "print the current agent state", action: "submit" },
-  { label: "/messages", command: "/messages", description: "show stored raw session messages", action: "submit" },
   { label: "/sessions", command: "/session ", description: "pick a stored session", action: "fill" },
   { label: "/clear", command: "/clear", description: "clear messages for the current session", action: "submit" },
   { label: "/new", command: "/new", description: "start a fresh session", action: "submit" },
-  { label: "/events on", command: "/events on", description: "enable live event rendering", action: "submit" },
-  { label: "/events off", command: "/events off", description: "disable live event rendering", action: "submit" },
   { label: "/quit", command: "/quit", description: "exit chump", action: "submit" },
 ];
 
@@ -78,6 +73,11 @@ function completeSessionCommand(
       label: sessionTitle(session),
       command: `/session ${session.id}`,
       description: describeSession(session),
+      columns: {
+        updated: session.updated_at ? formatSessionTime(session.updated_at) : "-",
+        created: session.created_at ? formatSessionTime(session.created_at) : "-",
+        conversation: sessionTitle(session),
+      },
       action: "submit" as const,
     }));
 }
@@ -115,6 +115,7 @@ function toSuggestion(command: {
   label: string;
   command: string;
   description: string;
+  columns?: SlashCommandSuggestionView["columns"];
   action: "submit" | "fill";
 }): SlashCommandSuggestion {
   return {
@@ -130,6 +131,7 @@ function toSuggestionView(suggestion: SlashCommandSuggestion): SlashCommandSugge
     label: suggestion.label,
     command: suggestion.command,
     description: suggestion.description,
+    columns: suggestion.columns,
   };
 }
 
@@ -154,14 +156,10 @@ export function parseSlashCommand(input: string): {
 
   switch (command) {
     case "help":
-    case "status":
-    case "state":
-    case "messages":
     case "sessions":
     case "clear":
     case "agent":
     case "session":
-    case "events":
     case "quit":
       return { command, args };
     default:
