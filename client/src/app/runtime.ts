@@ -95,7 +95,7 @@ export async function ensureServerTarget(
 
   const metadata = await readManagedServerMetadata(workspaceRoot);
   if (metadata && await isServerHealthy(metadata.url)) {
-    if (!(await managedServerMatchesEnvironment(metadata.url))) {
+    if (!(await managedServerIsReusable(metadata))) {
       await stopManagedServer(workspaceRoot);
     } else {
       return {
@@ -108,7 +108,11 @@ export async function ensureServerTarget(
   }
 
   const refreshedMetadata = await readManagedServerMetadata(workspaceRoot);
-  if (refreshedMetadata && await isServerHealthy(refreshedMetadata.url)) {
+  if (
+    refreshedMetadata &&
+    await isServerHealthy(refreshedMetadata.url) &&
+    await managedServerIsReusable(refreshedMetadata)
+  ) {
     return {
       serverUrl: refreshedMetadata.url,
       serverSource: "managed",
@@ -195,7 +199,7 @@ async function ensureManagedServer(workspaceRoot: string): Promise<{
   if (
     current &&
     await isServerHealthy(current.url) &&
-    await managedServerMatchesEnvironment(current.url)
+    await managedServerIsReusable(current)
   ) {
     return { started: false, metadata: current };
   }
@@ -205,7 +209,7 @@ async function ensureManagedServer(workspaceRoot: string): Promise<{
     if (
       existing &&
       await isServerHealthy(existing.url) &&
-      await managedServerMatchesEnvironment(existing.url)
+      await managedServerIsReusable(existing)
     ) {
       return { started: false, metadata: existing };
     }
@@ -251,6 +255,9 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
       url: buildServerUrl(port),
       port,
       pid: child.pid ?? null,
+      command: command.file,
+      command_args: command.args,
+      command_source: command.source,
       workspace_root: workspaceRoot,
       data_dir: paths.dataDir,
       log_path: paths.logPath,
@@ -313,6 +320,9 @@ async function spawnManagedServer(workspaceRoot: string): Promise<ManagedServerM
       url: buildServerUrl(port),
       port,
       pid: child.pid ?? null,
+      command: command.file,
+      command_args: command.args,
+      command_source: command.source,
       workspace_root: workspaceRoot,
       data_dir: paths.dataDir,
       log_path: paths.logPath,
@@ -431,7 +441,13 @@ function globalAuthFilePath(): string {
   return path.join(os.homedir(), ".local", "share", "chump", "auth.json");
 }
 
-function resolveServerCommand(): { file: string; args: string[] } {
+type ServerCommand = {
+  file: string;
+  args: string[];
+  source: "local" | "installed";
+};
+
+function resolveServerCommand(): ServerCommand {
   const sourcePath = fileURLToPath(import.meta.url);
   const appDir = path.dirname(sourcePath);
   const repoRoot = path.resolve(appDir, "..", "..", "..");
@@ -442,12 +458,14 @@ function resolveServerCommand(): { file: string; args: string[] } {
     return {
       file: "uv",
       args: ["run", "--directory", siblingServerDir, "chump-server"],
+      source: "local",
     };
   }
 
   return {
     file: "uvx",
     args: ["--from", "chump-server", "chump-server"],
+    source: "installed",
   };
 }
 
@@ -555,6 +573,18 @@ async function managedServerMatchesEnvironment(url: string): Promise<boolean> {
     matchesEnvNumber("CHUMP_COMMAND_TIMEOUT", health.command_timeout),
     matchesReasoningEnv(health.reasoning),
   ].every(Boolean);
+}
+
+async function managedServerIsReusable(metadata: ManagedServerMetadata): Promise<boolean> {
+  return managedServerMatchesCommand(metadata) &&
+    await managedServerMatchesEnvironment(metadata.url);
+}
+
+function managedServerMatchesCommand(metadata: ManagedServerMetadata): boolean {
+  const expected = resolveServerCommand();
+  return metadata.command === expected.file &&
+    metadata.command_source === expected.source &&
+    JSON.stringify(metadata.command_args) === JSON.stringify(expected.args);
 }
 
 function matchesEnvString(name: string, actual: unknown): boolean {

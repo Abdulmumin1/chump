@@ -17,6 +17,9 @@ export type ManagedServerMetadata = {
   url: string;
   port: number;
   pid: number | null;
+  command: string;
+  command_args: string[];
+  command_source: "local" | "installed";
   workspace_root: string;
   data_dir: string;
   log_path: string;
