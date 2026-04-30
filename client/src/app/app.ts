@@ -42,9 +42,9 @@ import {
   renderError,
   renderFooterStatus,
   renderMuted,
-  renderThinkingBlock,
   renderUserMessage,
 } from "../ui/render.ts";
+import { LiveReasoningStream } from "../ui/reasoning.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
 import {
   ensureServerTarget,
@@ -179,8 +179,7 @@ async function runChatTurn(
 ): Promise<void> {
   const streamAbortController = new AbortController();
   let spinnerFrame: string | null = null;
-  let reasoningTitle: string | null = null;
-  let reasoningBuffer = "";
+  let reasoningPreview: string | null = null;
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
   let aborting = false;
   const abortTurn = (): void => {
@@ -191,39 +190,15 @@ async function runChatTurn(
     void abortCurrentTurn(config).catch(() => {});
     setStatus(renderMuted("Aborting..."));
   };
-  const hasReasoning = (): boolean => Boolean(reasoningTitle || reasoningBuffer.trim());
-  const clearReasoning = (): void => {
-    reasoningTitle = null;
-    reasoningBuffer = "";
-  };
-  const flushReasoningTranscript = (): void => {
-    if (!hasReasoning()) {
-      return;
-    }
-    const block = renderThinkingBlock(
-      reasoningTitle,
-      reasoningBuffer,
-    );
-    clearReasoning();
-    syncStatus();
-    writeOutput(`\n${block.join("\n")}\n\n`);
-  };
   const flushAssistantTranscript = (): void => {
     markdownStream?.end();
     markdownStream = null;
   };
   const syncStatus = (): void => {
     const lines: string[] = [];
-    if (reasoningTitle || reasoningBuffer.trim()) {
-      lines.push(...renderThinkingBlock(
-        reasoningTitle,
-        reasoningBuffer,
-      ));
-    }
-    if (spinnerFrame) {
-      if (lines.length > 0) {
-        lines.push("");
-      }
+    if (reasoningPreview) {
+      lines.push(reasoningPreview, "");
+    } else if (spinnerFrame) {
       lines.push(spinnerFrame, "");
     }
     setStatus(lines.length > 0 ? lines.join("\n") : null);
@@ -232,30 +207,28 @@ async function runChatTurn(
     spinnerFrame = frame;
     syncStatus();
   });
+  const reasoningStream = new LiveReasoningStream({
+    onPreview: (preview) => {
+      reasoningPreview = preview;
+      syncStatus();
+    },
+  });
   setAbortHandler(abortTurn);
   spinner.start();
   setToolActivityHook(() => {
     flushAssistantTranscript();
-    flushReasoningTranscript();
+    reasoningStream.finish();
     spinner.start();
   });
   setReasoningActivityHook((payload) => {
-    if (typeof payload.text !== "string" || payload.text.length === 0) {
-      return;
-    }
-    if (payload.kind === "summary") {
-      reasoningTitle = payload.text.trim() || reasoningTitle;
-    } else {
-      reasoningBuffer += payload.text;
-    }
-    syncStatus();
+    reasoningStream.render(payload);
   });
   let receivedChunk = false;
 
   try {
     await streamChat(config, line, {
       onChunk: (chunk) => {
-        flushReasoningTranscript();
+        reasoningStream.finish();
         spinner.stop();
         receivedChunk = true;
         if (consumeToolActivity()) {
@@ -265,7 +238,7 @@ async function runChatTurn(
         markdownStream.write(chunk);
       },
       onEnd: () => {
-        flushReasoningTranscript();
+        reasoningStream.finish();
         spinner.stop();
         if (aborting && !receivedChunk) {
           writeOutput(`${renderMuted("(aborted)")}\n`);
@@ -278,7 +251,7 @@ async function runChatTurn(
         flushAssistantTranscript();
       },
       onError: (message) => {
-        flushReasoningTranscript();
+        reasoningStream.finish();
         spinner.stop();
         if (aborting || /aborted/i.test(message)) {
           writeOutput(`${renderMuted("(aborted)")}\n`);
@@ -289,6 +262,7 @@ async function runChatTurn(
     }, streamAbortController.signal);
   } finally {
     streamAbortController.abort();
+    reasoningStream.finish();
     spinner.stop();
     setAbortHandler(null);
     setToolActivityHook(null);
