@@ -18,9 +18,17 @@ const ROOT_COMMANDS: Array<{
   { label: "/help", command: "/help", description: "show available commands", action: "submit" },
   { label: "/sessions", command: "/session ", description: "pick a stored session", action: "fill" },
   { label: "/model", command: "/model ", description: "choose provider and model", action: "fill" },
+  { label: "/thinking", command: "/thinking ", description: "choose reasoning level", action: "fill" },
   { label: "/clear", command: "/clear", description: "clear messages for the current session", action: "submit" },
   { label: "/new", command: "/new", description: "start a fresh session", action: "submit" },
   { label: "/quit", command: "/quit", description: "exit chump", action: "submit" },
+];
+
+const THINKING_COMMANDS = [
+  { label: "none", description: "disable model thinking" },
+  { label: "low", description: "small thinking budget" },
+  { label: "high", description: "larger thinking budget" },
+  { label: "xhigh", description: "maximum thinking budget" },
 ];
 
 export function completeSlashCommand(
@@ -49,6 +57,15 @@ export function completeSlashCommand(
     ];
   }
 
+  const thinkingSuggestions = completeThinkingCommand(line);
+  if (thinkingSuggestions.length > 0) {
+    return [
+      thinkingSuggestions.map(toSuggestionView),
+      line,
+      thinkingSuggestions,
+    ];
+  }
+
   const hits = ROOT_COMMANDS
     .filter((command) => command.label.startsWith(line))
     .map(toSuggestion);
@@ -61,6 +78,23 @@ export function completeSlashCommand(
     line,
     suggestions,
   ];
+}
+
+function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
+  if (!/^\/thinking(?:\s|$)/.test(line)) {
+    return [];
+  }
+
+  const query = line.slice("/thinking".length).trim().toLowerCase();
+  return THINKING_COMMANDS
+    .filter((command) => !query || command.label.startsWith(query))
+    .map((command) => ({
+      label: command.label,
+      command: `/thinking ${command.label}`,
+      description: command.description,
+      kind: "command" as const,
+      action: "submit" as const,
+    }));
 }
 
 function completeModelCommand(
@@ -201,6 +235,7 @@ export function parseSlashCommand(input: string): {
     case "agent":
     case "session":
     case "model":
+    case "thinking":
     case "quit":
       return { command, args };
     default:
@@ -214,6 +249,7 @@ export function printHelp(): void {
   }
   writeOutputLine("/session <id>");
   writeOutputLine("/agent <id>");
+  writeOutputLine("/thinking <none|low|high|xhigh>");
 }
 
 export function switchAgent(

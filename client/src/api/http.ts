@@ -128,6 +128,13 @@ export async function setModel(
   return await invokeAction<ChumpStatus>(config, "set_model", { provider, model });
 }
 
+export async function setReasoning(
+  config: ChumpConfig,
+  mode: string,
+): Promise<ChumpStatus> {
+  return await invokeAction<ChumpStatus>(config, "set_reasoning", { mode });
+}
+
 async function invokeAction<T>(
   config: ChumpConfig,
   actionName: string,

@@ -10,6 +10,7 @@ import {
   getSessions,
   getStatus,
   setModel,
+  setReasoning,
   streamChat,
 } from "../api/http.ts";
 import {
@@ -224,6 +225,7 @@ async function runChatTurn(
     reasoningStream.render(payload);
   });
   let receivedChunk = false;
+  let receivedEnd = false;
 
   try {
     await streamChat(config, line, {
@@ -238,6 +240,7 @@ async function runChatTurn(
         markdownStream.write(chunk);
       },
       onEnd: () => {
+        receivedEnd = true;
         reasoningStream.finish();
         spinner.stop();
         if (aborting && !receivedChunk) {
@@ -251,6 +254,7 @@ async function runChatTurn(
         flushAssistantTranscript();
       },
       onError: (message) => {
+        receivedEnd = true;
         reasoningStream.finish();
         spinner.stop();
         if (aborting || /aborted/i.test(message)) {
@@ -260,6 +264,23 @@ async function runChatTurn(
         writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
       },
     }, streamAbortController.signal);
+    if (!receivedEnd && !aborting) {
+      await abortCurrentTurn(config).catch(() => {});
+      throw new Error("chat stream ended before the server sent an end event");
+    }
+  } catch (error) {
+    reasoningStream.finish();
+    spinner.stop();
+    flushAssistantTranscript();
+    if (!receivedEnd && !aborting) {
+      await abortCurrentTurn(config).catch(() => {});
+    }
+    const message = errorMessage(error);
+    if (aborting || /aborted/i.test(message)) {
+      writeOutput(`${renderMuted("(aborted)")}\n`);
+      return;
+    }
+    writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
   } finally {
     streamAbortController.abort();
     reasoningStream.finish();
@@ -268,6 +289,13 @@ async function runChatTurn(
     setToolActivityHook(null);
     setReasoningActivityHook(null);
   }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 async function readInputLoop(
@@ -389,6 +417,18 @@ async function handleSlashCommand(
       writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
       break;
     }
+    case "thinking": {
+      const mode = parsed.args[0];
+      if (!isThinkingMode(mode)) {
+        writeOutput(`${renderMuted("usage: /thinking <none|low|high|xhigh>")}\n`);
+        break;
+      }
+      await updateGlobalAuth({ reasoning: { mode } });
+      const status = await setReasoning(config, mode);
+      context.setFooter(renderFooter(config, status));
+      writeOutput(`${renderMuted(`thinking set to ${mode}`)}\n`);
+      break;
+    }
     case "clear": {
       const result = await clearMessages(config);
       writeOutput(`${JSON.stringify(result, null, 2)}\n`);
@@ -452,6 +492,10 @@ function parseModelSelector(value: string): [string | null, string | null] {
     return [null, null];
   }
   return [trimmed.slice(0, separator), trimmed.slice(separator + 1)];
+}
+
+function isThinkingMode(value: string | undefined): value is "none" | "low" | "high" | "xhigh" {
+  return value === "none" || value === "low" || value === "high" || value === "xhigh";
 }
 
 async function renderSwitchedSession(

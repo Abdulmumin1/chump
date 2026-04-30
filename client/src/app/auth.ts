@@ -5,7 +5,14 @@ import process from "node:process";
 
 import { intro, isCancel, outro, password, select, text } from "@clack/prompts";
 
+import { connectCodexBrowser, connectCodexHeadless } from "./codex-auth.ts";
+
 const PROVIDERS = {
+  codex: {
+    label: "Codex",
+    defaultModel: "gpt-5.4",
+    fields: [],
+  },
   openai: {
     label: "OpenAI",
     defaultModel: "gpt-5.4",
@@ -45,22 +52,27 @@ type ProviderId = keyof typeof PROVIDERS;
 type AuthFile = {
   provider?: string;
   model?: string;
-  credentials?: Record<string, Record<string, string>>;
+  reasoning?: Record<string, unknown>;
+  credentials?: Record<string, Record<string, unknown>>;
 };
 
 export async function connectProvider(): Promise<void> {
   intro("Connect provider");
   const provider = await promptProvider();
   const definition = PROVIDERS[provider];
-  const credentials: Record<string, string> = {};
+  let credentials: Record<string, unknown> = {};
 
-  for (const field of definition.fields) {
-    const optional = "optional" in field && field.optional === true;
-    const value = "secret" in field && field.secret === true
-      ? await promptPassword(field.label, optional)
-      : await promptText(field.label, "", optional);
-    if (value) {
-      credentials[field.key] = value;
+  if (provider === "codex") {
+    credentials = await promptCodexCredentials();
+  } else {
+    for (const field of definition.fields) {
+      const optional = "optional" in field && field.optional === true;
+      const value = "secret" in field && field.secret === true
+        ? await promptPassword(field.label, optional)
+        : await promptText(field.label, "", optional);
+      if (value) {
+        credentials[field.key] = value;
+      }
     }
   }
 
@@ -138,6 +150,27 @@ async function promptProvider(): Promise<ProviderId> {
   });
   cancelIfNeeded(value);
   return value as ProviderId;
+}
+
+async function promptCodexCredentials(): Promise<Record<string, unknown>> {
+  const method = await select({
+    message: "Login method",
+    options: [
+      { value: "browser", label: "ChatGPT Pro/Plus (browser)" },
+      { value: "headless", label: "ChatGPT Pro/Plus (headless)" },
+    ],
+  });
+  cancelIfNeeded(method);
+
+  if (method === "headless") {
+    return await connectCodexHeadless((url, code) => {
+      console.log(`Open ${url}`);
+      console.log(`Enter code: ${code}`);
+    });
+  }
+
+  console.log("Opening browser for ChatGPT authorization...");
+  return await connectCodexBrowser();
 }
 
 async function promptText(

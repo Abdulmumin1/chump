@@ -156,4 +156,5 @@ export type SlashCommand =
   | "agent"
   | "session"
   | "model"
+  | "thinking"
   | "quit";

@@ -6,7 +6,6 @@ import {
 import { writeOutput } from "./terminal.ts";
 
 export class ReasoningRenderer {
-  private title: string | null = null;
   private buffer = "";
   private activity = false;
 
@@ -22,22 +21,17 @@ export class ReasoningRenderer {
       return;
     }
 
-    if (payload.kind === "summary") {
-      this.title = text.trim() || this.title;
-    } else {
-      this.buffer = mergeReasoningText(this.buffer, text);
-    }
+    this.buffer = mergeReasoningText(this.buffer, text);
     this.activity = true;
   }
 
   flush(): void {
     const content = this.buffer.trim();
-    if (!this.title && !content) {
+    if (!content) {
       return;
     }
-    const block = renderThinkingBlock(this.title, this.buffer);
+    const block = renderThinkingBlock(null, this.buffer);
     writeOutput(`\n${block.join("\n")}\n\n`);
-    this.title = null;
     this.buffer = "";
   }
 }
@@ -45,7 +39,6 @@ export class ReasoningRenderer {
 export class LiveReasoningStream {
   private readonly onPreview: ((preview: string | null) => void) | null;
   private plainText = "";
-  private title: string | null = null;
   private previewTimer: NodeJS.Timeout | null = null;
 
   constructor(options: { onPreview?: ((preview: string | null) => void) | null } = {}) {
@@ -55,11 +48,6 @@ export class LiveReasoningStream {
   render(payload: Record<string, unknown>): void {
     const text = typeof payload.text === "string" ? payload.text : "";
     if (!text) {
-      return;
-    }
-
-    if (payload.kind === "summary") {
-      this.title = text.trim() || this.title;
       return;
     }
 
@@ -77,9 +65,8 @@ export class LiveReasoningStream {
     this.onPreview?.(null);
 
     const text = cleanReasoningText(this.plainText);
-    const title = this.title?.trim();
-    if (title || text) {
-      const block = renderThinkingBlock(title ?? null, text);
+    if (text) {
+      const block = renderThinkingBlock(null, text);
       writeOutput(`\n${block.join("\n")}\n\n`);
     }
 
@@ -97,7 +84,7 @@ export class LiveReasoningStream {
   }
 
   private preview(): string | null {
-    const text = cleanReasoningText(this.plainText);
+    const text = cleanReasoningPreview(this.plainText);
     if (!text) {
       return null;
     }
@@ -115,7 +102,6 @@ export class LiveReasoningStream {
   private reset(): void {
     this.clearPreviewTimer();
     this.plainText = "";
-    this.title = null;
   }
 }
 
@@ -132,7 +118,10 @@ function mergeReasoningText(existing: string, incoming: string): string {
 }
 
 function normalizeChunk(value: string, trimStart: boolean): string {
-  const normalized = value.replace(/\s+/g, " ");
+  const normalized = value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n");
   return trimStart ? normalized.trimStart() : normalized;
 }
 
@@ -161,12 +150,28 @@ function appendNovelSuffix(existing: string, incoming: string): string {
 }
 
 function cleanReasoningText(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
+  const normalized = value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (!normalized) {
     return "";
   }
 
-  const words = normalized.split(" ");
+  return normalized
+    .split("\n")
+    .map((line) => dedupeAdjacentWords(line))
+    .join("\n");
+}
+
+function cleanReasoningPreview(value: string): string {
+  return cleanReasoningText(value).replace(/\s+/g, " ").trim();
+}
+
+function dedupeAdjacentWords(value: string): string {
+  const words = value.split(" ");
   const cleaned: string[] = [];
   for (const word of words) {
     const previous = cleaned[cleaned.length - 1];

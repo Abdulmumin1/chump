@@ -9,6 +9,7 @@ from typing import Any
 
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 DEFAULT_MODELS = {
+    "codex": "gpt-5.4",
     "openai": "gpt-5.4",
     "google": "gemini-2.5-flash",
     "anthropic": "claude-sonnet-4-20250514",
@@ -61,7 +62,7 @@ def load_config() -> ChumpConfig:
         ),
         max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
         command_timeout=int(os.environ.get("CHUMP_COMMAND_TIMEOUT", "120")),
-        reasoning=load_reasoning_config(),
+        reasoning=load_reasoning_config(auth_config, provider),
         verbose=os.environ.get("CHUMP_VERBOSE", "1").lower()
         not in {"0", "false", "no"},
     )
@@ -117,10 +118,14 @@ def string_value(value: Any) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-def load_reasoning_config() -> dict[str, Any] | None:
+def load_reasoning_config(
+    auth_config: dict[str, Any] | None = None,
+    provider: str | None = None,
+) -> dict[str, Any] | None:
     reasoning: dict[str, Any] = {}
     effort = os.environ.get("CHUMP_REASONING_EFFORT")
     budget = os.environ.get("CHUMP_REASONING_BUDGET")
+    configured = auth_config.get("reasoning") if auth_config else None
 
     if effort:
         if effort not in REASONING_EFFORTS:
@@ -131,14 +136,58 @@ def load_reasoning_config() -> dict[str, Any] | None:
         reasoning["effort"] = effort
     if budget:
         reasoning["budget"] = int(budget)
+    if not reasoning and isinstance(configured, dict):
+        reasoning = normalize_reasoning_config(configured, provider)
 
     return reasoning or None
+
+
+def normalize_reasoning_config(
+    value: dict[str, Any] | None,
+    provider: str | None,
+) -> dict[str, Any] | None:
+    if not value:
+        return None
+    mode = string_value(value.get("mode"))
+    if mode == "none":
+        return None
+    normalized_provider = normalize_provider_name(provider or "openai")
+    if normalized_provider == "google":
+        budget = value.get("budget")
+        if isinstance(budget, int):
+            return {"budget": budget}
+        if mode:
+            return {"budget": reasoning_budget_for_mode(mode)}
+        return None
+    effort = string_value(value.get("effort")) or mode
+    if not effort:
+        return None
+    if effort not in REASONING_EFFORTS:
+        valid = ", ".join(sorted(REASONING_EFFORTS))
+        raise ValueError(f"invalid reasoning effort={effort!r}; expected one of: {valid}")
+    return {"effort": effort}
+
+
+def reasoning_budget_for_mode(mode: str) -> int:
+    budgets = {
+        "low": 1024,
+        "high": 8192,
+        "xhigh": 16384,
+        "minimal": 512,
+        "medium": 4096,
+    }
+    if mode not in budgets:
+        valid = ", ".join(["none", *budgets])
+        raise ValueError(f"invalid reasoning mode={mode!r}; expected one of: {valid}")
+    return budgets[mode]
 
 
 def normalize_provider_name(value: str) -> str:
     normalized = value.strip().lower().replace("-", "_")
     if normalized in {"workersai", "workers_ai"}:
         return "workers_ai"
+    if normalized in {"chatgpt", "openai_codex"}:
+        return "codex"
     if normalized not in DEFAULT_MODELS:
         valid = ", ".join(sorted(DEFAULT_MODELS))
         raise ValueError(f"invalid CHUMP_PROVIDER={value!r}; expected one of: {valid}")

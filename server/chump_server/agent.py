@@ -11,7 +11,8 @@ from ai_query.agents import Agent, SQLiteStorage, action
 from ai_query.providers import anthropic, google, openai, workers_ai
 from ai_query.types import AbortController, AbortError, AbortSignal, Message
 
-from .config import ChumpConfig, load_config
+from .codex_provider import codex_model
+from .config import ChumpConfig, auth_file_path, load_auth_config, load_config
 from .tools import build_tools
 
 SYSTEM_PROMPT = """
@@ -139,6 +140,12 @@ assistant: Clients are marked as failed in the `connectToServer` function in src
 
 def resolve_model(config: ChumpConfig):
     provider_name = config.provider.lower()
+    if provider_name == "codex":
+        return codex_model(
+            config.model,
+            auth_path=auth_file_path(),
+            auth_config=load_auth_config(),
+        )
     if provider_name == "openai":
         return openai(
             config.model,
@@ -225,14 +232,33 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @action
     async def set_model(self, provider: str, model: str) -> dict[str, Any]:
-        from .config import apply_auth_environment, load_auth_config, normalize_provider_name
+        from .config import apply_auth_environment, load_auth_config, normalize_provider_name, normalize_reasoning_config
 
         provider_name = normalize_provider_name(provider)
         if not model.strip():
             raise ValueError("model is required")
-        apply_auth_environment(load_auth_config(), provider_name)
-        self._config = replace(self._config, provider=provider_name, model=model.strip())
+        auth_config = load_auth_config()
+        apply_auth_environment(auth_config, provider_name)
+        reasoning = normalize_reasoning_config(auth_config.get("reasoning"), provider_name)
+        self._config = replace(
+            self._config,
+            provider=provider_name,
+            model=model.strip(),
+            reasoning=reasoning,
+        )
         self.model = resolve_model(self._config)
+        self.reasoning = reasoning
+        return await self.status()
+
+    @action
+    async def set_reasoning(self, mode: str) -> dict[str, Any]:
+        from .config import normalize_reasoning_config
+
+        self._config = replace(
+            self._config,
+            reasoning=normalize_reasoning_config({"mode": mode}, self._config.provider),
+        )
+        self.reasoning = self._config.reasoning
         return await self.status()
 
     @property
@@ -306,6 +332,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
             last_user_goal=message,
         )
 
+        provider_kwargs = (
+            {"instructions": self.system}
+            if self._config.provider == "codex"
+            else {}
+        )
+
         return stream_text(
             model=self.model,
             system=self.system,
@@ -318,6 +350,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             on_reasoning_event=self._handle_reasoning_event,
             on_step_start=self._on_step_start,
             on_step_finish=self._on_step_finish,
+            **provider_kwargs,
             **kwargs,
         )
 

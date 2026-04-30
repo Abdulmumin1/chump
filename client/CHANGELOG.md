@@ -1,5 +1,14 @@
 # chump-agent
 
+## 0.0.3
+
+### Patch Changes
+
+- Add Codex subscription auth through `chump connect`, including browser and headless OAuth flows.
+- Add `/thinking` for switching reasoning modes between `none`, `low`, `high`, and `xhigh`.
+- Expand `/model` with Codex, OpenAI GPT-5, Google, and Workers AI model choices.
+- Improve reasoning display, queued input behavior, and diagnostics for interrupted chat streams.
+
 ## 0.0.2
 
 ### Patch Changes

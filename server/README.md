@@ -45,7 +45,10 @@ Pushing a `chump-server-v*` tag runs the PyPI job in `.github/workflows/release.
 - `CHUMP_PORT`: default `8080`
 - `CHUMP_WORKSPACE_ROOT`: defaults to the parent directory of `server/`
 - `CHUMP_DATA_DIR`: default `.chump`
-- `CHUMP_PROVIDER`: default `openai`; also supports `workers_ai`
+- `CHUMP_PROVIDER`: default `openai`; also supports `codex`, `google`, `anthropic`, and `workers_ai`
 - `CHUMP_MODEL`: provider-specific default
 - `CHUMP_MAX_STEPS`: default `64`
+- `CHUMP_COMMAND_TIMEOUT`: default `120`
+- `CHUMP_REASONING_EFFORT`: optional OpenAI-compatible reasoning effort
+- `CHUMP_REASONING_BUDGET`: optional Gemini-compatible thinking budget
 - `CHUMP_VERBOSE`: default `1`

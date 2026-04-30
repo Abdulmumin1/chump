@@ -6,8 +6,36 @@ import process from "node:process";
 import { globalDataDir } from "./auth.ts";
 
 const MODELS_TTL_MS = 5 * 60 * 1000;
+const CODEX_MODELS = new Set([
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.3-codex",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "gpt-5.1-codex",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
+  "gpt-5-codex",
+]);
 
 const FALLBACK_MODELS: Record<string, ModelProvider> = {
+  codex: {
+    id: "codex",
+    name: "Codex",
+    models: {
+      "gpt-5.5": { id: "gpt-5.5", name: "GPT-5.5", reasoning: true },
+      "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", reasoning: true },
+      "gpt-5.4-mini": { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", reasoning: true },
+      "gpt-5.3-codex": { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", reasoning: true },
+      "gpt-5.2": { id: "gpt-5.2", name: "GPT-5.2", reasoning: true },
+      "gpt-5.2-codex": { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", reasoning: true },
+      "gpt-5.1-codex": { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", reasoning: true },
+      "gpt-5.1-codex-max": { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", reasoning: true },
+      "gpt-5.1-codex-mini": { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", reasoning: true },
+      "gpt-5-codex": { id: "gpt-5-codex", name: "GPT-5 Codex", reasoning: true },
+    },
+  },
   openai: {
     id: "openai",
     name: "OpenAI",
@@ -250,6 +278,9 @@ function normalizeCatalog(value: unknown): Record<string, ModelProvider> {
 }
 
 function modelCatalogProviderId(provider: string): string {
+  if (provider === "codex") {
+    return "openai";
+  }
   if (provider === "workers_ai") {
     return "cloudflare-workers-ai";
   }
@@ -260,7 +291,10 @@ function isUsableChatModel(provider: string, model: ModelInfo): boolean {
   if (!model.id) {
     return false;
   }
-  if (provider === "openai" && !model.id.startsWith("gpt-5")) {
+  if ((provider === "openai" || provider === "codex") && !model.id.startsWith("gpt-5")) {
+    return false;
+  }
+  if (provider === "codex" && !CODEX_MODELS.has(model.id)) {
     return false;
   }
   if (model.status === "deprecated") {
@@ -287,6 +321,18 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.2-codex",
       "gpt-5.1",
       "gpt-5",
+    ],
+    codex: [
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex",
+      "gpt-5.2",
+      "gpt-5.2-codex",
+      "gpt-5.1-codex",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex-mini",
+      "gpt-5-codex",
     ],
     google: [
       "gemini-3.1-pro-preview",

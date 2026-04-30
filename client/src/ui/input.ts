@@ -3,6 +3,7 @@ import type { Interface } from "node:readline/promises";
 import process, { stdin as input, stdout as output } from "node:process";
 
 import { completeSlashCommand } from "../app/commands.ts";
+import { logClientEvent } from "../app/diagnostics.ts";
 import type {
   SessionSummary,
   SlashCommandMenuContext,
@@ -433,6 +434,7 @@ function createInteractivePromptReader(): {
       const now = Date.now();
       if (abortHandler && now - lastEscapeAt <= 600) {
         lastEscapeAt = 0;
+        logClientEvent("abortShortcut", "double escape");
         abortHandler();
         return;
       }

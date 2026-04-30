@@ -21,6 +21,8 @@ server/.chump/
 server/*.db
 server/*.sqlite
 server/*.sqlite3
+venv/
+puzzle/*_tmp.py
 
 __pycache__/
 *.pyc

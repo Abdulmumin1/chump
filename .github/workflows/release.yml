@@ -16,6 +16,7 @@ jobs:
   npm:
     name: npm
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/heads/')
     permissions:
       contents: write
       pull-requests: write
