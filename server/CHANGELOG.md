@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.4
+
+### Patch Changes
+
+- Upgrade the backend dependency to `ai-query==1.7.34`.
+
 ## 0.0.3
 
 ### Patch Changes
