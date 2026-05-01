@@ -132,6 +132,7 @@ If you want to script against the backend or just poke it with `curl` because th
 - `CHUMP_MODEL` — provider-specific default
 - `CHUMP_MAX_STEPS` — default `64`
 - `CHUMP_COMMAND_TIMEOUT` — default `120`
+- `CHUMP_MANAGED_SERVER_IDLE_TIMEOUT` — seconds before an auto-managed server exits after the last CLI disconnects; default `300`
 - `CHUMP_REASONING_EFFORT` — one of `none|minimal|low|medium|high|xhigh`
 - `CHUMP_REASONING_BUDGET` — optional reasoning budget
 - `CHUMP_VERBOSE` — default `1`

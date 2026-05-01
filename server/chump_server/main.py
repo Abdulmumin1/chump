@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import time
@@ -18,11 +19,14 @@ class ChumpServer(AgentServer):
         super().__init__(ChumpAgent)
         self.chump_config = config
         self.started_at = time.time()
+        self._managed_idle_task: asyncio.Task[None] | None = None
 
     def on_app_setup(self, app: web.Application) -> None:
         app.router.add_get("/health", self.health)
         app.router.add_get("/version", self.version)
         app.router.add_get("/sessions", self.sessions)
+        app.on_startup.append(self._start_managed_idle_shutdown)
+        app.on_cleanup.append(self._stop_managed_idle_shutdown)
 
     async def health(self, request: web.Request) -> web.Response:
         return web.json_response({
@@ -35,6 +39,7 @@ class ChumpServer(AgentServer):
             "model": self.chump_config.model,
             "max_steps": self.chump_config.max_steps,
             "command_timeout": self.chump_config.command_timeout,
+            "managed_idle_timeout": self.chump_config.managed_idle_timeout,
             "reasoning": self.chump_config.reasoning,
             "verbose": self.chump_config.verbose,
             "active_sessions": len(self._agents),
@@ -114,6 +119,50 @@ class ChumpServer(AgentServer):
         )
         return sessions
 
+    async def _start_managed_idle_shutdown(self, app: web.Application) -> None:
+        if self.chump_config.managed_idle_timeout is None:
+            return
+        self._managed_idle_task = asyncio.create_task(self._managed_idle_shutdown_loop())
+
+    async def _stop_managed_idle_shutdown(self, app: web.Application) -> None:
+        if self._managed_idle_task is None:
+            return
+        self._managed_idle_task.cancel()
+        try:
+            await self._managed_idle_task
+        except asyncio.CancelledError:
+            pass
+        self._managed_idle_task = None
+
+    async def _managed_idle_shutdown_loop(self) -> None:
+        timeout = self.chump_config.managed_idle_timeout
+        if timeout is None:
+            return
+        interval = min(10.0, max(1.0, timeout / 2))
+        while True:
+            await asyncio.sleep(interval)
+            now = time.time()
+            if self._active_connection_count() > 0:
+                continue
+            last_activity = max(
+                [self.started_at, *(meta.last_activity for meta in self._agents.values())]
+            )
+            if now - last_activity >= timeout:
+                print(
+                    f"[chump] no active clients for {timeout}s; shutting down managed server",
+                    flush=True,
+                )
+                await self.shutdown()
+                return
+
+    def _active_connection_count(self) -> int:
+        count = 0
+        for meta in self._agents.values():
+            agent = meta.agent
+            count += len(agent._connections)
+            count += len(agent._sse_connections)
+        return count
+
 
 def main() -> None:
     config = load_config()
@@ -124,6 +173,7 @@ def main() -> None:
             f"model={config.model} "
             f"max_steps={config.max_steps} "
             f"command_timeout={config.command_timeout} "
+            f"managed_idle_timeout={config.managed_idle_timeout} "
             f"reasoning={config.reasoning} "
             f"workspace={config.workspace_root}",
             flush=True,

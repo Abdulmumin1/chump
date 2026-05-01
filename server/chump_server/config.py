@@ -27,6 +27,7 @@ class ChumpConfig:
     model: str
     max_steps: int
     command_timeout: int
+    managed_idle_timeout: int | None
     reasoning: dict[str, Any] | None
     verbose: bool
 
@@ -62,6 +63,7 @@ def load_config() -> ChumpConfig:
         ),
         max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
         command_timeout=int(os.environ.get("CHUMP_COMMAND_TIMEOUT", "120")),
+        managed_idle_timeout=int_value(os.environ.get("CHUMP_MANAGED_SERVER_IDLE_TIMEOUT")),
         reasoning=load_reasoning_config(auth_config, provider),
         verbose=os.environ.get("CHUMP_VERBOSE", "1").lower()
         not in {"0", "false", "no"},
@@ -116,6 +118,13 @@ def apply_auth_environment(
 
 def string_value(value: Any) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
+
+
+def int_value(value: str | None) -> int | None:
+    if value is None or not value.strip():
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
 
 
 def load_reasoning_config(

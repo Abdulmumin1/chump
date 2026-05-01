@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import traceback
 from dataclasses import replace
 from typing import Any, AsyncIterator
 
@@ -202,6 +203,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "model": self._config.model,
             "max_steps": self._config.max_steps,
             "command_timeout": self._config.command_timeout,
+            "managed_idle_timeout": self._config.managed_idle_timeout,
             "reasoning": self._config.reasoning,
             "verbose": self._config.verbose,
             "message_count": len(self.messages),
@@ -378,6 +380,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
             yield f"event: end\ndata: {json.dumps(full_text)}\n\n"
         except Exception as exc:
+            self._log(f"chat error: {exc}\n{traceback.format_exc()}")
             yield f"event: error\ndata: {json.dumps(str(exc))}\n\n"
         finally:
             if self._current_abort_controller is controller:

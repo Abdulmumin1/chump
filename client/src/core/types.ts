@@ -33,6 +33,7 @@ export type ChumpStatus = {
   model: string;
   max_steps: number;
   command_timeout: number;
+  managed_idle_timeout: number | null;
   reasoning: Record<string, unknown> | null;
   verbose: boolean;
   message_count: number;
@@ -52,6 +53,7 @@ export type ChumpHealth = {
   model: string;
   max_steps: number;
   command_timeout: number;
+  managed_idle_timeout: number | null;
   reasoning: Record<string, unknown> | null;
   verbose: boolean;
   active_sessions: number;

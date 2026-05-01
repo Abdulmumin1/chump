@@ -49,6 +49,7 @@ Pushing a `chump-server-v*` tag runs the PyPI job in `.github/workflows/release.
 - `CHUMP_MODEL`: provider-specific default
 - `CHUMP_MAX_STEPS`: default `64`
 - `CHUMP_COMMAND_TIMEOUT`: default `120`
+- `CHUMP_MANAGED_SERVER_IDLE_TIMEOUT`: optional process idle shutdown timeout in seconds
 - `CHUMP_REASONING_EFFORT`: optional OpenAI-compatible reasoning effort
 - `CHUMP_REASONING_BUDGET`: optional Gemini-compatible thinking budget
 - `CHUMP_VERBOSE`: default `1`

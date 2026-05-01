@@ -1,5 +1,14 @@
 # chump-server
 
+## 0.0.3
+
+### Patch Changes
+
+- Add managed server idle shutdown support through `CHUMP_MANAGED_SERVER_IDLE_TIMEOUT`.
+- Expose managed idle timeout values through health and status responses.
+- Log chat exceptions with tracebacks before streaming error events.
+- Upgrade the backend lock entry to `ai-query==1.7.33`.
+
 ## 0.0.2
 
 ### Patch Changes
