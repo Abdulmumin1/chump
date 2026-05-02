@@ -1,5 +1,15 @@
 # chump-agent
 
+## 0.0.5
+
+### Patch Changes
+
+- 673ee26: fix(client): show spinner alongside reasoning and refresh on tool activity
+
+  - Display reasoning text and spinner simultaneously instead of mutually exclusive
+  - Add spinner.refresh() to re-render the current frame without restarting the animation timer
+  - Use refresh on tool activity instead of start() to avoid janky spinner resets
+
 ## 0.0.4
 
 ### Patch Changes
