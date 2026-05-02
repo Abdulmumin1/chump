@@ -2,6 +2,7 @@ import { renderAccent, renderMuted } from "./render.ts";
 
 export function createSpinner(onFrame: (frame: string | null) => void): {
   start: () => void;
+  refresh: () => void;
   stop: () => void;
 } {
   const frames = ["✶", "✸", "✹", "✺", "✹", "✷"];
@@ -21,6 +22,13 @@ export function createSpinner(onFrame: (frame: string | null) => void): {
         index = (index + 1) % frames.length;
         onFrame(renderFrame(frames[index] ?? "✶", label, index));
       }, 190);
+    },
+    refresh() {
+      if (!active) {
+        this.start();
+        return;
+      }
+      onFrame(renderFrame(frames[index] ?? "✶", label, index));
     },
     stop() {
       if (!active) {

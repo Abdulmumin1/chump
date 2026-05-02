@@ -199,7 +199,8 @@ async function runChatTurn(
     const lines: string[] = [];
     if (reasoningPreview) {
       lines.push(reasoningPreview, "");
-    } else if (spinnerFrame) {
+    }
+    if (spinnerFrame) {
       lines.push(spinnerFrame, "");
     }
     setStatus(lines.length > 0 ? lines.join("\n") : null);
@@ -219,7 +220,7 @@ async function runChatTurn(
   setToolActivityHook(() => {
     flushAssistantTranscript();
     reasoningStream.finish();
-    spinner.start();
+    spinner.refresh();
   });
   setReasoningActivityHook((payload) => {
     reasoningStream.render(payload);
