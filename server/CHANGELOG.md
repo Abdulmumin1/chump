@@ -1,5 +1,15 @@
 # chump-server
 
+## 0.0.5
+
+### Patch Changes
+
+- Upgrade the backend dependency to `ai-query==1.7.35`.
+- Move chat execution onto ai-query `AgentTurn` so chump can receive turn events and step-boundary steering.
+- Add `steer_current_turn` and `cancel_last_steering` actions for mid-turn user corrections.
+- Add image attachment payload support for chat requests.
+- Avoid duplicate user-message persistence when running turn-based chats.
+
 ## 0.0.4
 
 ### Patch Changes

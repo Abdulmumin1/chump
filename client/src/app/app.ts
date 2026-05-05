@@ -3,6 +3,7 @@ import process, { stdin as input, stdout as output } from "node:process";
 
 import {
   abortCurrentTurn,
+  cancelLastSteering,
   clearMessages,
   getEventLog,
   getHealth,
@@ -11,6 +12,7 @@ import {
   getStatus,
   setModel,
   setReasoning,
+  steerCurrentTurn,
   streamChat,
 } from "../api/http.ts";
 import {
@@ -19,6 +21,7 @@ import {
   switchAgent,
 } from "./commands.ts";
 import { connectProvider, readGlobalAuth, updateGlobalAuth } from "./auth.ts";
+import { logClientEvent } from "./diagnostics.ts";
 import { listModelChoices } from "./models.ts";
 import {
   createSessionId,
@@ -29,6 +32,7 @@ import {
 import {
   consumeToolActivity,
   setReasoningActivityHook,
+  setSteeringAcceptedHook,
   setToolActivityHook,
   startEventStream,
 } from "../ui/events.ts";
@@ -55,7 +59,7 @@ import {
   stopManagedServer,
 } from "./runtime.ts";
 import { createSpinner } from "../ui/spinner.ts";
-import type { ChumpConfig, ManagedServerMetadata } from "../core/types.ts";
+import type { ChumpConfig, ManagedServerMetadata, PromptSubmission } from "../core/types.ts";
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const options = parseCliArgs(argv);
@@ -103,6 +107,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const promptReader = createPromptReader(fallbackRl);
   const lineQueue = new AsyncLineQueue();
   let closeEventStream: (() => void) | null = null;
+  let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
   const [health, sessions] = await Promise.all([
     getHealth(config),
     getSessions(config),
@@ -119,7 +124,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   console.log(renderBanner(config));
   closeEventStream = await startEventStream(config);
 
-  void readInputLoop(promptReader, lineQueue);
+  void readInputLoop(promptReader, lineQueue, () => activeSteerHandler);
 
   try {
     while (true) {
@@ -129,11 +134,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       }
       promptReader.popQueuedDisplay();
 
-      const line = nextLine;
-      if (!line.trim()) {
+      const line = nextLine.text;
+      if (!line.trim() && nextLine.attachments.length === 0) {
         continue;
       }
-      writeOutput(`${renderUserMessage(line)}\n`);
+      writeOutput(`${renderUserMessage(formatSubmissionForDisplay(nextLine))}\n`);
 
       const commandResult = await handleSlashCommand(line, {
         config,
@@ -161,9 +166,21 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
       await runChatTurn(
         config,
-        line,
+        nextLine,
         (status) => promptReader.setStatus(status),
         (handler) => promptReader.setAbortHandler(handler),
+        (handler) => {
+          activeSteerHandler = handler;
+        },
+        () => promptReader.popQueuedDisplay(),
+        (handler) => {
+          promptReader.setQueuedLinePopHandler(
+            handler
+              ? () => handler() ?? lineQueue.popLast()
+              : () => lineQueue.popLast(),
+          );
+        },
+        (submission) => lineQueue.unshift(submission),
       );
     }
   } finally {
@@ -174,9 +191,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
 async function runChatTurn(
   config: ChumpConfig,
-  line: string,
+  submission: PromptSubmission,
   setStatus: (status: string | null) => void,
   setAbortHandler: (handler: (() => void) | null) => void,
+  setSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void,
+  popSteeredDisplay: () => void,
+  setQueuedLinePopHandler: (handler: (() => PromptSubmission | null) | null) => void,
+  requeueSteeredSubmission: (submission: PromptSubmission) => void,
 ): Promise<void> {
   const streamAbortController = new AbortController();
   let spinnerFrame: string | null = null;
@@ -203,6 +224,9 @@ async function runChatTurn(
     if (spinnerFrame) {
       lines.push(spinnerFrame, "");
     }
+    if (lines.length > 0) {
+      lines.unshift("");
+    }
     setStatus(lines.length > 0 ? lines.join("\n") : null);
   };
   const spinner = createSpinner((frame) => {
@@ -215,7 +239,32 @@ async function runChatTurn(
       syncStatus();
     },
   });
+  const pendingSteeringSubmissions: PromptSubmission[] = [];
+  const popPendingSteeringSubmission = (): PromptSubmission | null => {
+    const pending = pendingSteeringSubmissions.pop() ?? null;
+    if (pending) {
+      void cancelLastSteering(config).catch(() => {});
+    }
+    return pending;
+  };
   setAbortHandler(abortTurn);
+  setQueuedLinePopHandler(popPendingSteeringSubmission);
+  setSteeringAcceptedHook(() => {
+    pendingSteeringSubmissions.shift();
+    popSteeredDisplay();
+  });
+  setSteerHandler(async (nextSubmission) => {
+    const result = await steerCurrentTurn(
+      config,
+      nextSubmission.text,
+      nextSubmission.attachments,
+    );
+    if (result.status !== "steered") {
+      return false;
+    }
+    pendingSteeringSubmissions.push(nextSubmission);
+    return true;
+  });
   spinner.start();
   setToolActivityHook(() => {
     flushAssistantTranscript();
@@ -229,7 +278,11 @@ async function runChatTurn(
   let receivedEnd = false;
 
   try {
-    await streamChat(config, line, {
+    logClientEvent(
+      "chatSubmit",
+      `chars=${submission.text.length} attachments=${submission.attachments.length}`,
+    );
+    await streamChat(config, submission.text, submission.attachments, {
       onChunk: (chunk) => {
         reasoningStream.finish();
         spinner.stop();
@@ -287,6 +340,15 @@ async function runChatTurn(
     reasoningStream.finish();
     spinner.stop();
     setAbortHandler(null);
+    setSteerHandler(null);
+    setQueuedLinePopHandler(null);
+    setSteeringAcceptedHook(null);
+    while (pendingSteeringSubmissions.length > 0) {
+      const pending = pendingSteeringSubmissions.pop();
+      if (pending) {
+        requeueSteeredSubmission(pending);
+      }
+    }
     setToolActivityHook(null);
     setReasoningActivityHook(null);
   }
@@ -299,9 +361,28 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+function formatSubmissionForDisplay(submission: PromptSubmission): string {
+  let text = submission.text;
+  for (const attachment of submission.attachments) {
+    if (attachment.type === "text") {
+      text = text.replace(attachment.text, attachment.label);
+    }
+  }
+  const images = submission.attachments
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment, index) => `[Image ${index + 1}: ${attachment.filename}]`)
+    .filter((label) => !text.includes(label))
+    .join(" ");
+  if (!images) {
+    return text;
+  }
+  return `${text.trimEnd()} ${images}`.trim();
+}
+
 async function readInputLoop(
   promptReader: ReturnType<typeof createPromptReader>,
   lineQueue: AsyncLineQueue,
+  getSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null,
 ): Promise<void> {
   try {
     while (true) {
@@ -310,6 +391,13 @@ async function readInputLoop(
         lineQueue.close();
         return;
       }
+      const steerHandler = getSteerHandler();
+      if (steerHandler && shouldSteer(line)) {
+        const steered = await steerHandler(line).catch(() => false);
+        if (steered) {
+          continue;
+        }
+      }
       lineQueue.push(line);
     }
   } catch (error) {
@@ -317,13 +405,20 @@ async function readInputLoop(
   }
 }
 
+function shouldSteer(submission: PromptSubmission): boolean {
+  if (!submission.text.trim() && submission.attachments.length === 0) {
+    return false;
+  }
+  return !submission.text.trimStart().startsWith("/");
+}
+
 class AsyncLineQueue {
-  private lines: string[] = [];
-  private waiting: ((value: string | null) => void) | null = null;
+  private lines: PromptSubmission[] = [];
+  private waiting: ((value: PromptSubmission | null) => void) | null = null;
   private closed = false;
   private error: unknown = null;
 
-  push(line: string): void {
+  push(line: PromptSubmission): void {
     if (this.closed) {
       return;
     }
@@ -336,7 +431,20 @@ class AsyncLineQueue {
     this.lines.push(line);
   }
 
-  popLast(): string | null {
+  unshift(line: PromptSubmission): void {
+    if (this.closed) {
+      return;
+    }
+    if (this.waiting) {
+      const resolve = this.waiting;
+      this.waiting = null;
+      resolve(line);
+      return;
+    }
+    this.lines.unshift(line);
+  }
+
+  popLast(): PromptSubmission | null {
     return this.lines.pop() ?? null;
   }
 
@@ -354,7 +462,7 @@ class AsyncLineQueue {
     this.close();
   }
 
-  async shift(): Promise<string | null> {
+  async shift(): Promise<PromptSubmission | null> {
     if (this.error) {
       throw this.error;
     }

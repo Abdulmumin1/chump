@@ -326,7 +326,11 @@ export function renderContinuationPrompt(): string {
 }
 
 export function renderInput(value: string): string {
-  return foreground(value);
+  return renderInlineAttachments(value);
+}
+
+export function renderInputRule(width: number = process.stdout.columns ?? 80): string {
+  return muted("─".repeat(Math.max(12, width)));
 }
 
 export function renderError(message: string): string {
@@ -348,11 +352,11 @@ export function renderFooterStatus(parts: string[]): string {
 export function renderQueuedMessage(message: string): string {
   const preview = message.replace(/\s+/g, " ").trim();
   const clipped = preview.length > 96 ? `${preview.slice(0, 93)}...` : preview;
-  return muted(`queued: ${clipped}`);
+  return `${muted("Steering:")} ${foreground(clipped)}`;
 }
 
 export function renderQueueHint(): string {
-  return muted("option+up to unqueue and edit");
+  return muted("↳ option+up to edit queued messages");
 }
 
 export function renderThinkingLabel(): string {
@@ -501,9 +505,32 @@ function clipPlain(value: string, width: number): string {
 export function renderUserMessage(message: string): string {
   const lines = message.split("\n");
   const [firstLine = "", ...rest] = lines;
-  const head = `${accent("※")} ${foreground(firstLine)}`;
-  const tail = rest.map((line) => `${muted("╎")} ${foreground(line)}`);
+  const head = `${accent("※")} ${renderInlineAttachments(firstLine)}`;
+  const tail = rest.map((line) => `${muted("╎")} ${renderInlineAttachments(line)}`);
   return ["", head, ...tail, ""].join("\n");
+}
+
+export function renderSteeringMessage(message: string): string {
+  const preview = message.replace(/\s+/g, " ").trim();
+  const [firstLine = "", ...rest] = preview.split("\n");
+  const head = `${muted("Steering:")} ${renderInlineAttachments(firstLine)}`;
+  const tail = rest.map((line) => `${muted("↳")} ${renderInlineAttachments(line)}`);
+  return ["", head, ...tail, ""].join("\n");
+}
+
+function renderInlineAttachments(value: string): string {
+  const pattern = /\[(?:Image \d+: [^\]]+|Pasted ~\d+ lines)\]/g;
+  let rendered = "";
+  let index = 0;
+
+  for (const match of value.matchAll(pattern)) {
+    rendered += foreground(value.slice(index, match.index));
+    rendered += accent(match[0]);
+    index = match.index + match[0].length;
+  }
+
+  rendered += foreground(value.slice(index));
+  return rendered;
 }
 
 function wrapPlainText(value: string, width: number): string[] {

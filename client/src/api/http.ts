@@ -5,6 +5,7 @@ import type {
   ChumpConfig,
   ChumpHealth,
   ChumpStatus,
+  ChatAttachment,
   SessionsResponse,
 } from "../core/types.ts";
 import { consumeSse } from "./sse.ts";
@@ -12,6 +13,7 @@ import { consumeSse } from "./sse.ts";
 export async function streamChat(
   config: ChumpConfig,
   message: string,
+  attachments: ChatAttachment[] = [],
   callbacks: {
     onStart?: () => void;
     onChunk?: (chunk: string) => void;
@@ -28,7 +30,7 @@ export async function streamChat(
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, attachments }),
     },
   );
 
@@ -118,6 +120,23 @@ export async function abortCurrentTurn(
   config: ChumpConfig,
 ): Promise<{ status: string }> {
   return await invokeAction<{ status: string }>(config, "abort_current_turn");
+}
+
+export async function steerCurrentTurn(
+  config: ChumpConfig,
+  message: string,
+  attachments: ChatAttachment[] = [],
+): Promise<{ status: string }> {
+  return await invokeAction<{ status: string }>(config, "steer_current_turn", {
+    message,
+    attachments,
+  });
+}
+
+export async function cancelLastSteering(
+  config: ChumpConfig,
+): Promise<{ status: string }> {
+  return await invokeAction<{ status: string }>(config, "cancel_last_steering");
 }
 
 export async function setModel(

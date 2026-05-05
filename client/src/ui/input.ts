@@ -4,16 +4,19 @@ import process, { stdin as input, stdout as output } from "node:process";
 
 import { completeSlashCommand } from "../app/commands.ts";
 import { logClientEvent } from "../app/diagnostics.ts";
+import type { ChatAttachment, ImageAttachment, PromptSubmission } from "../core/types.ts";
 import type {
   SessionSummary,
   SlashCommandMenuContext,
   SlashCommandSuggestion,
   SlashCommandSuggestionView,
 } from "../core/types.ts";
+import { normalizePastedText, readClipboardImageAttachment, readImageAttachment } from "./attachments.ts";
 import { setActiveDraft } from "./terminal.ts";
 import {
   renderContinuationPrompt,
   renderInput,
+  renderInputRule,
   renderPrompt,
   renderQueueHint,
   renderQueuedMessage,
@@ -21,6 +24,11 @@ import {
 } from "./render.ts";
 
 const inputHistory: string[] = [];
+
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
+const LARGE_PASTE_CHARS = 8000;
+const LARGE_PASTE_LINES = 3;
 
 export async function readPrompt(fallbackRl: Interface | null): Promise<string | null> {
   if (!input.isTTY) {
@@ -33,14 +41,15 @@ export async function readPrompt(fallbackRl: Interface | null): Promise<string |
       throw error;
     }
   }
-  return readInteractivePrompt();
+  const submission = await readInteractivePrompt();
+  return submission?.text ?? null;
 }
 
 export function createPromptReader(fallbackRl: Interface | null): {
-  read: () => Promise<string | null>;
+  read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
-  setQueuedLinePopHandler: (handler: (() => string | null) | null) => void;
+  setQueuedLinePopHandler: (handler: (() => PromptSubmission | null) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
@@ -49,7 +58,10 @@ export function createPromptReader(fallbackRl: Interface | null): {
 } {
   if (!input.isTTY) {
     return {
-      read: () => readPrompt(fallbackRl),
+      read: async () => {
+        const text = await readPrompt(fallbackRl);
+        return text === null ? null : buildSubmission(text, []);
+      },
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
       setQueuedLinePopHandler: () => {},
@@ -64,16 +76,16 @@ export function createPromptReader(fallbackRl: Interface | null): {
   return createInteractivePromptReader();
 }
 
-function readInteractivePrompt(): Promise<string | null> {
+function readInteractivePrompt(): Promise<PromptSubmission | null> {
   const reader = createInteractivePromptReader();
   return reader.read().finally(() => reader.close());
 }
 
 function createInteractivePromptReader(): {
-  read: () => Promise<string | null>;
+  read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
-  setQueuedLinePopHandler: (handler: (() => string | null) | null) => void;
+  setQueuedLinePopHandler: (handler: (() => PromptSubmission | null) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
@@ -85,18 +97,23 @@ function createInteractivePromptReader(): {
 
   let value = "";
   let cursor = 0;
+  let attachments: ChatAttachment[] = [];
   let cursorLine = 0;
   let historyIndex = inputHistory.length;
-  let pendingResolve: ((value: string | null) => void) | null = null;
-  let queuedDisplay: string[] = [];
+  let pendingResolve: ((value: PromptSubmission | null) => void) | null = null;
+  let queuedDisplay: PromptSubmission[] = [];
   let statusLine: string | null = null;
   let footerLine: string | null = null;
   let closed = false;
   let slashSelection = 0;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [] };
   let abortHandler: (() => void) | null = null;
-  let popQueuedLine: (() => string | null) | null = null;
+  let popQueuedLine: (() => PromptSubmission | null) | null = null;
   let lastEscapeAt = 0;
+  let pasteBuffer: string | null = null;
+  let lastColumns = terminalColumns();
+
+  output.write("\x1b[?2004h");
 
   function clear(): void {
     output.write("\r");
@@ -127,13 +144,17 @@ function createInteractivePromptReader(): {
     );
     const queueLines = queuedDisplay.length > 0
       ? [
-          ...queuedDisplay.map((queued) => renderQueuedMessage(queued)),
+          ...queuedDisplay.map((queued) => renderQueuedMessage(formatSubmissionPreview(queued))),
           renderQueueHint(),
         ]
       : [];
-    const promptLines = lines.map((line, index) =>
-      `${index === 0 ? renderPrompt() : renderContinuationPrompt()}${renderInput(line)}`
-    );
+    const inputIndent = " ";
+    const rule = renderInputRule(terminalColumns() - 2);
+    const promptLines = [
+      rule,
+      ...lines.map((line) => `${inputIndent}${renderInput(line)}`),
+      rule,
+    ];
     const frameLines = [
       ...statusLines,
       ...queueLines,
@@ -145,11 +166,10 @@ function createInteractivePromptReader(): {
       statusLines.length +
       queueLines.length +
       menuLines.length +
+      1 +
       target.line;
 
     clear();
-
-    output.write("\n");
 
     for (const [index, line] of frameLines.entries()) {
       if (index > 0) {
@@ -161,7 +181,7 @@ function createInteractivePromptReader(): {
     const layout = measureFrameLayout(
       frameLines,
       cursorFrameLineIndex,
-      visibleLength(indexedPromptPrefix(target.line)) + target.column,
+      visibleLength(inputIndent) + target.column,
     );
     const rowsUp = layout.totalRows - 1 - layout.cursorRow;
     if (rowsUp > 0) {
@@ -174,7 +194,16 @@ function createInteractivePromptReader(): {
     cursorLine = layout.cursorRow;
   }
 
-  function finish(result: string | null): void {
+  function redrawOnResize(): void {
+    const columns = terminalColumns();
+    if (columns === lastColumns) {
+      return;
+    }
+    lastColumns = columns;
+    redraw();
+  }
+
+  function finish(result: PromptSubmission | string | null): void {
     if (!pendingResolve) {
       return;
     }
@@ -183,14 +212,19 @@ function createInteractivePromptReader(): {
     pendingResolve = null;
     clear();
 
-    if (result?.trim()) {
-      inputHistory.push(result);
+    const submission = typeof result === "string"
+      ? buildSubmission(result, attachments)
+      : result;
+
+    if (submission?.text.trim()) {
+      inputHistory.push(submission.text);
     }
 
-    if (result !== null) {
-      queuedDisplay.push(result);
+    if (submission !== null) {
+      queuedDisplay.push(submission);
       value = "";
       cursor = 0;
+      attachments = [];
       historyIndex = inputHistory.length;
       pendingResolve = null;
       redraw();
@@ -198,7 +232,7 @@ function createInteractivePromptReader(): {
       pendingResolve = null;
     }
 
-    resolve(result);
+    resolve(submission);
   }
 
   function insertText(text: string): void {
@@ -208,6 +242,47 @@ function createInteractivePromptReader(): {
     slashSelection = 0;
     syncSlashSelection();
     redraw();
+  }
+
+  async function insertPaste(text: string): Promise<void> {
+    const normalized = normalizePastedText(text);
+    if (!normalized.trim()) {
+      await insertClipboardImage();
+      return;
+    }
+    const image = await readImageAttachment(normalized, process.cwd()).catch(() => null);
+    if (image) {
+      insertImageAttachment(image);
+      return;
+    }
+    if (isLargePaste(normalized)) {
+      insertTextAttachment(normalized);
+      return;
+    }
+    insertText(normalized);
+  }
+
+  async function insertClipboardImage(): Promise<boolean> {
+    const image = await readClipboardImageAttachment().catch(() => null);
+    if (!image) {
+      logClientEvent("clipboardImage", "none");
+      return false;
+    }
+    logClientEvent("clipboardImage", `${image.mime} bytes=${Buffer.byteLength(image.data, "base64")}`);
+    insertImageAttachment(image);
+    return true;
+  }
+
+  function insertImageAttachment(image: ImageAttachment): void {
+    attachments.push(image);
+    insertText(`[Image ${attachments.length}: ${image.filename}] `);
+  }
+
+  function insertTextAttachment(text: string): void {
+    const lineCount = text.split("\n").length;
+    const label = `[Pasted ~${lineCount} lines]`;
+    attachments.push({ type: "text", label, text });
+    insertText(`${label} `);
   }
 
   function deleteRange(start: number, end: number): void {
@@ -420,6 +495,43 @@ function createInteractivePromptReader(): {
 
     const sequence = chunk.toString("utf8");
 
+    if (pasteBuffer !== null) {
+      const end = sequence.indexOf(BRACKETED_PASTE_END);
+      if (end === -1) {
+        pasteBuffer += sequence;
+        return;
+      }
+      const pasted = pasteBuffer + sequence.slice(0, end);
+      pasteBuffer = null;
+      void insertPaste(pasted);
+      const rest = sequence.slice(end + BRACKETED_PASTE_END.length);
+      if (rest) {
+        onData(Buffer.from(rest, "utf8"));
+      }
+      return;
+    }
+
+    const pasteStart = sequence.indexOf(BRACKETED_PASTE_START);
+    if (pasteStart !== -1) {
+      const before = sequence.slice(0, pasteStart);
+      const afterStart = sequence.slice(pasteStart + BRACKETED_PASTE_START.length);
+      if (before) {
+        onData(Buffer.from(before, "utf8"));
+      }
+      const pasteEnd = afterStart.indexOf(BRACKETED_PASTE_END);
+      if (pasteEnd === -1) {
+        pasteBuffer = afterStart;
+        return;
+      }
+      const pasted = afterStart.slice(0, pasteEnd);
+      const after = afterStart.slice(pasteEnd + BRACKETED_PASTE_END.length);
+      void insertPaste(pasted);
+      if (after) {
+        onData(Buffer.from(after, "utf8"));
+      }
+      return;
+    }
+
     if (sequence === "\u0003") {
       finish(null);
       return;
@@ -427,6 +539,11 @@ function createInteractivePromptReader(): {
 
     if (sequence === "\u0004" && value.length === 0) {
       finish(null);
+      return;
+    }
+
+    if (sequence === "\u0016") {
+      void insertClipboardImage();
       return;
     }
 
@@ -449,8 +566,9 @@ function createInteractivePromptReader(): {
         const queuedLine = popQueuedLine?.() ?? null;
         if (queuedLine !== null) {
           queuedDisplay.pop();
-          value = queuedLine;
+          value = queuedLine.text;
           cursor = value.length;
+          attachments = [...queuedLine.attachments];
           historyIndex = inputHistory.length;
           slashSelection = 0;
           syncSlashSelection();
@@ -542,7 +660,7 @@ function createInteractivePromptReader(): {
         return;
       }
       cursor = value.length;
-      finish(value);
+      finish(buildSubmission(value, attachments));
       return;
     }
 
@@ -571,6 +689,7 @@ function createInteractivePromptReader(): {
   }
 
   input.on("data", onData);
+  output.on("resize", redrawOnResize);
 
   return {
     read() {
@@ -580,6 +699,7 @@ function createInteractivePromptReader(): {
       return new Promise((resolve) => {
         value = "";
         cursor = 0;
+        attachments = [];
         slashSelection = 0;
         historyIndex = inputHistory.length;
         pendingResolve = resolve;
@@ -595,7 +715,9 @@ function createInteractivePromptReader(): {
       const resolve = pendingResolve;
       pendingResolve = null;
       clear();
+      output.write("\x1b[?2004l");
       input.off("data", onData);
+      output.off("resize", redrawOnResize);
       input.setRawMode(false);
       input.pause();
       setActiveDraft(null);
@@ -605,7 +727,7 @@ function createInteractivePromptReader(): {
       queuedDisplay.shift();
       redraw();
     },
-    setQueuedLinePopHandler(handler: (() => string | null) | null) {
+    setQueuedLinePopHandler(handler: (() => PromptSubmission | null) | null) {
       popQueuedLine = handler;
     },
     setAbortHandler(handler: (() => void) | null) {
@@ -639,6 +761,45 @@ function createInteractivePromptReader(): {
   };
 }
 
+function buildSubmission(text: string, attachments: ChatAttachment[]): PromptSubmission {
+  let cleanText = text;
+  for (const [index, attachment] of attachments.entries()) {
+    if (attachment.type === "image") {
+      cleanText = cleanText.replace(`[Image ${index + 1}: ${attachment.filename}]`, "");
+    }
+    if (attachment.type === "text") {
+      cleanText = cleanText.replace(attachment.label, attachment.text);
+    }
+  }
+  return {
+    text: cleanText.replace(/[ \t]+\n/g, "\n").replace(/\s+$/u, ""),
+    attachments: [...attachments],
+  };
+}
+
+function formatSubmissionPreview(submission: PromptSubmission): string {
+  let text = submission.text;
+  for (const attachment of submission.attachments) {
+    if (attachment.type === "text") {
+      text = text.replace(attachment.text, attachment.label);
+    }
+  }
+  const images = submission.attachments.filter((attachment) => attachment.type === "image").length;
+  const pastes = submission.attachments.filter((attachment) => attachment.type === "text").length;
+  const suffix = [
+    images > 0 ? `${images} image${images === 1 ? "" : "s"}` : "",
+    pastes > 0 ? `${pastes} paste${pastes === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" ");
+  return [text, suffix].filter(Boolean).join(" ");
+}
+
+function isLargePaste(value: string): boolean {
+  if (value.length >= LARGE_PASTE_CHARS) {
+    return true;
+  }
+  return value.split("\n").length >= LARGE_PASTE_LINES;
+}
+
 function measureFrameLayout(
   lines: string[],
   cursorLineIndex: number,
@@ -648,8 +809,8 @@ function measureFrameLayout(
   cursorRow: number;
   cursorColumn: number;
 } {
-  let totalRows = 1;
-  let cursorRow = 1;
+  let totalRows = 0;
+  let cursorRow = 0;
 
   for (const [index, line] of lines.entries()) {
     const rows = visualRows(line);

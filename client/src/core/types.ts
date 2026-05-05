@@ -81,6 +81,26 @@ export type StoredMessage = {
   content: unknown;
 };
 
+export type ImageAttachment = {
+  type: "image";
+  filename: string;
+  mime: string;
+  data: string;
+};
+
+export type TextAttachment = {
+  type: "text";
+  label: string;
+  text: string;
+};
+
+export type ChatAttachment = ImageAttachment | TextAttachment;
+
+export type PromptSubmission = {
+  text: string;
+  attachments: ChatAttachment[];
+};
+
 export type AgentMessagesResponse = {
   messages: StoredMessage[];
 };

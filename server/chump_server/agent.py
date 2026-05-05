@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import json
+import asyncio
 import os
+import json
 import time
 import traceback
 from dataclasses import replace
 from typing import Any, AsyncIterator
 
-from ai_query import step_count_is, stream_text
-from ai_query.agents import Agent, SQLiteStorage, action
+from ai_query import step_count_is
+from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
 from ai_query.providers import anthropic, google, openai, workers_ai
-from ai_query.types import AbortController, AbortError, AbortSignal, Message
+from ai_query.types import AbortSignal, ImagePart, Message, ProviderOptions, TextPart
 
 from .codex_provider import codex_model
 from .config import ChumpConfig, auth_file_path, load_auth_config, load_config
@@ -192,7 +193,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._config = config
         self.tools = build_tools(self, config)
         self._last_step_records: list[dict[str, Any]] = []
-        self._current_abort_controller: AbortController | None = None
+        self._current_turn: AgentTurn | None = None
+        self._pending_steering_events: list[dict[str, Any]] = []
 
     @action
     async def status(self) -> dict[str, Any]:
@@ -226,11 +228,45 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @action
     async def abort_current_turn(self) -> dict[str, Any]:
-        controller = self._current_abort_controller
-        if controller is None:
+        turn = self._current_turn
+        if turn is None:
             return {"status": "idle"}
-        controller.abort("aborted by user")
+        turn.abort("aborted by user")
         return {"status": "aborting"}
+
+    @action
+    async def steer_current_turn(
+        self,
+        message: str,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        turn = self._current_turn
+        if turn is None or turn.done:
+            return {"status": "idle"}
+        content = build_user_content(message, attachments or [])
+        await turn.steer(content)
+        self._pending_steering_events.append(
+            {
+                "content": message,
+                "attachments": summarize_attachments(attachments or []),
+                "steered": True,
+            }
+        )
+        now = time.time()
+        await self.update_state(updated_at=now, last_user_goal=message)
+        self._log(f"steer queued: {message} attachments={len(attachments or [])}")
+        return {"status": "steered"}
+
+    @action
+    async def cancel_last_steering(self) -> dict[str, Any]:
+        turn = self._current_turn
+        if turn is None or turn.done or not self._pending_steering_events:
+            return {"status": "idle"}
+        self._pending_steering_events.pop()
+        removed = await remove_last_queued_message(turn._steering)
+        self._log(f"steer canceled: removed={removed}")
+        return {"status": "canceled" if removed else "missed"}
+
 
     @action
     async def set_model(self, provider: str, model: str) -> dict[str, Any]:
@@ -265,65 +301,80 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @property
     def current_abort_signal(self) -> AbortSignal | None:
-        controller = self._current_abort_controller
-        return controller.signal if controller else None
+        turn = self._current_turn
+        return turn._controller.signal if turn else None
 
     async def chat(
         self,
         message: str,
         *,
+        attachments: list[dict[str, Any]] | None = None,
         signal: AbortSignal | None = None,
         **kwargs: Any,
     ) -> str:
-        try:
-            result = await self._start_chat_stream(message, signal=signal, **kwargs)
-            chunks: list[str] = []
-            async for chunk in result.text_stream:
-                await self.emit("assistant_text", {"content": chunk})
-                chunks.append(chunk)
-            final_response = await self._finalize_chat_stream(result, "".join(chunks))
-            if not chunks and final_response:
-                await self.emit("assistant_text", {"content": final_response})
-            return final_response
-        except AbortError:
-            self._discard_last_user_message(message)
-            raise
+        chunks: list[str] = []
+        async for chunk in self.stream(
+            message,
+            attachments=attachments,
+            signal=signal,
+            **kwargs,
+        ):
+            chunks.append(chunk)
+        return "".join(chunks)
 
     async def stream(
         self,
         message: str,
         *,
+        attachments: list[dict[str, Any]] | None = None,
         signal: AbortSignal | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
+        turn = await self._start_turn(message, attachments=attachments, signal=signal, **kwargs)
         try:
-            result = await self._start_chat_stream(message, signal=signal, **kwargs)
             full_response = ""
-            async for chunk in result.text_stream:
-                full_response += chunk
-                await self.emit("assistant_text", {"content": chunk})
-                yield chunk
+            async for event in turn.events():
+                if event.type == "text.delta":
+                    full_response += event.text
+                    await self.emit("assistant_text", {"content": event.text})
+                    yield event.text
+                    continue
+                if event.type == "step.started":
+                    await self._on_step_start(event)
+                    continue
+                if event.type == "step.finished":
+                    await self._on_step_finish(event)
+                    continue
 
-            final_response = await self._finalize_chat_stream(result, full_response)
+            result = await turn.result()
+            final_response = await self._finalize_turn(result, full_response)
             if not full_response.strip():
                 await self.emit("assistant_text", {"content": final_response})
                 yield final_response
-        except AbortError:
-            self._discard_last_user_message(message)
-            raise
+        finally:
+            if self._current_turn is turn:
+                self._current_turn = None
 
-    async def _start_chat_stream(
+    async def _start_turn(
         self,
         message: str,
         *,
+        attachments: list[dict[str, Any]] | None = None,
         signal: AbortSignal | None = None,
         **kwargs: Any,
-    ):
+    ) -> AgentTurn:
         self._ensure_model()
         self._last_step_records = []
-        self._log(f"chat start: {message}")
-        self._messages.append(Message(role="user", content=message))
-        await self.emit("user_message", {"content": message})
+        raw_attachments = attachments or []
+        valid_attachments = [item for item in raw_attachments if is_image_attachment(item)]
+        self._log(
+            f"chat start: {message} attachments={len(valid_attachments)}/{len(raw_attachments)}"
+        )
+        content = build_user_content(message, attachments or [])
+        await self.emit(
+            "user_message",
+            {"content": message, "attachments": summarize_attachments(attachments or [])},
+        )
         now = time.time()
         created_at = self.state.get("created_at")
         title = self.state.get("title")
@@ -334,27 +385,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
             last_user_goal=message,
         )
 
-        provider_kwargs = (
-            {"instructions": self.system}
-            if self._config.provider == "codex"
-            else {}
-        )
-
-        return stream_text(
-            model=self.model,
-            system=self.system,
-            messages=self._messages,
-            tools=self.tools if self.tools else None,
-            stop_when=self.stop_when,
-            provider_options=self.provider_options,
-            reasoning=self.reasoning,
+        options = TurnOptions(
+            provider_options=self._turn_provider_options(),
             signal=signal,
-            on_reasoning_event=self._handle_reasoning_event,
-            on_step_start=self._on_step_start,
-            on_step_finish=self._on_step_finish,
-            **provider_kwargs,
-            **kwargs,
         )
+        turn = self.turn(content, options=options)
+        self._current_turn = turn
+        return turn
 
     async def handle_request_stream(
         self, request: dict[str, Any]
@@ -367,14 +404,18 @@ class ChumpAgent(Agent[dict[str, Any]]):
             return
 
         message = request.get("message", "")
-        controller = AbortController()
-        self._current_abort_controller = controller
+        attachments = request.get("attachments", [])
+        if not isinstance(attachments, list):
+            attachments = []
 
         try:
             yield "event: start\ndata: \n\n"
 
             full_text = ""
-            async for chunk in self.stream(message, signal=controller.signal):
+            async for chunk in self.stream(
+                message,
+                attachments=attachments,
+            ):
                 full_text += chunk
                 yield f"event: chunk\ndata: {json.dumps(chunk)}\n\n"
 
@@ -382,23 +423,28 @@ class ChumpAgent(Agent[dict[str, Any]]):
         except Exception as exc:
             self._log(f"chat error: {exc}\n{traceback.format_exc()}")
             yield f"event: error\ndata: {json.dumps(str(exc))}\n\n"
-        finally:
-            if self._current_abort_controller is controller:
-                self._current_abort_controller = None
 
-    async def _finalize_chat_stream(self, result: Any, full_response: str) -> str:
+    async def _finalize_turn(self, result: Any, full_response: str) -> str:
         if not full_response.strip():
             full_response = await self._build_empty_response_fallback(result)
             self._log(f"chat produced fallback response: {full_response}")
         else:
             self._log(f"chat complete with {len(full_response)} chars")
 
-        self._append_step_messages(await self._get_result_steps(result), full_response)
-        await self._persist_messages()
         return full_response
+
+    def _turn_provider_options(self) -> ProviderOptions | None:
+        provider_options: ProviderOptions = dict(self.provider_options or {})
+        if self._config.provider == "codex":
+            codex_options = dict(provider_options.get("codex") or {})
+            codex_options.setdefault("instructions", self.system)
+            provider_options["codex"] = codex_options
+        return provider_options or None
 
     async def _on_step_start(self, event) -> None:
         self._log(f"step {event.step_number} start")
+        while self._pending_steering_events:
+            await self.emit("user_message", self._pending_steering_events.pop(0))
         await self.emit("status", {"phase": "step_start", "step": event.step_number})
 
     async def _on_step_finish(self, event) -> None:
@@ -459,7 +505,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
             self.model = resolve_model(self._config)
 
     async def _build_empty_response_fallback(self, result) -> str:
-        steps = await result.steps
+        result_steps = getattr(result, "steps", None)
+        steps = result_steps if isinstance(result_steps, list) else await result.steps
         if not steps and self._last_step_records:
             if any(step["tool_results"] for step in self._last_step_records):
                 last_results = self._last_step_records[-1]["tool_results"]
@@ -523,7 +570,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         if not self._messages:
             return
         last = self._messages[-1]
-        if last.role == "user" and last.content == message:
+        if last.role == "user" and message_content_text(last.content) == message:
             self._messages.pop()
 
 
@@ -534,3 +581,69 @@ def build_session_title(message: str) -> str:
     if len(normalized) <= 72:
         return normalized
     return normalized[:69].rstrip() + "..."
+
+
+def build_user_content(
+    message: str,
+    attachments: list[dict[str, Any]],
+) -> str | list[TextPart | ImagePart]:
+    images = [
+        ImagePart(
+            image=f"data:{attachment['mime']};base64,{attachment['data']}",
+            media_type=attachment["mime"],
+        )
+        for attachment in attachments
+        if is_image_attachment(attachment)
+    ]
+    if not images:
+        return message
+    return [TextPart(text=message), *images]
+
+
+def summarize_attachments(attachments: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "type": "image",
+            "filename": str(attachment.get("filename") or "image"),
+            "mime": str(attachment.get("mime") or "application/octet-stream"),
+        }
+        for attachment in attachments
+        if is_image_attachment(attachment)
+    ]
+
+
+def is_image_attachment(attachment: Any) -> bool:
+    if not isinstance(attachment, dict):
+        return False
+    if attachment.get("type") != "image":
+        return False
+    if not isinstance(attachment.get("data"), str) or not attachment["data"]:
+        return False
+    mime = attachment.get("mime")
+    return isinstance(mime, str) and mime.startswith("image/")
+
+
+def message_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for part in content:
+        if isinstance(part, TextPart):
+            parts.append(part.text)
+        elif isinstance(part, dict) and part.get("type") == "text":
+            parts.append(str(part.get("text") or ""))
+    return "".join(parts)
+
+
+async def remove_last_queued_message(queue: asyncio.Queue[Message]) -> bool:
+    items: list[Message] = []
+    while not queue.empty():
+        items.append(await queue.get())
+    removed = bool(items)
+    if removed:
+        items.pop()
+    for item in items:
+        await queue.put(item)
+    return removed

@@ -1,7 +1,7 @@
 import {
   openEventStream,
 } from "../api/sse.ts";
-import { renderError } from "./render.ts";
+import { renderError, renderUserMessage } from "./render.ts";
 import { writeOutputLine } from "./terminal.ts";
 import { ToolActivityRenderer } from "./tool-activity.ts";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
@@ -9,6 +9,7 @@ import type { ChumpConfig, SseEvent } from "../core/types.ts";
 const toolActivityRenderer = new ToolActivityRenderer(writeOutputLine);
 let toolActivityHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
+let steeringAcceptedHook: (() => void) | null = null;
 
 export function setToolActivityHook(hook: (() => void) | null): void {
   toolActivityHook = hook;
@@ -18,6 +19,10 @@ export function setReasoningActivityHook(
   hook: ((payload: Record<string, unknown>) => void) | null,
 ): void {
   reasoningActivityHook = hook;
+}
+
+export function setSteeringAcceptedHook(hook: (() => void) | null): void {
+  steeringAcceptedHook = hook;
 }
 
 export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {
@@ -50,6 +55,14 @@ function logEvent(event: SseEvent): void {
   if (event.event === "reasoning" && payload) {
     reasoningActivityHook?.(payload);
     return;
+  }
+
+  if (event.event === "user_message" && payload && payload.steered === true) {
+    const content = typeof payload.content === "string" ? payload.content : "";
+    if (content.trim()) {
+      steeringAcceptedHook?.();
+      writeOutputLine(renderUserMessage(content));
+    }
   }
 }
 
