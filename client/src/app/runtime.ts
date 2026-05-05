@@ -22,6 +22,7 @@ const DEFAULT_MANAGED_IDLE_TIMEOUT_SECONDS = 300;
 export function parseCliArgs(argv: string[]): CliOptions {
   let mode: CliMode = "interactive";
   let connectUrl: string | null = null;
+  let sessionId: string | null = null;
   let autoStartServer = process.env.CHUMP_SERVER_URL ? false : true;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -39,6 +40,16 @@ export function parseCliArgs(argv: string[]): CliOptions {
       }
       connectUrl = nextValue;
       autoStartServer = false;
+      index += 1;
+      continue;
+    }
+
+    if (value === "-s" || value === "--session") {
+      const nextValue = argv[index + 1];
+      if (!nextValue) {
+        throw new Error("missing session id after -s/--session");
+      }
+      sessionId = nextValue;
       index += 1;
       continue;
     }
@@ -62,16 +73,16 @@ export function parseCliArgs(argv: string[]): CliOptions {
     autoStartServer = false;
   }
 
-  return { mode, connectUrl, autoStartServer };
+  return { mode, connectUrl, sessionId, autoStartServer };
 }
 
 export function printCliUsage(): void {
-  console.log("chump");
-  console.log("chump -c <server-url>");
-  console.log("chump client [-c <server-url>]");
+  console.log("chump [-s <session-id>]");
+  console.log("chump -c <server-url> [-s <session-id>]");
+  console.log("chump client [-c <server-url>] [-s <session-id>]");
   console.log("chump server");
   console.log("chump connect");
-  console.log("chump status [-c <server-url>]");
+  console.log("chump status [-c <server-url>] [-s <session-id>]");
   console.log("chump stop");
 }
 

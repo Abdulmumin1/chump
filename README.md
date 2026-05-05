@@ -43,19 +43,19 @@ What `chump` does after that:
 ## CLI commands
 
 ```bash
-chump
+chump [-s <session-id>]
 ```
 
 Starts the interactive CLI and auto-starts a managed local server when needed.
 
 ```bash
-chump client
+chump client [-s <session-id>]
 ```
 
 Starts the interactive CLI without auto-starting a server. Useful when the server already exists and you want to live dangerously, but in a very specific way.
 
 ```bash
-chump -c http://127.0.0.1:8080
+chump -c http://127.0.0.1:8080 [-s <session-id>]
 ```
 
 Connects to an existing server and never auto-starts a managed one.
@@ -67,10 +67,12 @@ chump server
 Runs the backend in the foreground for debugging.
 
 ```bash
-chump status
+chump status [-s <session-id>]
 ```
 
 Shows server health, managed server metadata, and current session status.
+
+Use `chump -s <session-id>` to jump straight back into a saved session.
 
 ```bash
 chump stop

@@ -9,7 +9,7 @@ import type { ChumpConfig, SseEvent } from "../core/types.ts";
 const toolActivityRenderer = new ToolActivityRenderer(writeOutputLine);
 let toolActivityHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
-let steeringAcceptedHook: (() => void) | null = null;
+let steeringAcceptedHook: ((content: string) => void) | null = null;
 
 export function setToolActivityHook(hook: (() => void) | null): void {
   toolActivityHook = hook;
@@ -21,7 +21,7 @@ export function setReasoningActivityHook(
   reasoningActivityHook = hook;
 }
 
-export function setSteeringAcceptedHook(hook: (() => void) | null): void {
+export function setSteeringAcceptedHook(hook: ((content: string) => void) | null): void {
   steeringAcceptedHook = hook;
 }
 
@@ -60,7 +60,7 @@ function logEvent(event: SseEvent): void {
   if (event.event === "user_message" && payload && payload.steered === true) {
     const content = typeof payload.content === "string" ? payload.content : "";
     if (content.trim()) {
-      steeringAcceptedHook?.();
+      steeringAcceptedHook?.(content);
       writeOutputLine(renderUserMessage(content));
     }
   }

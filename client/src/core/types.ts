@@ -10,6 +10,7 @@ export type CliMode = "interactive" | "client" | "server" | "status" | "stop" | 
 export type CliOptions = {
   mode: CliMode;
   connectUrl: string | null;
+  sessionId: string | null;
   autoStartServer: boolean;
 };
 
@@ -83,6 +84,7 @@ export type StoredMessage = {
 
 export type ImageAttachment = {
   type: "image";
+  label: string;
   filename: string;
   mime: string;
   data: string;

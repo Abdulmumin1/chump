@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { release, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -65,6 +65,7 @@ export async function readImageAttachment(
   const data = await readFile(filePath);
   return {
     type: "image",
+    label: `[Image: ${path.basename(filePath)}]`,
     filename: path.basename(filePath),
     mime,
     data: data.toString("base64"),
@@ -80,6 +81,31 @@ export async function readClipboardImageAttachment(): Promise<ImageAttachment | 
   }
   if (process.platform === "linux") {
     return await readLinuxClipboardImage();
+  }
+  return null;
+}
+
+export async function readClipboardText(): Promise<string | null> {
+  if (process.platform === "darwin") {
+    return await readCommandText("pbpaste", []);
+  }
+  if (process.platform === "win32") {
+    return await readCommandText(
+      "powershell.exe",
+      [
+        "-NonInteractive",
+        "-NoProfile",
+        "-Command",
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard -Raw",
+      ],
+    );
+  }
+  if (process.platform === "linux") {
+    const wayland = await readCommandText("wl-paste", ["--no-newline"]);
+    if (wayland !== null) {
+      return wayland;
+    }
+    return await readCommandText("xclip", ["-selection", "clipboard", "-o"]);
   }
   return null;
 }
@@ -109,6 +135,7 @@ async function readMacClipboardImage(): Promise<ImageAttachment | null> {
     }
     return {
       type: "image",
+      label: "[Image: clipboard.png]",
       filename: "clipboard.png",
       mime: "image/png",
       data: data.toString("base64"),
@@ -142,6 +169,7 @@ async function readWindowsClipboardImage(): Promise<ImageAttachment | null> {
     }
     return {
       type: "image",
+      label: "[Image: clipboard.png]",
       filename: "clipboard.png",
       mime: "image/png",
       data,
@@ -152,11 +180,34 @@ async function readWindowsClipboardImage(): Promise<ImageAttachment | null> {
 }
 
 async function readLinuxClipboardImage(): Promise<ImageAttachment | null> {
+  if (release().includes("WSL")) {
+    const windows = await readWindowsClipboardImage();
+    if (windows) {
+      return windows;
+    }
+  }
   const wayland = await readCommandImage("wl-paste", ["-t", "image/png"]);
   if (wayland) {
     return wayland;
   }
   return await readCommandImage("xclip", ["-selection", "clipboard", "-t", "image/png", "-o"]);
+}
+
+async function readCommandText(command: string, args: string[]): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      command,
+      args,
+      {
+        encoding: "utf8",
+        timeout: 2000,
+        maxBuffer: 1024 * 1024 * 16,
+      },
+    );
+    return stdout.length > 0 ? normalizePastedText(stdout) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readCommandImage(command: string, args: string[]): Promise<ImageAttachment | null> {
@@ -175,6 +226,7 @@ async function readCommandImage(command: string, args: string[]): Promise<ImageA
     }
     return {
       type: "image",
+      label: "[Image: clipboard.png]",
       filename: "clipboard.png",
       mime: "image/png",
       data: stdout.toString("base64"),

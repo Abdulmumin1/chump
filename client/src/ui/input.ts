@@ -11,7 +11,12 @@ import type {
   SlashCommandSuggestion,
   SlashCommandSuggestionView,
 } from "../core/types.ts";
-import { normalizePastedText, readClipboardImageAttachment, readImageAttachment } from "./attachments.ts";
+import {
+  normalizePastedText,
+  readClipboardImageAttachment,
+  readClipboardText,
+  readImageAttachment,
+} from "./attachments.ts";
 import { setActiveDraft } from "./terminal.ts";
 import {
   renderContinuationPrompt,
@@ -111,6 +116,7 @@ function createInteractivePromptReader(): {
   let popQueuedLine: (() => PromptSubmission | null) | null = null;
   let lastEscapeAt = 0;
   let pasteBuffer: string | null = null;
+  let nextImageNumber = 1;
   let lastColumns = terminalColumns();
 
   output.write("\x1b[?2004h");
@@ -142,6 +148,7 @@ function createInteractivePromptReader(): {
         hiddenBelow: slashMenu.hiddenBelow,
       },
     );
+    const menuTopSpacerLines = menuLines.length > 0 ? 1 : 0;
     const queueLines = queuedDisplay.length > 0
       ? [
           ...queuedDisplay.map((queued) => renderQueuedMessage(formatSubmissionPreview(queued))),
@@ -158,15 +165,18 @@ function createInteractivePromptReader(): {
     const frameLines = [
       ...statusLines,
       ...queueLines,
+      ...(menuTopSpacerLines > 0 ? [""] : []),
       ...menuLines,
+      "",
       ...promptLines,
       ...footerLines,
     ];
     const cursorFrameLineIndex =
       statusLines.length +
       queueLines.length +
+      menuTopSpacerLines +
       menuLines.length +
-      1 +
+      2 +
       target.line;
 
     clear();
@@ -213,7 +223,7 @@ function createInteractivePromptReader(): {
     clear();
 
     const submission = typeof result === "string"
-      ? buildSubmission(result, attachments)
+      ? buildSubmission(result, [])
       : result;
 
     if (submission?.text.trim()) {
@@ -247,7 +257,7 @@ function createInteractivePromptReader(): {
   async function insertPaste(text: string): Promise<void> {
     const normalized = normalizePastedText(text);
     if (!normalized.trim()) {
-      await insertClipboardImage();
+      await insertClipboard();
       return;
     }
     const image = await readImageAttachment(normalized, process.cwd()).catch(() => null);
@@ -262,20 +272,29 @@ function createInteractivePromptReader(): {
     insertText(normalized);
   }
 
-  async function insertClipboardImage(): Promise<boolean> {
+  async function insertClipboard(): Promise<boolean> {
     const image = await readClipboardImageAttachment().catch(() => null);
-    if (!image) {
-      logClientEvent("clipboardImage", "none");
-      return false;
+    if (image) {
+      logClientEvent("clipboardImage", `${image.mime} bytes=${Buffer.byteLength(image.data, "base64")}`);
+      insertImageAttachment(image);
+      return true;
     }
-    logClientEvent("clipboardImage", `${image.mime} bytes=${Buffer.byteLength(image.data, "base64")}`);
-    insertImageAttachment(image);
-    return true;
+
+    const text = await readClipboardText().catch(() => null);
+    if (text) {
+      logClientEvent("clipboardText", `chars=${text.length}`);
+      await insertPaste(text);
+      return true;
+    }
+
+    logClientEvent("clipboard", "empty");
+    return false;
   }
 
   function insertImageAttachment(image: ImageAttachment): void {
-    attachments.push(image);
-    insertText(`[Image ${attachments.length}: ${image.filename}] `);
+    const label = `[Image ${nextImageNumber++}: ${image.filename}]`;
+    attachments.push({ ...image, label });
+    insertText(`${label} `);
   }
 
   function insertTextAttachment(text: string): void {
@@ -289,12 +308,43 @@ function createInteractivePromptReader(): {
     if (start === end) {
       return;
     }
-    value = `${value.slice(0, start)}${value.slice(end)}`;
-    cursor = start;
+    const expanded = expandRangeForAttachments(start, end);
+    value = `${value.slice(0, expanded.start)}${value.slice(expanded.end)}`;
+    attachments = expanded.attachments;
+    cursor = expanded.start;
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
     redraw();
+  }
+
+  function expandRangeForAttachments(
+    start: number,
+    end: number,
+  ): { start: number; end: number; attachments: ChatAttachment[] } {
+    let nextStart = start;
+    let nextEnd = end;
+    const keep: ChatAttachment[] = [];
+
+    for (const attachment of attachments) {
+      const range = findAttachmentLabelRange(value, attachment);
+      if (!range) {
+        continue;
+      }
+      const spaceEnd = range.end + trailingSpaceLength(value, range.end);
+      if (rangesOverlap(start, end, range.start, spaceEnd)) {
+        nextStart = Math.min(nextStart, range.start);
+        nextEnd = Math.max(nextEnd, spaceEnd);
+        continue;
+      }
+      keep.push(attachment);
+    }
+
+    return {
+      start: nextStart,
+      end: nextEnd,
+      attachments: keep,
+    };
   }
 
   function clearDraft(): void {
@@ -543,7 +593,7 @@ function createInteractivePromptReader(): {
     }
 
     if (sequence === "\u0016") {
-      void insertClipboardImage();
+      void insertClipboard();
       return;
     }
 
@@ -685,6 +735,11 @@ function createInteractivePromptReader(): {
       return;
     }
 
+    if (isLikelyRawPaste(sequence)) {
+      void insertPaste(sequence);
+      return;
+    }
+
     insertText(sequence);
   }
 
@@ -700,6 +755,7 @@ function createInteractivePromptReader(): {
         value = "";
         cursor = 0;
         attachments = [];
+        nextImageNumber = 1;
         slashSelection = 0;
         historyIndex = inputHistory.length;
         pendingResolve = resolve;
@@ -763,10 +819,7 @@ function createInteractivePromptReader(): {
 
 function buildSubmission(text: string, attachments: ChatAttachment[]): PromptSubmission {
   let cleanText = text;
-  for (const [index, attachment] of attachments.entries()) {
-    if (attachment.type === "image") {
-      cleanText = cleanText.replace(`[Image ${index + 1}: ${attachment.filename}]`, "");
-    }
+  for (const attachment of attachments) {
     if (attachment.type === "text") {
       cleanText = cleanText.replace(attachment.label, attachment.text);
     }
@@ -783,6 +836,9 @@ function formatSubmissionPreview(submission: PromptSubmission): string {
     if (attachment.type === "text") {
       text = text.replace(attachment.text, attachment.label);
     }
+    if (attachment.type === "image" && !text.includes(attachment.label)) {
+      text = `${text.trimEnd()} ${attachment.label}`.trim();
+    }
   }
   const images = submission.attachments.filter((attachment) => attachment.type === "image").length;
   const pastes = submission.attachments.filter((attachment) => attachment.type === "text").length;
@@ -793,11 +849,44 @@ function formatSubmissionPreview(submission: PromptSubmission): string {
   return [text, suffix].filter(Boolean).join(" ");
 }
 
+function findAttachmentLabelRange(
+  value: string,
+  attachment: ChatAttachment,
+): { start: number; end: number } | null {
+  const start = value.indexOf(attachment.label);
+  if (start === -1) {
+    return null;
+  }
+  return { start, end: start + attachment.label.length };
+}
+
+function rangesOverlap(
+  start: number,
+  end: number,
+  rangeStart: number,
+  rangeEnd: number,
+): boolean {
+  return start < rangeEnd && end > rangeStart;
+}
+
+function trailingSpaceLength(value: string, index: number): number {
+  return value[index] === " " ? 1 : 0;
+}
+
 function isLargePaste(value: string): boolean {
   if (value.length >= LARGE_PASTE_CHARS) {
     return true;
   }
   return value.split("\n").length >= LARGE_PASTE_LINES;
+}
+
+function isLikelyRawPaste(value: string): boolean {
+  const normalized = normalizePastedText(value);
+  const trimmed = normalized.trim();
+  if (normalized.includes("\n")) {
+    return true;
+  }
+  return /\.(?:png|jpe?g|webp|gif)(?:["']?\s*)$/iu.test(trimmed);
 }
 
 function measureFrameLayout(
@@ -876,24 +965,24 @@ function isInsertNewlineSequence(sequence: string): boolean {
 }
 
 function isClearDraftSequence(sequence: string): boolean {
-  if (sequence === "\u0015") {
+  if (sequence === "\u0015" || sequence === "\x1b\u007f" || sequence === "\x1b\b") {
     return true;
   }
 
   return [
-    /^\x1b\[(?:8|127);9u$/u,
-    /^\x1b\[27;9;(?:8|127)~$/u,
+    /^\x1b\[(?:8|127);(?:5|9)u$/u,
+    /^\x1b\[27;(?:5|9);(?:8|127)~$/u,
   ].some((pattern) => pattern.test(sequence));
 }
 
 function isDeletePreviousWordSequence(sequence: string): boolean {
-  if (["\u0017", "\x1b\u007f", "\x1b\b"].includes(sequence)) {
+  if (sequence === "\u0017") {
     return true;
   }
 
   return [
-    /^\x1b\[(?:8|127);(?:3|5|7)u$/u,
-    /^\x1b\[27;(?:3|5|7);(?:8|127)~$/u,
+    /^\x1b\[(?:8|127);(?:3|7)u$/u,
+    /^\x1b\[27;(?:3|7);(?:8|127)~$/u,
   ].some((pattern) => pattern.test(sequence));
 }
 

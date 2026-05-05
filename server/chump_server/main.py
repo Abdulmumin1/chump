@@ -22,6 +22,7 @@ class ChumpServer(AgentServer):
         self._managed_idle_task: asyncio.Task[None] | None = None
 
     def on_app_setup(self, app: web.Application) -> None:
+        app._client_max_size = 64 * 1024 * 1024
         app.router.add_get("/health", self.health)
         app.router.add_get("/version", self.version)
         app.router.add_get("/sessions", self.sessions)

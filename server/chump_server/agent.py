@@ -587,17 +587,57 @@ def build_user_content(
     message: str,
     attachments: list[dict[str, Any]],
 ) -> str | list[TextPart | ImagePart]:
-    images = [
-        ImagePart(
-            image=f"data:{attachment['mime']};base64,{attachment['data']}",
-            media_type=attachment["mime"],
-        )
-        for attachment in attachments
-        if is_image_attachment(attachment)
-    ]
+    images = [attachment for attachment in attachments if is_image_attachment(attachment)]
     if not images:
         return message
-    return [TextPart(text=message), *images]
+
+    parts: list[TextPart | ImagePart] = []
+    remaining = message
+    used: set[int] = set()
+
+    while remaining:
+        next_match: tuple[int, int, dict[str, Any]] | None = None
+        for index, attachment in enumerate(images):
+            if index in used:
+                continue
+            label = str(attachment.get("label") or "")
+            if not label:
+                continue
+            position = remaining.find(label)
+            if position == -1:
+                continue
+            if next_match is None or position < next_match[0]:
+                next_match = (position, index, attachment)
+
+        if next_match is None:
+            append_text_part(parts, remaining)
+            remaining = ""
+            break
+
+        position, index, attachment = next_match
+        label = str(attachment.get("label") or "")
+        append_text_part(parts, remaining[:position])
+        parts.append(image_attachment_part(attachment))
+        used.add(index)
+        remaining = remaining[position + len(label):]
+
+    for index, attachment in enumerate(images):
+        if index not in used:
+            parts.append(image_attachment_part(attachment))
+
+    return parts
+
+
+def append_text_part(parts: list[TextPart | ImagePart], text: str) -> None:
+    if text:
+        parts.append(TextPart(text=text))
+
+
+def image_attachment_part(attachment: dict[str, Any]) -> ImagePart:
+    return ImagePart(
+        image=f"data:{attachment['mime']};base64,{attachment['data']}",
+        media_type=attachment["mime"],
+    )
 
 
 def summarize_attachments(attachments: list[dict[str, Any]]) -> list[dict[str, str]]:

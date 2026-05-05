@@ -30,12 +30,12 @@ export async function streamChat(
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ message, attachments }),
+      body: JSON.stringify({ message, attachments: serializeAttachments(attachments) }),
     },
   );
 
   if (!response.ok) {
-    throw new Error(`chat failed with ${response.status}`);
+    throw new Error(await readErrorResponse(response));
   }
 
   let fullText = "";
@@ -166,7 +166,7 @@ async function invokeAction<T>(
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(serializeActionBody(body)),
     },
   );
 
@@ -205,4 +205,30 @@ async function readErrorResponse(response: Response): Promise<string> {
     return body;
   }
   return `request failed with ${response.status}`;
+}
+
+function serializeActionBody(body: object): object {
+  if (!("attachments" in body)) {
+    return body;
+  }
+  const candidate = body as { attachments?: unknown };
+  if (!Array.isArray(candidate.attachments)) {
+    return body;
+  }
+  return {
+    ...body,
+    attachments: serializeAttachments(candidate.attachments as ChatAttachment[]),
+  };
+}
+
+function serializeAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
+  return attachments
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment) => ({
+      type: "image",
+      label: attachment.label,
+      filename: attachment.filename,
+      mime: attachment.mime,
+      data: attachment.data,
+    }));
 }
