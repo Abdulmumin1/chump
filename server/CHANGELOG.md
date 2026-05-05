@@ -1,5 +1,13 @@
 # chump-server
 
+## 0.0.6
+
+### Patch Changes
+
+- Upgrade the backend dependency to `ai-query==1.7.36`.
+- Preserve attachment order when constructing multimodal user content so images can be referenced in-line with text.
+- Increase the request body size limit for image-heavy chats and surface clearer JSON parse errors.
+
 ## 0.0.5
 
 ### Patch Changes

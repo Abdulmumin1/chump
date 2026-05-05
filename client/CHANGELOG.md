@@ -4,13 +4,12 @@
 
 ### Patch Changes
 
-- 205eec1: Add steering-aware queued input, image attachments, and large-paste handling.
+- Improve attachment handling, image ordering, and input editing behavior across the CLI:
 
-  - Route messages submitted during an active turn through backend steering when possible.
-  - Keep steered messages pending near the input until the backend accepts them at a step boundary.
-  - Requeue steered messages as normal turns if the active turn finishes before a steering boundary.
-  - Allow Option-Up to pull pending steered messages back into the editor and cancel backend injection.
-  - Add image attachment and large-paste support in the CLI input flow.
+  - Preserve text/image order when building multimodal prompts.
+  - Make pasted and dropped images attach reliably, with clearer error reporting on request failures.
+  - Fix attachment chip deletion and slash-command interactions while the agent is working.
+  - Add Ctrl shortcuts for common Command-style input actions on macOS terminals.
 
 ## 0.0.5
 

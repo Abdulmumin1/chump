@@ -474,7 +474,7 @@ function renderSlashCommandMenuItem(
   width: number,
   commandWidth: number,
 ): string {
-  const gap = "  ";
+  const gap = "    ";
   const commandText = clipPlain(command, commandWidth).padEnd(commandWidth, " ");
   const descriptionWidth = Math.max(0, width - commandWidth - gap.length);
   const descriptionText = clipPlain(description, descriptionWidth).padEnd(descriptionWidth, " ");

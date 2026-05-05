@@ -6,10 +6,11 @@ import path from "node:path";
 import type { ChumpConfig } from "../core/types.ts";
 
 export function loadConfig(
-  overrides: Partial<Pick<ChumpConfig, "serverUrl" | "serverSource">> = {},
+  overrides: Partial<Pick<ChumpConfig, "agentId" | "serverUrl" | "serverSource">> = {},
 ): ChumpConfig {
   const workspaceRoot = resolveWorkspaceRoot(process.cwd());
   const sessionId =
+    overrides.agentId ??
     process.env.CHUMP_SESSION_ID ??
     process.env.CHUMP_AGENT_ID ??
     createSessionId(workspaceRoot);

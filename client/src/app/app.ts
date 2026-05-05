@@ -90,6 +90,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   const target = await ensureServerTarget(workspaceRoot, options);
   let config = loadConfig({
+    agentId: options.sessionId ?? undefined,
     serverUrl: target.serverUrl,
     serverSource: target.serverSource,
   });
@@ -108,6 +109,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const lineQueue = new AsyncLineQueue();
   let closeEventStream: (() => void) | null = null;
   let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
+  let resumeSessionId: string | null = null;
   const [health, sessions] = await Promise.all([
     getHealth(config),
     getSessions(config),
@@ -123,13 +125,26 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
   console.log(renderBanner(config));
   closeEventStream = await startEventStream(config);
+  if (options.sessionId) {
+    await renderSwitchedSession(config, (footer) => promptReader.setFooter(footer), (sessionsList) => {
+      promptReader.setSessionSuggestions(sessionsList);
+    }, {
+      skipEmptyTranscript: true,
+    });
+  }
 
-  void readInputLoop(promptReader, lineQueue, () => activeSteerHandler);
+  void readInputLoop(
+    promptReader,
+    lineQueue,
+    () => activeSteerHandler,
+    () => promptReader.popQueuedDisplay(),
+  );
 
   try {
     while (true) {
       const nextLine = await lineQueue.shift();
       if (nextLine === null) {
+        resumeSessionId = config.agentId;
         break;
       }
       promptReader.popQueuedDisplay();
@@ -155,7 +170,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       });
 
       if (commandResult === "quit") {
-        return;
+        resumeSessionId = config.agentId;
+        break;
       }
 
       if (commandResult) {
@@ -186,6 +202,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   } finally {
     promptReader.close();
     closeEventStream?.();
+  }
+
+  if (resumeSessionId) {
+    writeOutput(`${renderMuted(`resume this session with: ${formatResumeCommand(resumeSessionId)}`)}\n`);
   }
 }
 
@@ -249,8 +269,8 @@ async function runChatTurn(
   };
   setAbortHandler(abortTurn);
   setQueuedLinePopHandler(popPendingSteeringSubmission);
-  setSteeringAcceptedHook(() => {
-    pendingSteeringSubmissions.shift();
+  setSteeringAcceptedHook((content) => {
+    removePendingSteeringSubmission(content);
     popSteeredDisplay();
   });
   setSteerHandler(async (nextSubmission) => {
@@ -352,6 +372,14 @@ async function runChatTurn(
     setToolActivityHook(null);
     setReasoningActivityHook(null);
   }
+
+  function removePendingSteeringSubmission(content: string): void {
+    const index = pendingSteeringSubmissions.findIndex((item) => item.text === content);
+    if (index === -1) {
+      return;
+    }
+    pendingSteeringSubmissions.splice(index, 1);
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -370,7 +398,7 @@ function formatSubmissionForDisplay(submission: PromptSubmission): string {
   }
   const images = submission.attachments
     .filter((attachment) => attachment.type === "image")
-    .map((attachment, index) => `[Image ${index + 1}: ${attachment.filename}]`)
+    .map((attachment) => attachment.label)
     .filter((label) => !text.includes(label))
     .join(" ");
   if (!images) {
@@ -383,6 +411,7 @@ async function readInputLoop(
   promptReader: ReturnType<typeof createPromptReader>,
   lineQueue: AsyncLineQueue,
   getSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null,
+  popQueuedDisplay: () => void,
 ): Promise<void> {
   try {
     while (true) {
@@ -398,6 +427,11 @@ async function readInputLoop(
           continue;
         }
       }
+      if (steerHandler && isBlockedActiveSlashCommand(line.text)) {
+        popQueuedDisplay();
+        writeOutput(`${renderError("[slash] command is unavailable while the agent is working; use Esc Esc to abort first")}\n`);
+        continue;
+      }
       lineQueue.push(line);
     }
   } catch (error) {
@@ -410,6 +444,19 @@ function shouldSteer(submission: PromptSubmission): boolean {
     return false;
   }
   return !submission.text.trimStart().startsWith("/");
+}
+
+function isBlockedActiveSlashCommand(value: string): boolean {
+  const command = value.trimStart().split(/\s+/, 1)[0];
+  return new Set([
+    "/sessions",
+    "/session",
+    "/new",
+    "/model",
+    "/thinking",
+    "/clear",
+    "/agent",
+  ]).has(command);
 }
 
 class AsyncLineQueue {
@@ -648,4 +695,11 @@ function renderReasoning(reasoning: Record<string, unknown> | null): string {
     typeof reasoning.budget === "number" ? `${reasoning.budget} tok` : null,
   ].filter(Boolean);
   return parts.length > 0 ? `thinking ${parts.join(" ")}` : "thinking";
+}
+
+function formatResumeCommand(sessionId: string): string {
+  if (/^[A-Za-z0-9._/-]+$/.test(sessionId)) {
+    return `chump -s ${sessionId}`;
+  }
+  return `chump -s '${sessionId.replace(/'/g, `'\\''`)}'`;
 }
