@@ -1,0 +1,11 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+html, body {
+	@apply bg-[#0a0a0a] text-zinc-300 h-full w-full m-0 p-0 font-mono;
+}
+
