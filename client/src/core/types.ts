@@ -43,7 +43,7 @@ export type ChumpStatus = {
   updated_at: number | null;
   last_user_goal: string | null;
   instruction_files: string[];
-  skills: string[];
+  skills: SkillSummary[];
 };
 
 export type ChumpHealth = {
@@ -62,7 +62,7 @@ export type ChumpHealth = {
   active_sessions: number;
   uptime_seconds: number;
   instruction_files: string[];
-  skills: string[];
+  skills: SkillSummary[];
 };
 
 export type ChumpState = {
@@ -138,6 +138,11 @@ export type SessionsResponse = {
   sessions: SessionSummary[];
 };
 
+export type SkillSummary = {
+  name: string;
+  description: string;
+};
+
 export type SseEvent = {
   event: string;
   data: string;
@@ -156,6 +161,7 @@ export type SlashCommandSuggestion = {
 export type SlashCommandMenuContext = {
   sessions: SessionSummary[];
   models: ModelSuggestion[];
+  skills: SkillSummary[];
 };
 
 export type ModelSuggestion = {
@@ -174,7 +180,7 @@ export type SlashCommandSuggestionView = {
     created: string;
     conversation: string;
   };
-  kind?: "model" | "session" | "command";
+  kind?: "model" | "session" | "skill" | "command";
 };
 
 export type SlashCommand =
@@ -184,5 +190,6 @@ export type SlashCommand =
   | "agent"
   | "session"
   | "model"
+  | "skill"
   | "thinking"
   | "quit";

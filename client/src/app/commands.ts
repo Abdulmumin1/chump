@@ -2,6 +2,7 @@ import type {
   ChumpConfig,
   ModelSuggestion,
   SessionSummary,
+  SkillSummary,
   SlashCommand,
   SlashCommandMenuContext,
   SlashCommandSuggestion,
@@ -15,13 +16,54 @@ const ROOT_COMMANDS: Array<{
   description: string;
   action: "submit" | "fill";
 }> = [
-  { label: "/help", command: "/help", description: "show available commands", action: "submit" },
-  { label: "/sessions", command: "/session ", description: "pick a stored session", action: "fill" },
-  { label: "/model", command: "/model ", description: "choose provider and model", action: "fill" },
-  { label: "/thinking", command: "/thinking ", description: "choose reasoning level", action: "fill" },
-  { label: "/clear", command: "/clear", description: "clear messages for the current session", action: "submit" },
-  { label: "/new", command: "/new", description: "start a fresh session", action: "submit" },
-  { label: "/quit", command: "/quit", description: "exit chump", action: "submit" },
+  {
+    label: "/help",
+    command: "/help",
+    description: "show available commands",
+    action: "submit",
+  },
+  {
+    label: "/sessions",
+    command: "/session ",
+    description: "pick a stored session",
+    action: "fill",
+  },
+  {
+    label: "/model",
+    command: "/model ",
+    description: "choose provider and model",
+    action: "fill",
+  },
+  {
+    label: "/skill",
+    command: "/skill:",
+    description: "load a skill manually",
+    action: "fill",
+  },
+  {
+    label: "/thinking",
+    command: "/thinking ",
+    description: "choose reasoning level",
+    action: "fill",
+  },
+  {
+    label: "/clear",
+    command: "/clear",
+    description: "clear messages for the current session",
+    action: "submit",
+  },
+  {
+    label: "/new",
+    command: "/new",
+    description: "start a fresh session",
+    action: "submit",
+  },
+  {
+    label: "/quit",
+    command: "/quit",
+    description: "exit chump",
+    action: "submit",
+  },
 ];
 
 const THINKING_COMMANDS = [
@@ -41,20 +83,17 @@ export function completeSlashCommand(
 
   const sessionSuggestions = completeSessionCommand(line, context.sessions);
   if (sessionSuggestions.length > 0) {
-    return [
-      sessionSuggestions.map(toSuggestionView),
-      line,
-      sessionSuggestions,
-    ];
+    return [sessionSuggestions.map(toSuggestionView), line, sessionSuggestions];
   }
 
   const modelSuggestions = completeModelCommand(line, context.models);
   if (modelSuggestions.length > 0) {
-    return [
-      modelSuggestions.map(toSuggestionView),
-      line,
-      modelSuggestions,
-    ];
+    return [modelSuggestions.map(toSuggestionView), line, modelSuggestions];
+  }
+
+  const skillSuggestions = completeSkillCommand(line, context.skills);
+  if (skillSuggestions.length > 0) {
+    return [skillSuggestions.map(toSuggestionView), line, skillSuggestions];
   }
 
   const thinkingSuggestions = completeThinkingCommand(line);
@@ -66,18 +105,48 @@ export function completeSlashCommand(
     ];
   }
 
-  const hits = ROOT_COMMANDS
-    .filter((command) => command.label.startsWith(line))
-    .map(toSuggestion);
+  const hits = ROOT_COMMANDS.filter((command) =>
+    command.label.startsWith(line),
+  ).map(toSuggestion);
   const suggestions =
     hits.length > 0
       ? hits
-      : line === "/" ? ROOT_COMMANDS.map(toSuggestion) : [];
-  return [
-    suggestions.map(toSuggestionView),
-    line,
-    suggestions,
-  ];
+      : line === "/"
+        ? ROOT_COMMANDS.map(toSuggestion)
+        : [];
+  return [suggestions.map(toSuggestionView), line, suggestions];
+}
+
+function completeSkillCommand(
+  line: string,
+  skills: SkillSummary[],
+): SlashCommandSuggestion[] {
+  if (
+    !(
+      line === "/skill" ||
+      line.startsWith("/skill:") ||
+      /^\/skill\s/.test(line)
+    )
+  ) {
+    return [];
+  }
+
+  const query =
+    line === "/skill"
+      ? ""
+      : line.startsWith("/skill:")
+        ? line.slice("/skill:".length).trim().toLowerCase()
+        : line.slice("/skill".length).trim().toLowerCase();
+
+  return skills
+    .filter((skill) => !query || skill.name.toLowerCase().includes(query))
+    .map((skill) => ({
+      label: skill.name,
+      command: `/skill:${skill.name}`,
+      description: skill.description,
+      kind: "skill" as const,
+      action: "fill" as const,
+    }));
 }
 
 function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
@@ -86,15 +155,15 @@ function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
   }
 
   const query = line.slice("/thinking".length).trim().toLowerCase();
-  return THINKING_COMMANDS
-    .filter((command) => !query || command.label.startsWith(query))
-    .map((command) => ({
-      label: command.label,
-      command: `/thinking ${command.label}`,
-      description: command.description,
-      kind: "command" as const,
-      action: "submit" as const,
-    }));
+  return THINKING_COMMANDS.filter(
+    (command) => !query || command.label.startsWith(query),
+  ).map((command) => ({
+    label: command.label,
+    command: `/thinking ${command.label}`,
+    description: command.description,
+    kind: "command" as const,
+    action: "submit" as const,
+  }));
 }
 
 function completeModelCommand(
@@ -137,15 +206,21 @@ function completeSessionCommand(
         return true;
       }
       const title = sessionTitle(session).toLowerCase();
-      return title.includes(query) || session.id.toLowerCase().startsWith(query);
+      return (
+        title.includes(query) || session.id.toLowerCase().startsWith(query)
+      );
     })
     .map((session) => ({
       label: sessionTitle(session),
       command: `/session ${session.id}`,
       description: describeSession(session),
       columns: {
-        updated: session.updated_at ? formatSessionTime(session.updated_at) : "-",
-        created: session.created_at ? formatSessionTime(session.created_at) : "-",
+        updated: session.updated_at
+          ? formatSessionTime(session.updated_at)
+          : "-",
+        created: session.created_at
+          ? formatSessionTime(session.created_at)
+          : "-",
         conversation: sessionTitle(session),
       },
       kind: "session" as const,
@@ -155,8 +230,12 @@ function completeSessionCommand(
 
 function describeSession(session: SessionSummary): string {
   const parts = [
-    session.updated_at ? `updated ${formatSessionTime(session.updated_at)}` : null,
-    session.created_at ? `created ${formatSessionTime(session.created_at)}` : null,
+    session.updated_at
+      ? `updated ${formatSessionTime(session.updated_at)}`
+      : null,
+    session.created_at
+      ? `created ${formatSessionTime(session.created_at)}`
+      : null,
   ].filter(Boolean);
   return parts.join(" · ");
 }
@@ -199,7 +278,9 @@ function toSuggestion(command: {
   };
 }
 
-function toSuggestionView(suggestion: SlashCommandSuggestion): SlashCommandSuggestionView {
+function toSuggestionView(
+  suggestion: SlashCommandSuggestion,
+): SlashCommandSuggestionView {
   return {
     label: suggestion.label,
     command: suggestion.command,
@@ -221,6 +302,15 @@ export function parseSlashCommand(input: string): {
     return { command: "session", args: ["new"] };
   }
 
+  if (input.startsWith("/skill:")) {
+    const payload = input.slice("/skill:".length).trim();
+    if (!payload) {
+      return { command: "skill", args: [] };
+    }
+    const [name, ...rest] = payload.split(/\s+/).filter(Boolean);
+    return { command: "skill", args: [name, ...rest] };
+  }
+
   if (!input.startsWith("/")) {
     return null;
   }
@@ -235,6 +325,7 @@ export function parseSlashCommand(input: string): {
     case "agent":
     case "session":
     case "model":
+    case "skill":
     case "thinking":
     case "quit":
       return { command, args };
@@ -249,6 +340,7 @@ export function printHelp(): void {
   }
   writeOutputLine("/session <id>");
   writeOutputLine("/agent <id>");
+  writeOutputLine("/skill:<name> [args]");
   writeOutputLine("/thinking <none|low|high|xhigh>");
 }
 

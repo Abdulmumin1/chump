@@ -396,7 +396,7 @@ export function renderSlashCommandMenu(
   items: Array<{
     label: string;
     description: string;
-    kind?: "model" | "session" | "command";
+    kind?: "model" | "session" | "skill" | "command";
     columns?: {
       updated: string;
       created: string;

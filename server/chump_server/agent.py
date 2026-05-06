@@ -15,7 +15,7 @@ from ai_query.types import AbortSignal, ImagePart, Message, ProviderOptions, Tex
 
 from .codex_provider import codex_model
 from .config import ChumpConfig, auth_file_path, load_auth_config, load_config
-from .resources import ResourceCatalog
+from .resources import ResourceCatalog, build_skill_bundle
 from .tools import build_tools
 
 SYSTEM_PROMPT = """
@@ -222,7 +222,10 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "instruction_files": [
                 str(item.path) for item in self._resources.system_instructions
             ],
-            "skills": [item.name for item in self._resources.skills],
+            "skills": [
+                {"name": item.name, "description": item.description}
+                for item in self._resources.skills
+            ],
         }
 
     @action
@@ -231,6 +234,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self.clear()
         await self.update_state(last_user_goal=None, read_files={}, updated_at=now)
         return {"status": "ok"}
+
+    @action
+    async def load_skill(self, name: str, args: str = "") -> dict[str, str]:
+        skill = self._resources.get_skill(name)
+        if skill is None:
+            raise ValueError(f"unknown skill: {name}")
+        prompt = build_skill_bundle(skill)
+        extra = args.strip()
+        if extra:
+            prompt = f"{prompt}\n\nUser: {extra}"
+        return {"name": skill.name, "prompt": prompt}
 
     @action
     async def event_log(self) -> dict[str, Any]:

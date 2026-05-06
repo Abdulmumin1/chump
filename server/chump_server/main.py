@@ -51,7 +51,10 @@ class ChumpServer(AgentServer):
                 "instruction_files": [
                     str(item.path) for item in self.resources.system_instructions
                 ],
-                "skills": [item.name for item in self.resources.skills],
+                "skills": [
+                    {"name": item.name, "description": item.description}
+                    for item in self.resources.skills
+                ],
             }
         )
 
