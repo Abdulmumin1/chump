@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import json
+import os
 import time
 import traceback
 from dataclasses import replace
@@ -36,11 +36,11 @@ You are a great coding agent when you behave like a careful engineer in a termin
 - Do not ask the user which obvious inspection step to take next. Continue until you have enough evidence or hit a real blocker.
 - Do not guess paths such as `src` or `packages/*`; discover them.
 - Prefer `apply_patch` for modifying existing files. Use `write_file` for full rewrites or creating a new file from scratch.
+- Sometimes, you can get steered with a new message/request or caution mid task, you can evaluate and see if it affect how you proceed with the current task.
 
 If the user asks for help or wants to give feedback inform them of the following:
 - /help: Get help with using Chump
 - To give feedback, users should report the issue at https://github.com/abdulmumin1/chump/issues
-
 
 # Tone and style
 You should be concise, direct, and to the point. When you run a non-trivial bash command, you should explain what the command does and why you are running it, to make sure the user understands what you are doing (this is especially important when you are running a command that will make changes to the user's system).
@@ -267,17 +267,23 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._log(f"steer canceled: removed={removed}")
         return {"status": "canceled" if removed else "missed"}
 
-
     @action
     async def set_model(self, provider: str, model: str) -> dict[str, Any]:
-        from .config import apply_auth_environment, load_auth_config, normalize_provider_name, normalize_reasoning_config
+        from .config import (
+            apply_auth_environment,
+            load_auth_config,
+            normalize_provider_name,
+            normalize_reasoning_config,
+        )
 
         provider_name = normalize_provider_name(provider)
         if not model.strip():
             raise ValueError("model is required")
         auth_config = load_auth_config()
         apply_auth_environment(auth_config, provider_name)
-        reasoning = normalize_reasoning_config(auth_config.get("reasoning"), provider_name)
+        reasoning = normalize_reasoning_config(
+            auth_config.get("reasoning"), provider_name
+        )
         self._config = replace(
             self._config,
             provider=provider_name,
@@ -330,7 +336,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
         signal: AbortSignal | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        turn = await self._start_turn(message, attachments=attachments, signal=signal, **kwargs)
+        turn = await self._start_turn(
+            message, attachments=attachments, signal=signal, **kwargs
+        )
         try:
             full_response = ""
             async for event in turn.events():
@@ -366,14 +374,19 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._ensure_model()
         self._last_step_records = []
         raw_attachments = attachments or []
-        valid_attachments = [item for item in raw_attachments if is_image_attachment(item)]
+        valid_attachments = [
+            item for item in raw_attachments if is_image_attachment(item)
+        ]
         self._log(
             f"chat start: {message} attachments={len(valid_attachments)}/{len(raw_attachments)}"
         )
         content = build_user_content(message, attachments or [])
         await self.emit(
             "user_message",
-            {"content": message, "attachments": summarize_attachments(attachments or [])},
+            {
+                "content": message,
+                "attachments": summarize_attachments(attachments or []),
+            },
         )
         now = time.time()
         created_at = self.state.get("created_at")
@@ -587,7 +600,9 @@ def build_user_content(
     message: str,
     attachments: list[dict[str, Any]],
 ) -> str | list[TextPart | ImagePart]:
-    images = [attachment for attachment in attachments if is_image_attachment(attachment)]
+    images = [
+        attachment for attachment in attachments if is_image_attachment(attachment)
+    ]
     if not images:
         return message
 
@@ -619,7 +634,7 @@ def build_user_content(
         append_text_part(parts, remaining[:position])
         parts.append(image_attachment_part(attachment))
         used.add(index)
-        remaining = remaining[position + len(label):]
+        remaining = remaining[position + len(label) :]
 
     for index, attachment in enumerate(images):
         if index not in used:

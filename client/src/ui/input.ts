@@ -54,7 +54,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
-  setQueuedLinePopHandler: (handler: (() => PromptSubmission | null) | null) => void;
+  setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
@@ -90,7 +90,7 @@ function createInteractivePromptReader(): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
-  setQueuedLinePopHandler: (handler: (() => PromptSubmission | null) | null) => void;
+  setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
@@ -113,27 +113,39 @@ function createInteractivePromptReader(): {
   let slashSelection = 0;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [] };
   let abortHandler: (() => void) | null = null;
-  let popQueuedLine: (() => PromptSubmission | null) | null = null;
+  let popQueuedLine: (() => void) | null = null;
   let lastEscapeAt = 0;
   let pasteBuffer: string | null = null;
   let nextImageNumber = 1;
   let lastColumns = terminalColumns();
+  let redrawScheduled = false;
+  let lastPromptRows: string[] = [];
+  let lastFooterRows: string[] = [];
 
   output.write("\x1b[?2004h");
 
   function clear(): void {
-    output.write("\r");
-    if (cursorLine > 0) {
-      output.write(`\x1b[${cursorLine}A`);
+    const lastFrameRows = [...lastPromptRows, ...lastFooterRows];
+    if (lastFrameRows.length === 0) {
+      output.write("\r\x1b[2K");
+      cursorLine = 0;
+      return;
     }
-    output.write("\x1b[J");
+    const moveUp = cursorLine > 0 ? `\x1b[${cursorLine}A` : "";
+    const clearRows = lastFrameRows.map((_, index) => `${index === 0 ? "" : "\n"}\r\x1b[2K`).join("");
+    const moveBackUp = lastFrameRows.length > 1 ? `\x1b[${lastFrameRows.length - 1}A` : "";
+    output.write(`\r${moveUp}${clearRows}${moveBackUp}\r`);
     cursorLine = 0;
+    lastPromptRows = [];
+    lastFooterRows = [];
   }
 
   function redraw(): void {
     if (closed || !pendingResolve) {
       return;
     }
+
+    redrawScheduled = false;
 
     const lines = value.split("\n");
     const target = cursorPosition(value, cursor);
@@ -162,14 +174,13 @@ function createInteractivePromptReader(): {
       ...lines.map((line) => `${inputIndent}${renderInput(line)}`),
       rule,
     ];
-    const frameLines = [
+    const promptFrameLines = [
       ...statusLines,
       ...queueLines,
       ...(menuTopSpacerLines > 0 ? [""] : []),
       ...menuLines,
       "",
       ...promptLines,
-      ...footerLines,
     ];
     const cursorFrameLineIndex =
       statusLines.length +
@@ -179,29 +190,40 @@ function createInteractivePromptReader(): {
       2 +
       target.line;
 
-    clear();
-
-    for (const [index, line] of frameLines.entries()) {
-      if (index > 0) {
-        output.write("\n");
-      }
-      output.write(line);
-    }
-
     const layout = measureFrameLayout(
-      frameLines,
+      promptFrameLines,
       cursorFrameLineIndex,
       visibleLength(inputIndent) + target.column,
     );
-    const rowsUp = layout.totalRows - 1 - layout.cursorRow;
-    if (rowsUp > 0) {
-      output.write(`\x1b[${rowsUp}A`);
+    const promptRows = promptFrameLines.flatMap((line) => wrapAnsiLine(line, terminalColumns()));
+    const footerRows = footerLines.flatMap((line) => wrapAnsiLine(line, terminalColumns()));
+    const preserveFooter =
+      sameRows(footerRows, lastFooterRows) &&
+      promptRows.length === lastPromptRows.length;
+    const renderedRows = preserveFooter
+      ? promptRows
+      : [...promptRows, ...footerRows];
+    const previousTotalRows = lastPromptRows.length + lastFooterRows.length;
+    const totalRows = preserveFooter
+      ? Math.max(promptRows.length, 1)
+      : Math.max(renderedRows.length, previousTotalRows, 1);
+    const rowsUp = Math.max(0, totalRows - 1 - layout.cursorRow);
+    const moveUp = cursorLine > 0 ? `\x1b[${cursorLine}A` : "";
+    const moveToCursorRow = rowsUp > 0 ? `\x1b[${rowsUp}A` : "";
+    const moveToCursorColumn = layout.cursorColumn > 0 ? `\x1b[${layout.cursorColumn}C` : "";
+    const rows: string[] = [];
+
+    for (let index = 0; index < totalRows; index += 1) {
+      const nextRow = renderedRows[index] ?? "";
+      rows.push(`${index === 0 ? "" : "\n"}\r\x1b[2K${nextRow}`);
     }
-    output.write("\r");
-    if (layout.cursorColumn > 0) {
-      output.write(`\x1b[${layout.cursorColumn}C`);
-    }
+
+    output.write(
+      `\r${moveUp}\x1b[?25l${rows.join("")}\x1b[?25h${moveToCursorRow}\r${moveToCursorColumn}`,
+    );
     cursorLine = layout.cursorRow;
+    lastPromptRows = promptRows;
+    lastFooterRows = footerRows;
   }
 
   function redrawOnResize(): void {
@@ -210,7 +232,17 @@ function createInteractivePromptReader(): {
       return;
     }
     lastColumns = columns;
-    redraw();
+    requestRedraw();
+  }
+
+  function requestRedraw(): void {
+    if (closed || !pendingResolve || redrawScheduled) {
+      return;
+    }
+    redrawScheduled = true;
+    setImmediate(() => {
+      redraw();
+    });
   }
 
   function finish(result: PromptSubmission | string | null): void {
@@ -237,7 +269,7 @@ function createInteractivePromptReader(): {
       attachments = [];
       historyIndex = inputHistory.length;
       pendingResolve = null;
-      redraw();
+      requestRedraw();
     } else {
       pendingResolve = null;
     }
@@ -251,7 +283,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
-    redraw();
+    requestRedraw();
   }
 
   async function insertPaste(text: string): Promise<void> {
@@ -315,7 +347,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
-    redraw();
+    requestRedraw();
   }
 
   function expandRangeForAttachments(
@@ -356,7 +388,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
-    redraw();
+    requestRedraw();
   }
 
   function deletePreviousWord(): void {
@@ -379,7 +411,7 @@ function createInteractivePromptReader(): {
       return;
     }
     cursor = clampedCursor;
-    redraw();
+    requestRedraw();
   }
 
   function moveWordLeft(): void {
@@ -412,7 +444,7 @@ function createInteractivePromptReader(): {
     cursor = value.length;
     slashSelection = 0;
     syncSlashSelection();
-    redraw();
+    requestRedraw();
   }
 
   function getSlashMenuState(): {
@@ -482,7 +514,7 @@ function createInteractivePromptReader(): {
       return false;
     }
     slashSelection = (slashSelection + direction + state.suggestions.length) % state.suggestions.length;
-    redraw();
+    requestRedraw();
     return true;
   }
 
@@ -507,7 +539,7 @@ function createInteractivePromptReader(): {
     cursor = value.length;
     historyIndex = inputHistory.length;
     syncSlashSelection();
-    redraw();
+    requestRedraw();
     return true;
   }
 
@@ -535,7 +567,7 @@ function createInteractivePromptReader(): {
     }
 
     cursor = indexFromPosition(lines, targetLine, position.column);
-    redraw();
+    requestRedraw();
   }
 
   function onData(chunk: Buffer): void {
@@ -613,17 +645,19 @@ function createInteractivePromptReader(): {
 
     if (isPopQueuedSequence(sequence)) {
       if (value.length === 0 && queuedDisplay.length > 0) {
-        const queuedLine = popQueuedLine?.() ?? null;
-        if (queuedLine !== null) {
-          queuedDisplay.pop();
-          value = queuedLine.text;
-          cursor = value.length;
-          attachments = [...queuedLine.attachments];
-          historyIndex = inputHistory.length;
-          slashSelection = 0;
-          syncSlashSelection();
-          redraw();
+        const queuedLine = queuedDisplay.at(-1) ?? null;
+        if (!queuedLine) {
+          return;
         }
+        popQueuedLine?.();
+        queuedDisplay.pop();
+        value = queuedLine.text;
+        cursor = value.length;
+        attachments = [...queuedLine.attachments];
+        historyIndex = inputHistory.length;
+        slashSelection = 0;
+        syncSlashSelection();
+        requestRedraw();
       }
       return;
     }
@@ -781,9 +815,9 @@ function createInteractivePromptReader(): {
     },
     popQueuedDisplay() {
       queuedDisplay.shift();
-      redraw();
+      requestRedraw();
     },
-    setQueuedLinePopHandler(handler: (() => PromptSubmission | null) | null) {
+    setQueuedLinePopHandler(handler: (() => void) | null) {
       popQueuedLine = handler;
     },
     setAbortHandler(handler: (() => void) | null) {
@@ -793,26 +827,26 @@ function createInteractivePromptReader(): {
     setSessionSuggestions(sessions: SessionSummary[]) {
       slashMenuContext = { ...slashMenuContext, sessions };
       syncSlashSelection();
-      redraw();
+      requestRedraw();
     },
     setModelSuggestions(models: SlashCommandMenuContext["models"]) {
       slashMenuContext = { ...slashMenuContext, models };
       syncSlashSelection();
-      redraw();
+      requestRedraw();
     },
     setStatus(status: string | null) {
       if (statusLine === status) {
         return;
       }
       statusLine = status;
-      redraw();
+      requestRedraw();
     },
     setFooter(footer: string | null) {
       if (footerLine === footer) {
         return;
       }
       footerLine = footer;
-      redraw();
+      requestRedraw();
     },
   };
 }
@@ -930,12 +964,80 @@ function visualRows(value: string): number {
   return Math.ceil(length / width);
 }
 
+function wrapAnsiLine(value: string, width: number): string[] {
+  if (value.length === 0) {
+    return [""];
+  }
+
+  const rows: string[] = [];
+  let row = "";
+  let visible = 0;
+  let index = 0;
+
+  while (index < value.length) {
+    const ansiMatch = /^\x1b\[[0-9;]*m/u.exec(value.slice(index));
+    if (ansiMatch) {
+      row += ansiMatch[0];
+      index += ansiMatch[0].length;
+      continue;
+    }
+
+    const char = Array.from(value.slice(index))[0] ?? "";
+    if (!char) {
+      break;
+    }
+
+    const charWidth = charDisplayWidth(char);
+
+    if (visible > 0 && visible + charWidth > width) {
+      rows.push(row);
+      row = "";
+      visible = 0;
+    }
+
+    row += char;
+    visible += charWidth;
+    index += char.length;
+  }
+
+  rows.push(row);
+  return rows;
+}
+
 function visibleLength(value: string): number {
-  return Array.from(stripAnsi(value)).length;
+  return Array.from(stripAnsi(value)).reduce((sum, char) => sum + charDisplayWidth(char), 0);
 }
 
 function stripAnsi(value: string): string {
   return value.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function sameRows(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function charDisplayWidth(char: string): number {
+  if (char.length === 0) {
+    return 0;
+  }
+  if (/[\u0000-\u001f\u007f-\u009f]/u.test(char)) {
+    return 0;
+  }
+  if (/\p{Mark}/u.test(char)) {
+    return 0;
+  }
+  if (
+    /[\u1100-\u115f\u2329\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe19\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/u.test(char)
+  ) {
+    return 2;
+  }
+  if (/\p{Extended_Pictographic}/u.test(char)) {
+    return 2;
+  }
+  return 1;
 }
 
 function terminalColumns(): number {
