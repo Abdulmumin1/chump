@@ -5,6 +5,7 @@
 .chump/
 ai-query/
 opencode/
+pi-mono/
 
 client/node_modules/
 client/dist/

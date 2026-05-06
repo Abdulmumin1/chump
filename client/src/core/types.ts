@@ -42,6 +42,8 @@ export type ChumpStatus = {
   created_at: number | null;
   updated_at: number | null;
   last_user_goal: string | null;
+  instruction_files: string[];
+  skills: string[];
 };
 
 export type ChumpHealth = {
@@ -59,6 +61,8 @@ export type ChumpHealth = {
   verbose: boolean;
   active_sessions: number;
   uptime_seconds: number;
+  instruction_files: string[];
+  skills: string[];
 };
 
 export type ChumpState = {

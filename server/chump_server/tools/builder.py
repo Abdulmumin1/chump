@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from ..config import ChumpConfig
+from ..resources import ResourceCatalog, build_instruction_bundle, build_skill_bundle
 from ..safety import SafetyError, WorkspaceGuard
 from ._utils import (
     _fingerprint,
@@ -16,9 +17,10 @@ from .apply_patch import bind_apply_patch
 from .bash import bind_bash
 from .web_fetch import bind_web_fetch
 from .website import bind_website
+from .skill import bind_skill
 
 
-def build_tools(agent, config: ChumpConfig):
+def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
     guard = WorkspaceGuard(config.workspace_root)
 
     def log(message: str) -> None:
@@ -102,11 +104,23 @@ def build_tools(agent, config: ChumpConfig):
                 "read_file it again before writing"
             )
 
+    async def resolve_read_context(file_path) -> tuple[str, dict[str, object]]:
+        loaded_paths = set(agent._turn_instruction_claims)
+        files = resources.instruction_files_for_path(file_path, exclude=loaded_paths)
+        if not files:
+            return "", {"loaded": []}
+        for item in files:
+            agent._turn_instruction_claims.add(str(item.path))
+        return build_instruction_bundle(files), {
+            "loaded": [str(item.path) for item in files]
+        }
+
     read_file = bind_read_file(
         guard=guard,
         wrap_tool=wrap_tool,
         note_file=note_file,
         remember_file_read=remember_file_read,
+        resolve_read_context=resolve_read_context,
     )
 
     write_file = bind_write_file(
@@ -141,10 +155,22 @@ def build_tools(agent, config: ChumpConfig):
         wrap_tool=wrap_tool,
     )
 
+    skill = bind_skill(
+        wrap_tool=wrap_tool,
+        get_skill=lambda name: (
+            build_skill_bundle(match) if (match := resources.get_skill(name)) else None
+        ),
+        available_skills_text="\n".join(
+            f"- {skill.name}: {skill.description}" for skill in resources.skills
+        )
+        or "- none",
+    )
+
     return {
         "read_file": read_file,
         "write_file": write_file,
         "apply_patch": apply_patch,
+        "skill": skill,
         "web_fetch": web_fetch,
         "website": website,
         "bash": bash,

@@ -25,6 +25,7 @@ def bind_read_file(
     wrap_tool,
     note_file,
     remember_file_read,
+    resolve_read_context,
 ):
     @tool(description="Read a UTF-8 text file from the workspace.")
     async def read_file_impl(
@@ -52,7 +53,11 @@ def bind_read_file(
                     lines[start_index:end_index], start=start_index
                 )
             ]
-            return "\n".join(numbered)
+            content = "\n".join(numbered)
+            extra_text, metadata = await resolve_read_context(file_path)
+            if extra_text:
+                content = f"{content}\n\n{extra_text}" if content else extra_text
+            return content, metadata
 
         return await wrap_tool(
             "read_file",

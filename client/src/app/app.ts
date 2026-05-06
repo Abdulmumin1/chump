@@ -126,6 +126,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     console.log(`[server] ${target.note}`);
   }
   console.log(renderBanner(config));
+  renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
   if (options.sessionId) {
     await renderSwitchedSession(config, (footer) => promptReader.setFooter(footer), (sessionsList) => {
@@ -213,6 +214,39 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   if (resumeSessionId) {
     writeOutput(`${renderMuted(`resume this session with: ${formatResumeCommand(resumeSessionId)}`)}\n`);
   }
+}
+
+function renderLoadedResources(
+  health: { instruction_files: string[]; skills: string[] },
+  workspaceRoot: string,
+): void {
+  const instructionFiles = health.instruction_files ?? [];
+
+  if (instructionFiles.length > 0) {
+    writeOutput(`${renderMuted(`context: ${formatResourcePaths(instructionFiles, workspaceRoot)}`)}\n`);
+  }
+  if (instructionFiles.length > 0) {
+    writeOutput("\n");
+  }
+}
+
+function formatResourcePaths(paths: string[], workspaceRoot: string): string {
+  return formatCompactNames(
+    paths.map((value) => {
+      if (value.startsWith(`${workspaceRoot}/`)) {
+        return value.slice(workspaceRoot.length + 1);
+      }
+      return value.replace(/^.*\//, "");
+    }),
+  );
+}
+
+function formatCompactNames(values: string[], limit = 4): string {
+  if (values.length <= limit) {
+    return values.join(", ");
+  }
+  const visible = values.slice(0, limit).join(", ");
+  return `${visible}, ${values.length - limit} more`;
 }
 
 async function runChatTurn(
