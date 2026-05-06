@@ -10,6 +10,7 @@ import {
   getMessages,
   getSessions,
   getStatus,
+  loadSkill,
   setModel,
   setReasoning,
   steerCurrentTurn,
@@ -117,6 +118,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   promptReader.setFooter(renderFooter(config, health));
   promptReader.setSessionSuggestions(sessions.sessions);
   promptReader.setModelSuggestions(await loadModelSuggestions());
+  promptReader.setSkillSuggestions(health.skills);
   promptReader.setAbortHandler(null);
   promptReader.setQueuedLinePopHandler(() => {
     lineQueue.popLast();
@@ -126,6 +128,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     console.log(`[server] ${target.note}`);
   }
   console.log(renderBanner(config));
+  renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
   if (options.sessionId) {
     await renderSwitchedSession(config, (footer) => promptReader.setFooter(footer), (sessionsList) => {
@@ -133,6 +136,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     }, {
       skipEmptyTranscript: true,
     });
+    promptReader.setSkillSuggestions((await getHealth(config)).skills);
   }
 
   void readInputLoop(
@@ -164,6 +168,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setFooter: (footer) => promptReader.setFooter(footer),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
+        setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -179,6 +184,30 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       if (commandResult) {
         config = commandResult.config;
         closeEventStream = commandResult.closeEventStream;
+        if (commandResult.submission) {
+          await runChatTurn(
+            config,
+            commandResult.submission,
+            (status) => promptReader.setStatus(status),
+            (handler) => promptReader.setAbortHandler(handler),
+            (handler) => {
+              activeSteerHandler = handler;
+            },
+            () => promptReader.popQueuedDisplay(),
+            (handler) => {
+              promptReader.setQueuedLinePopHandler(
+                handler
+                  ? () => {
+                      handler();
+                    }
+                  : () => {
+                      lineQueue.popLast();
+                    },
+              );
+            },
+            (submission) => lineQueue.unshift(submission),
+          );
+        }
         continue;
       }
 
@@ -213,6 +242,39 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   if (resumeSessionId) {
     writeOutput(`${renderMuted(`resume this session with: ${formatResumeCommand(resumeSessionId)}`)}\n`);
   }
+}
+
+function renderLoadedResources(
+  health: { instruction_files: string[]; skills: unknown[] },
+  workspaceRoot: string,
+): void {
+  const instructionFiles = health.instruction_files ?? [];
+
+  if (instructionFiles.length > 0) {
+    writeOutput(`${renderMuted(`context: ${formatResourcePaths(instructionFiles, workspaceRoot)}`)}\n`);
+  }
+  if (instructionFiles.length > 0) {
+    writeOutput("\n");
+  }
+}
+
+function formatResourcePaths(paths: string[], workspaceRoot: string): string {
+  return formatCompactNames(
+    paths.map((value) => {
+      if (value.startsWith(`${workspaceRoot}/`)) {
+        return value.slice(workspaceRoot.length + 1);
+      }
+      return value.replace(/^.*\//, "");
+    }),
+  );
+}
+
+function formatCompactNames(values: string[], limit = 4): string {
+  if (values.length <= limit) {
+    return values.join(", ");
+  }
+  const visible = values.slice(0, limit).join(", ");
+  return `${visible}, ${values.length - limit} more`;
 }
 
 async function runChatTurn(
@@ -541,11 +603,13 @@ async function handleSlashCommand(
     setFooter: (footer: string | null) => void;
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
+    setSkillSuggestions: (skills: Awaited<ReturnType<typeof getHealth>>["skills"]) => void;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
   config: ReturnType<typeof loadConfig>;
   closeEventStream: (() => void) | null;
+  submission?: PromptSubmission;
 }> {
   const parsed = parseSlashCommand(line);
   if (!parsed) {
@@ -579,6 +643,22 @@ async function handleSlashCommand(
       writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
       break;
     }
+    case "skill": {
+      const [name, ...rest] = parsed.args;
+      if (!name) {
+        writeOutput(`${renderMuted("usage: /skill:<name> [args]")}\n`);
+        break;
+      }
+      const skill = await loadSkill(config, name, rest.join(" "));
+      return {
+        config,
+        closeEventStream,
+        submission: {
+          text: skill.prompt,
+          attachments: [],
+        },
+      };
+    }
     case "thinking": {
       const mode = parsed.args[0];
       if (!isThinkingMode(mode)) {
@@ -611,6 +691,7 @@ async function handleSlashCommand(
         await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions, {
           skipEmptyTranscript: true,
         });
+        context.setSkillSuggestions((await getHealth(config)).skills);
         break;
       }
 
@@ -619,6 +700,7 @@ async function handleSlashCommand(
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
       await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
+      context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
     case "agent": {
@@ -632,6 +714,7 @@ async function handleSlashCommand(
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
       await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
+      context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
     case "quit":

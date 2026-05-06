@@ -154,6 +154,17 @@ export async function setReasoning(
   return await invokeAction<ChumpStatus>(config, "set_reasoning", { mode });
 }
 
+export async function loadSkill(
+  config: ChumpConfig,
+  name: string,
+  args = "",
+): Promise<{ name: string; prompt: string }> {
+  return await invokeAction<{ name: string; prompt: string }>(config, "load_skill", {
+    name,
+    args,
+  });
+}
+
 async function invokeAction<T>(
   config: ChumpConfig,
   actionName: string,

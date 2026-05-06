@@ -56,6 +56,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   popQueuedDisplay: () => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
+  setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
@@ -71,6 +72,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       popQueuedDisplay: () => {},
       setQueuedLinePopHandler: () => {},
       setModelSuggestions: () => {},
+      setSkillSuggestions: () => {},
       setAbortHandler: () => {},
       setSessionSuggestions: () => {},
       setStatus: () => {},
@@ -92,6 +94,7 @@ function createInteractivePromptReader(): {
   popQueuedDisplay: () => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
+  setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
@@ -111,7 +114,7 @@ function createInteractivePromptReader(): {
   let footerLine: string | null = null;
   let closed = false;
   let slashSelection = 0;
-  let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [] };
+  let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [], skills: [] };
   let abortHandler: (() => void) | null = null;
   let popQueuedLine: (() => void) | null = null;
   let lastEscapeAt = 0;
@@ -831,6 +834,11 @@ function createInteractivePromptReader(): {
     },
     setModelSuggestions(models: SlashCommandMenuContext["models"]) {
       slashMenuContext = { ...slashMenuContext, models };
+      syncSlashSelection();
+      requestRedraw();
+    },
+    setSkillSuggestions(skills: SlashCommandMenuContext["skills"]) {
+      slashMenuContext = { ...slashMenuContext, skills };
       syncSlashSelection();
       requestRedraw();
     },

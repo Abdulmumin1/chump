@@ -15,6 +15,7 @@ from ai_query.types import AbortSignal, ImagePart, Message, ProviderOptions, Tex
 
 from .codex_provider import codex_model
 from .config import ChumpConfig, auth_file_path, load_auth_config, load_config
+from .resources import ResourceCatalog, build_skill_bundle
 from .tools import build_tools
 
 SYSTEM_PROMPT = """
@@ -37,6 +38,8 @@ You are a great coding agent when you behave like a careful engineer in a termin
 - Do not guess paths such as `src` or `packages/*`; discover them.
 - Prefer `apply_patch` for modifying existing files. Use `write_file` for full rewrites or creating a new file from scratch.
 - Sometimes, you can get steered with a new message/request or caution mid task, you can evaluate and see if it affect how you proceed with the current task.
+- Markdown files named `AGENTS.md` or `CLAUDE.md` may contain project-specific instructions, commands, constraints, and conventions. Treat them as high-priority guidance when present.
+- Skills provide specialized workflows for specific tasks. When a task clearly matches a skill from `available_skills`, load it with the `skill` tool before proceeding.
 
 If the user asks for help or wants to give feedback inform them of the following:
 - /help: Get help with using Chump
@@ -169,11 +172,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
     def __init__(self, id: str):
         config = load_config()
         config.data_dir.mkdir(parents=True, exist_ok=True)
+        resources = ResourceCatalog(config.workspace_root)
         now = time.time()
         super().__init__(
             id,
             model=None,
-            system=SYSTEM_PROMPT,
+            system=build_system_prompt(SYSTEM_PROMPT, resources),
             storage=SQLiteStorage(str(config.data_dir / "chump.sqlite3")),
             initial_state={
                 "workspace_root": str(config.workspace_root),
@@ -191,10 +195,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
             reasoning=config.reasoning,
         )
         self._config = config
-        self.tools = build_tools(self, config)
+        self._resources = resources
+        self.tools = build_tools(self, config, resources)
         self._last_step_records: list[dict[str, Any]] = []
         self._current_turn: AgentTurn | None = None
         self._pending_steering_events: list[dict[str, Any]] = []
+        self._turn_instruction_claims: set[str] = set()
 
     @action
     async def status(self) -> dict[str, Any]:
@@ -213,6 +219,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "created_at": self.state.get("created_at"),
             "updated_at": self.state.get("updated_at"),
             "last_user_goal": self.state.get("last_user_goal"),
+            "instruction_files": [
+                str(item.path) for item in self._resources.system_instructions
+            ],
+            "skills": [
+                {"name": item.name, "description": item.description}
+                for item in self._resources.skills
+            ],
         }
 
     @action
@@ -221,6 +234,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self.clear()
         await self.update_state(last_user_goal=None, read_files={}, updated_at=now)
         return {"status": "ok"}
+
+    @action
+    async def load_skill(self, name: str, args: str = "") -> dict[str, str]:
+        skill = self._resources.get_skill(name)
+        if skill is None:
+            raise ValueError(f"unknown skill: {name}")
+        prompt = build_skill_bundle(skill)
+        extra = args.strip()
+        if extra:
+            prompt = f"{prompt}\n\nUser: {extra}"
+        return {"name": skill.name, "prompt": prompt}
 
     @action
     async def event_log(self) -> dict[str, Any]:
@@ -373,6 +397,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
     ) -> AgentTurn:
         self._ensure_model()
         self._last_step_records = []
+        self._turn_instruction_claims = set()
         raw_attachments = attachments or []
         valid_attachments = [
             item for item in raw_attachments if is_image_attachment(item)
@@ -594,6 +619,17 @@ def build_session_title(message: str) -> str:
     if len(normalized) <= 72:
         return normalized
     return normalized[:69].rstrip() + "..."
+
+
+def build_system_prompt(base_prompt: str, resources: ResourceCatalog) -> str:
+    sections = []
+    sections.append(base_prompt.strip())
+    instruction_prompt = resources.build_instruction_prompt()
+
+    if instruction_prompt:
+        sections.append(instruction_prompt)
+
+    return "\n\n".join(section for section in sections if section)
 
 
 def build_user_content(
