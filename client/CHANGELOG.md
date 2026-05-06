@@ -1,5 +1,12 @@
 # chump-agent
 
+## 0.0.8
+
+### Patch Changes
+
+- f15cf78: Improve terminal UI rendering by optimizing frame redraws and fixing cursor drift.
+  Refactor queued line and steering submission handling to prevent UI artifacts.
+
 ## 0.0.7
 
 ### Patch Changes
