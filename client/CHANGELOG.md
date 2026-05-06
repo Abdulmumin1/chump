@@ -1,5 +1,12 @@
 # chump-agent
 
+## 0.0.9
+
+### Patch Changes
+
+- e03642f: Added /skills and AGENTS.md support
+  Expose instruction files and skills in health/status endpoints (server)
+
 ## 0.0.8
 
 ### Patch Changes
