@@ -118,7 +118,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   promptReader.setSessionSuggestions(sessions.sessions);
   promptReader.setModelSuggestions(await loadModelSuggestions());
   promptReader.setAbortHandler(null);
-  promptReader.setQueuedLinePopHandler(() => lineQueue.popLast());
+  promptReader.setQueuedLinePopHandler(() => {
+    lineQueue.popLast();
+  });
 
   if (target.note) {
     console.log(`[server] ${target.note}`);
@@ -192,8 +194,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         (handler) => {
           promptReader.setQueuedLinePopHandler(
             handler
-              ? () => handler() ?? lineQueue.popLast()
-              : () => lineQueue.popLast(),
+              ? () => {
+                  handler();
+                }
+              : () => {
+                  lineQueue.popLast();
+                },
           );
         },
         (submission) => lineQueue.unshift(submission),
@@ -216,7 +222,7 @@ async function runChatTurn(
   setAbortHandler: (handler: (() => void) | null) => void,
   setSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void,
   popSteeredDisplay: () => void,
-  setQueuedLinePopHandler: (handler: (() => PromptSubmission | null) | null) => void,
+  setQueuedLinePopHandler: (handler: (() => void) | null) => void,
   requeueSteeredSubmission: (submission: PromptSubmission) => void,
 ): Promise<void> {
   const streamAbortController = new AbortController();
@@ -260,12 +266,12 @@ async function runChatTurn(
     },
   });
   const pendingSteeringSubmissions: PromptSubmission[] = [];
-  const popPendingSteeringSubmission = (): PromptSubmission | null => {
+  const popPendingSteeringSubmission = (): void => {
     const pending = pendingSteeringSubmissions.pop() ?? null;
-    if (pending) {
-      void cancelLastSteering(config).catch(() => {});
+    if (!pending) {
+      return;
     }
-    return pending;
+    void cancelLastSteering(config).catch(() => {});
   };
   setAbortHandler(abortTurn);
   setQueuedLinePopHandler(popPendingSteeringSubmission);
