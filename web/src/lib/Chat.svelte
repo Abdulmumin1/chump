@@ -4,6 +4,7 @@
 	import SessionsSidebar from '$lib/SessionsSidebar.svelte';
 	import TranscriptPane from '$lib/TranscriptPane.svelte';
 	import ChatComposer from '$lib/ChatComposer.svelte';
+	import Toasts from '$lib/Toasts.svelte';
 
 	import {
 		abortCurrentTurn,
@@ -98,6 +99,29 @@
 	let expandedReasoning = $state<Record<string, boolean>>({});
 	let sidebarOpen = $state(false);
 	let connectModalOpen = $state(false);
+	let modelPickerOpen = $state(false);
+	let toasts = $state<Array<{ id: number; message: string; type?: 'default' | 'success' | 'error' }>>([]);
+	let toastId = 0;
+
+	function pushToast(message: string, type: 'default' | 'success' | 'error' = 'default') {
+		toastId += 1;
+		const id = toastId;
+		toasts = [...toasts, { id, message, type }];
+		setTimeout(() => {
+			toasts = toasts.filter((t) => t.id !== id);
+		}, 3000);
+	}
+
+	const MODEL_PRESETS = [
+		{ label: 'openai/gpt-5.4', provider: 'openai', model: 'gpt-5.4' },
+		{ label: 'openai/gpt-5.4-mini', provider: 'openai', model: 'gpt-5.4-mini' },
+		{ label: 'openai/gpt-5.3-codex', provider: 'openai', model: 'gpt-5.3-codex' },
+		{ label: 'anthropic/claude-sonnet-4-20250514', provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+		{ label: 'google/gemini-2.5-pro', provider: 'google', model: 'gemini-2.5-pro' },
+		{ label: 'google/gemini-2.5-flash', provider: 'google', model: 'gemini-2.5-flash' },
+		{ label: 'workers_ai/@cf/moonshotai/kimi-k2.6', provider: 'workers_ai', model: '@cf/moonshotai/kimi-k2.6' },
+		{ label: 'workers_ai/@cf/moonshotai/kimi-k2.5', provider: 'workers_ai', model: '@cf/moonshotai/kimi-k2.5' }
+	];
 
 	function toggleBlock(id: string) {
 		expandedBlocks[id] = !expandedBlocks[id];
@@ -117,6 +141,12 @@
 	}
 	function closeConnectModal() {
 		connectModalOpen = false;
+	}
+	function openModelPicker() {
+		modelPickerOpen = true;
+	}
+	function closeModelPicker() {
+		modelPickerOpen = false;
 	}
 
 	let selectedSession = $derived(sessions.find((session) => session.id === activeSessionId) ?? null);
@@ -527,8 +557,13 @@
 	}
 
 	async function handleCommand(command: string, args: string): Promise<void> {
+		if (command === '__open_model_picker') {
+			openModelPicker();
+			return;
+		}
+
 		if (!serverUrl || !activeSessionId) {
-			connectionError = 'Not connected';
+			pushToast('Not connected', 'error');
 			return;
 		}
 
@@ -537,34 +572,36 @@
 				case 'model': {
 					const separator = args.indexOf('/');
 					if (separator <= 0 || separator === args.length - 1) {
-						connectionError = 'Usage: /model provider/model';
+						pushToast('Usage: model provider/model', 'error');
 						return;
 					}
 					const provider = args.slice(0, separator);
 					const model = args.slice(separator + 1);
 					const result = await setModel(serverUrl, activeSessionId, provider, model);
 					status = result;
-					actionNotice = `Switched to ${provider}/${model}`;
+					closeModelPicker();
+					pushToast(`Switched to ${provider}/${model}`, 'success');
 					break;
 				}
 				case 'skill': {
 					const result = await loadSkill(serverUrl, activeSessionId, args);
-					actionNotice = `Loaded skill: ${result.name}`;
+					pushToast(`Loaded skill: ${result.name}`, 'success');
 					break;
 				}
 				case 'clear': {
 					const result = await clearMessages(serverUrl, activeSessionId);
-					actionNotice = result.status;
 					await refreshSessionSnapshot(activeSessionId);
+					pushToast('Chat cleared', 'success');
 					break;
 				}
 				case 'new': {
 					await createFreshSession();
+					pushToast('New session started', 'success');
 					break;
 				}
 			}
 		} catch (error) {
-			connectionError = toErrorMessage(error);
+			pushToast(toErrorMessage(error), 'error');
 		}
 	}
 
@@ -1268,6 +1305,38 @@
 				>
 					{isConnecting ? 'Connecting...' : 'Connect'}
 				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<Toasts bind:toasts />
+
+<!-- Model Picker Modal -->
+{#if modelPickerOpen}
+	<div class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+		<div class="bg-[#1c1c1e] border border-[#313133] rounded-t-xl md:rounded-xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden max-h-[80vh]">
+			<div class="flex items-center justify-between px-4 py-3 border-b border-[#313133]">
+				<span class="text-[14px] font-medium text-[#cccccc]">Switch Model</span>
+				<button class="text-[#858585] hover:text-[#cccccc] transition-colors" onclick={closeModelPicker} aria-label="Close">
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+				</button>
+			</div>
+			<div class="overflow-y-auto py-1">
+				{#each MODEL_PRESETS as m (m.label)}
+					<button
+						onclick={() => handleCommand('model', `${m.provider}/${m.model}`)}
+						class="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-[#2a2d2e] transition-colors"
+						type="button"
+					>
+						<div class="flex flex-col min-w-0">
+							<span class="text-[13px] text-[#cccccc]">{m.label}</span>
+						</div>
+						{#if m.label === currentModel}
+							<span class="text-[10px] px-1.5 py-0.5 rounded bg-[#3a4515] text-[#b8dd35] flex-shrink-0">active</span>
+						{/if}
+					</button>
+				{/each}
 			</div>
 		</div>
 	</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import CommandMenu from './CommandMenu.svelte';
 
 	let {
 		composerText = $bindable(),
@@ -218,6 +219,9 @@
 				{#if activeSessionId && composerText.trim() && !isCommand}
 					<button class="px-2 md:px-3 py-1 text-[11px] md:text-[12px] bg-[#333333] hover:bg-[#404040] text-[#cccccc] rounded-[4px] transition-colors disabled:opacity-50" onclick={onSteer} disabled={!canSteer}>Steer</button>
 				{/if}
+				{#if !composerText.trim()}
+					<CommandMenu {skills} {currentModel} {onCommand} />
+				{/if}
 			</div>
 			<div class="flex items-center gap-2">
 				<span class="text-[11px] md:text-[12px] font-medium text-[#6a6a6a] mr-1 md:mr-2 tracking-wide hidden sm:inline">⌘ Enter</span>
@@ -234,7 +238,13 @@
 			<span class="truncate">{workspaceRoot || '—'}</span>
 		</div>
 		{#if currentModel}
-			<div class="text-[10px] md:text-[11px] font-mono text-[#6a6a6a] truncate max-w-[30%]">{currentModel}</div>
+			<button
+				class="text-[10px] md:text-[11px] font-mono text-[#6a6a6a] hover:text-[#b8dd35] truncate max-w-[30%] transition-colors text-left"
+				onclick={() => onCommand('__open_model_picker', '')}
+				type="button"
+			>
+				{currentModel}
+			</button>
 		{/if}
 	</div>
 
