@@ -248,10 +248,10 @@
 						data-suggestion-selected={index === selectedIndex}
 						type="button"
 					>
-						<span class="text-[13px] font-mono text-[#569cd6] min-w-[140px]">{suggestion.label}</span>
+						<span class="text-[13px] font-mono text-[#b8dd35] min-w-[140px]">{suggestion.label}</span>
 						<span class="text-[12px] text-[#858585]">{suggestion.description}</span>
 						{#if suggestion.kind === 'model' && suggestion.label === currentModel}
-							<span class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[#264f78] text-white">active</span>
+							<span class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[#3a4515] text-white">active</span>
 						{/if}
 					</button>
 				{/each}

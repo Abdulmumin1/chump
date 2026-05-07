@@ -530,7 +530,7 @@
         {#if shouldClampDiff && !showFullDiff}
             <div class="px-1">
                 <button
-                    class="text-[12px] font-mono text-[#569cd6] transition-colors hover:text-[#7bb6ef]"
+                    class="text-[12px] font-mono text-[#b8dd35] transition-colors hover:text-[#d4e935]"
                     onclick={() => {
                         showFullDiff = true;
                     }}
@@ -541,7 +541,7 @@
         {:else if shouldClampDiff && showFullDiff}
             <div class="px-1">
                 <button
-                    class="text-[12px] font-mono text-[#569cd6] transition-colors hover:text-[#7bb6ef]"
+                    class="text-[12px] font-mono text-[#b8dd35] transition-colors hover:text-[#d4e935]"
                     onclick={() => {
                         showFullDiff = false;
                     }}
@@ -571,7 +571,7 @@
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[13px] font-semibold tracking-wide text-[#569cd6]"
+                        class="font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
                         >$</span
                     >
                     <span
@@ -580,7 +580,7 @@
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#569cd6]"
+                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
                         >Read file</span
                     >
                     <span
@@ -591,7 +591,7 @@
                     >
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#569cd6]"
+                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
                         >{block.originalToolName ||
                             block.toolName ||
                             "tool"}</span

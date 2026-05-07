@@ -35,7 +35,7 @@
 	</div>
 
 	<div class="p-2 border-b border-[#2b2b2d]">
-		<input bind:value={sessionInput} onkeydown={(e) => e.key === 'Enter' && onOpenSession()} placeholder="Open session ID..." class="w-full bg-[#252526] border border-transparent focus:border-[#007fd4] focus:outline-none rounded-sm px-2 py-1 text-[12px] text-[#cccccc] placeholder:text-[#858585]" />
+		<input bind:value={sessionInput} onkeydown={(e) => e.key === 'Enter' && onOpenSession()} placeholder="Open session ID..." class="w-full bg-[#252526] border border-transparent focus:border-[#b8dd35] focus:outline-none rounded-sm px-2 py-1 text-[12px] text-[#cccccc] placeholder:text-[#858585]" />
 	</div>
 
 	<div class="flex-1 overflow-y-auto py-2 space-y-0.5">

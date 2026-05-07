@@ -1154,7 +1154,7 @@
 	<title>chump web</title>
 </svelte:head>
 
-<div class="flex h-[100dvh] bg-[#1c1c1e] text-[#d4d4d4] font-sans overflow-hidden selection:bg-[#264f78] selection:text-white relative">
+<div class="flex h-[100dvh] bg-[#1c1c1e] text-[#d4d4d4] font-sans overflow-hidden selection:bg-[#3a4515] selection:text-white relative">
 	<!-- Mobile overlay -->
 	{#if sidebarOpen}
 		<button class="fixed inset-0 bg-black/50 z-20 md:hidden" onclick={closeSidebar} aria-label="Close sidebar"></button>
@@ -1177,7 +1177,7 @@
 	<main class="flex-1 flex flex-col bg-[#1c1c1e] relative min-w-0">
 		<!-- Header Tabs -->
 		<div class="flex items-center border-b border-[#2b2b2d] bg-[#18181a] overflow-x-auto hide-scrollbar">
-			<div class="flex items-center px-3 md:px-4 py-2 border-r border-[#2b2b2d] bg-[#1c1c1e] text-[#cccccc] text-[13px] border-t-[3px] border-t-[#007fd4] min-w-max gap-2">
+			<div class="flex items-center px-3 md:px-4 py-2 border-r border-[#2b2b2d] bg-[#1c1c1e] text-[#cccccc] text-[13px] border-t-[3px] border-t-[#b8dd35] min-w-max gap-2">
 				<button class="md:hidden text-[#858585] hover:text-[#cccccc] transition-colors" onclick={toggleSidebar} aria-label="Toggle sidebar">
 					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
 				</button>
@@ -1188,7 +1188,7 @@
 				<div class="flex items-center gap-1 md:gap-2">
 					<span class="text-[#858585] hidden sm:inline">Server:</span>
 					<input bind:value={serverUrl} class="bg-transparent border-none focus:outline-none text-[#cccccc] w-[120px] md:w-[180px] text-[11px] md:text-[12px]" placeholder="http://127.0.0.1:8080" />
-					<button onclick={() => void connectToServer()} class="text-[#007fd4] font-medium hover:text-[#4daafc] disabled:opacity-50 text-[11px] md:text-[12px] px-1.5 md:px-2 py-0.5" disabled={!canConnect || isConnecting}>{isConnecting ? '...' : 'Connect'}</button>
+					<button onclick={() => void connectToServer()} class="text-[#b8dd35] font-medium hover:text-[#d4e935] disabled:opacity-50 text-[11px] md:text-[12px] px-1.5 md:px-2 py-0.5" disabled={!canConnect || isConnecting}>{isConnecting ? '...' : 'Connect'}</button>
 				</div>
 				{#if isSending}
 					<button class="px-2 md:px-4 py-1 bg-[#4d4d4d] hover:bg-[#5a5a5a] text-white rounded-[4px] transition-colors text-[11px] md:text-[12px]" onclick={() => void abortTurn()}>Abort</button>

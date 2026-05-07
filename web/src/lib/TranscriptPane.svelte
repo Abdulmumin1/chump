@@ -148,7 +148,7 @@
             <div
                 class="flex items-center gap-2 px-2 text-[13px] text-[#858585] animate-pulse"
             >
-                <span class="w-2 h-2 rounded-full bg-[#007fd4]"></span> Agent is thinking...
+                <span class="w-2 h-2 rounded-full bg-[#b8dd35]"></span> Agent is thinking...
             </div>
         {/if}
     </div>

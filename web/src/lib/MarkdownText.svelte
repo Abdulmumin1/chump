@@ -71,7 +71,7 @@
 	}
 
 	:global(.markdown-body a) {
-		color: #7bb6ef;
+		color: #b8dd35;
 		text-decoration: none;
 	}
 
