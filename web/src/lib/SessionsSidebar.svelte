@@ -8,7 +8,8 @@
 		onOpenSession,
 		onSelectSession,
 		sessionTitle,
-		formatDate
+		formatDate,
+		open = false
 	} = $props<{
 		sessions: Array<any>;
 		activeSessionId: string;
@@ -19,10 +20,11 @@
 		onSelectSession: (id: string) => void;
 		sessionTitle: (session: any) => string;
 		formatDate: (value: number | null) => string;
+		open?: boolean;
 	}>();
 </script>
 
-<aside class="w-[260px] flex flex-col bg-[#18181a] border-r border-[#2b2b2d] flex-shrink-0 z-10">
+<aside class="{open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static inset-y-0 left-0 w-[260px] flex flex-col bg-[#18181a] border-r border-[#2b2b2d] flex-shrink-0 z-30 transition-transform duration-200 ease-out">
 	<div class="p-3 flex items-center justify-between border-b border-[#2b2b2d]">
 		<div class="flex items-center gap-2">
 			<span class="text-[13px] font-medium text-[#cccccc]">Home</span>

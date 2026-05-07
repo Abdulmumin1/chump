@@ -44,7 +44,35 @@ export async function getEventLog(serverUrl: string, agentId: string): Promise<A
 	return await invokeAction<AgentEventLogResponse>(serverUrl, agentId, 'event_log');
 }
 
-export async function abortCurrentTurn(serverUrl: string, agentId: string): Promise<{ status: string }> {
+export async function setModel(
+	serverUrl: string,
+	agentId: string,
+	provider: string,
+	model: string
+): Promise<ChumpStatus> {
+	return await invokeAction<ChumpStatus>(serverUrl, agentId, 'set_model', { provider, model });
+}
+
+export async function loadSkill(
+	serverUrl: string,
+	agentId: string,
+	name: string,
+	args = ''
+): Promise<{ name: string; prompt: string }> {
+	return await invokeAction<{ name: string; prompt: string }>(serverUrl, agentId, 'load_skill', { name, args });
+}
+
+export async function clearMessages(
+	serverUrl: string,
+	agentId: string
+): Promise<{ status: string }> {
+	return await invokeAction<{ status: string }>(serverUrl, agentId, 'clear_messages');
+}
+
+export async function abortCurrentTurn(
+	serverUrl: string,
+	agentId: string
+): Promise<{ status: string }> {
 	return await invokeAction<{ status: string }>(serverUrl, agentId, 'abort_current_turn');
 }
 

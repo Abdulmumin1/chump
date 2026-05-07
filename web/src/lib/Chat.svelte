@@ -7,6 +7,7 @@
 
 	import {
 		abortCurrentTurn,
+		clearMessages,
 		createSessionId,
 		getEventLog,
 		getHealth,
@@ -14,9 +15,11 @@
 		getSessions,
 		getState,
 		getStatus,
+		loadSkill,
 		normalizeServerUrl,
 		openEventStream,
 		sessionTitle,
+		setModel,
 		steerCurrentTurn,
 		streamChat
 	} from '$lib/chump/api';
@@ -93,11 +96,19 @@
 	let activeRequestController: AbortController | null = null;
 	let expandedBlocks = $state<Record<string, boolean>>({});
 	let expandedReasoning = $state<Record<string, boolean>>({});
+	let sidebarOpen = $state(false);
+
 	function toggleBlock(id: string) {
 		expandedBlocks[id] = !expandedBlocks[id];
 	}
 	function toggleReasoning(id: string) {
 		expandedReasoning[id] = !(expandedReasoning[id] ?? true);
+	}
+	function toggleSidebar() {
+		sidebarOpen = !sidebarOpen;
+	}
+	function closeSidebar() {
+		sidebarOpen = false;
 	}
 
 	let selectedSession = $derived(sessions.find((session) => session.id === activeSessionId) ?? null);
@@ -105,6 +116,27 @@
 	let canConnect = $derived(serverUrl.trim().length > 0);
 	let canSend = $derived(Boolean(serverUrl && composerText.trim().length > 0));
 	let canSteer = $derived(Boolean(serverUrl && activeSessionId && composerText.trim().length > 0));
+
+	let currentModel = $derived(health ? `${health.provider}/${health.model}` : '');
+	let currentSkills = $derived(health?.skills ?? []);
+	let displayWorkspace = $derived(shortenWorkspacePath(health?.workspace_root ?? ''));
+
+	function shortenWorkspacePath(path: string): string {
+		if (!path) return '';
+		// Try to detect home directory prefix patterns
+		const homePatterns = [
+			/^\/Users\/[^/]+/,
+			/^\/home\/[^/]+/,
+			/^~/
+		];
+		for (const pattern of homePatterns) {
+			const match = path.match(pattern);
+			if (match) {
+				return '~' + path.slice(match[0].length);
+			}
+		}
+		return path;
+	}
 
 	$effect(() => {
 		if (!browser) {
@@ -480,6 +512,48 @@
 		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
 			event.preventDefault();
 			void submitPrompt();
+		}
+	}
+
+	async function handleCommand(command: string, args: string): Promise<void> {
+		if (!serverUrl || !activeSessionId) {
+			connectionError = 'Not connected';
+			return;
+		}
+
+		try {
+			switch (command) {
+				case 'model': {
+					const separator = args.indexOf('/');
+					if (separator <= 0 || separator === args.length - 1) {
+						connectionError = 'Usage: /model provider/model';
+						return;
+					}
+					const provider = args.slice(0, separator);
+					const model = args.slice(separator + 1);
+					const result = await setModel(serverUrl, activeSessionId, provider, model);
+					status = result;
+					actionNotice = `Switched to ${provider}/${model}`;
+					break;
+				}
+				case 'skill': {
+					const result = await loadSkill(serverUrl, activeSessionId, args);
+					actionNotice = `Loaded skill: ${result.name}`;
+					break;
+				}
+				case 'clear': {
+					const result = await clearMessages(serverUrl, activeSessionId);
+					actionNotice = result.status;
+					await refreshSessionSnapshot(activeSessionId);
+					break;
+				}
+				case 'new': {
+					await createFreshSession();
+					break;
+				}
+			}
+		} catch (error) {
+			connectionError = toErrorMessage(error);
 		}
 	}
 
@@ -1080,7 +1154,12 @@
 	<title>chump web</title>
 </svelte:head>
 
-<div class="flex h-screen bg-[#1c1c1e] text-[#d4d4d4] font-sans overflow-hidden selection:bg-[#264f78] selection:text-white">
+<div class="flex h-screen bg-[#1c1c1e] text-[#d4d4d4] font-sans overflow-hidden selection:bg-[#264f78] selection:text-white relative">
+	<!-- Mobile overlay -->
+	{#if sidebarOpen}
+		<button class="fixed inset-0 bg-black/50 z-20 md:hidden" onclick={closeSidebar} aria-label="Close sidebar"></button>
+	{/if}
+
 	<SessionsSidebar
 		sessions={sessions}
 		activeSessionId={activeSessionId}
@@ -1088,27 +1167,31 @@
 		health={health}
 		onCreateSession={() => void createFreshSession()}
 		onOpenSession={() => void openTypedSession()}
-		onSelectSession={(id) => void selectSession(id)}
+		onSelectSession={(id) => { closeSidebar(); void selectSession(id); }}
 		{sessionTitle}
 		{formatDate}
+		open={sidebarOpen}
 	/>
 
 	<!-- Center: Chat/Editor Area -->
 	<main class="flex-1 flex flex-col bg-[#1c1c1e] relative min-w-0">
 		<!-- Header Tabs -->
 		<div class="flex items-center border-b border-[#2b2b2d] bg-[#18181a] overflow-x-auto hide-scrollbar">
-			<div class="flex items-center px-4 py-2 border-r border-[#2b2b2d] bg-[#1c1c1e] text-[#cccccc] text-[13px] border-t-[3px] border-t-[#007fd4] min-w-max">
+			<div class="flex items-center px-3 md:px-4 py-2 border-r border-[#2b2b2d] bg-[#1c1c1e] text-[#cccccc] text-[13px] border-t-[3px] border-t-[#007fd4] min-w-max gap-2">
+				<button class="md:hidden text-[#858585] hover:text-[#cccccc] transition-colors" onclick={toggleSidebar} aria-label="Toggle sidebar">
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+				</button>
 				<span class="truncate">{selectedSession ? sessionTitle(selectedSession) : 'No Session'}</span>
 			</div>
 			
-			<div class="flex-1 px-4 flex justify-end items-center gap-4 text-[12px]">
-				<div class="flex items-center gap-2">
-					<span class="text-[#858585]">Server:</span>
-					<input bind:value={serverUrl} class="bg-transparent border-none focus:outline-none text-[#cccccc] w-[180px]" placeholder="http://127.0.0.1:8080" />
-					<button onclick={() => void connectToServer()} class="text-[#007fd4] font-medium hover:text-[#4daafc] disabled:opacity-50" disabled={!canConnect || isConnecting}>{isConnecting ? '...' : 'Connect'}</button>
+			<div class="flex-1 px-2 md:px-4 flex justify-end items-center gap-2 md:gap-4 text-[12px]">
+				<div class="flex items-center gap-1 md:gap-2">
+					<span class="text-[#858585] hidden sm:inline">Server:</span>
+					<input bind:value={serverUrl} class="bg-transparent border-none focus:outline-none text-[#cccccc] w-[120px] md:w-[180px] text-[11px] md:text-[12px]" placeholder="http://127.0.0.1:8080" />
+					<button onclick={() => void connectToServer()} class="text-[#007fd4] font-medium hover:text-[#4daafc] disabled:opacity-50 text-[11px] md:text-[12px] px-1.5 md:px-2 py-0.5" disabled={!canConnect || isConnecting}>{isConnecting ? '...' : 'Connect'}</button>
 				</div>
 				{#if isSending}
-					<button class="px-4 py-1 bg-[#4d4d4d] hover:bg-[#5a5a5a] text-white rounded-[4px] transition-colors" onclick={() => void abortTurn()}>Abort</button>
+					<button class="px-2 md:px-4 py-1 bg-[#4d4d4d] hover:bg-[#5a5a5a] text-white rounded-[4px] transition-colors text-[11px] md:text-[12px]" onclick={() => void abortTurn()}>Abort</button>
 				{/if}
 			</div>
 		</div>
@@ -1130,9 +1213,12 @@
 			{canSteer}
 			{canSend}
 			{isSending}
+			skills={currentSkills}
+			currentModel={currentModel}
+			workspaceRoot={displayWorkspace}
 			onSend={() => void submitPrompt()}
 			onSteer={() => void sendSteering()}
-			onKeydown={handleComposerKeydown}
+			onCommand={handleCommand}
 		/>
 	</main>
 </div>
