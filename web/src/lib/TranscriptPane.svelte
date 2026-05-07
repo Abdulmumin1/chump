@@ -34,7 +34,9 @@
         {#each transcript as item (item.id)}
             {#if item.role === "user"}
                 <div class="self-end max-w-[85%] md:max-w-[75%]">
-                    <div class="bg-[#252528] border border-[#313133] rounded-xl px-4 py-2.5 text-[14px] text-[#eeeeee] leading-relaxed whitespace-pre-wrap break-words shadow-sm">
+                    <div
+                        class="bg-[#252528] border border-[#313133] rounded-xl px-4 py-2.5 text-[14px] text-[#eeeeee] leading-relaxed whitespace-pre-wrap break-words shadow-sm"
+                    >
                         {item.blocks
                             .map((b: { text: string }) => b.text)
                             .join("")}
@@ -95,7 +97,7 @@
                                 </button>
                                 {#if expandedReasoning[`${item.id}-${index}`] ?? true}
                                     <div
-                                        class="p-2 text-[15px] leading-[1.5] text-[#b8b8c4] whitespace-pre-wrap break-words"
+                                        class="p-2 text-[15px] text-black whitespace-pre-wrap"
                                     >
                                         <MarkdownText text={block.text} />
                                     </div>

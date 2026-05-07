@@ -1330,7 +1330,7 @@
 						type="button"
 					>
 						<div class="flex flex-col min-w-0">
-							<span class="text-[13px] text-[#cccccc]">{m.label}</span>
+							<span class="text-[13px] text-[#cccccc]">{m.label.replace(/^workers_ai\/@cf\//, '')}</span>
 						</div>
 						{#if m.label === currentModel}
 							<span class="text-[10px] px-1.5 py-0.5 rounded bg-[#3a4515] text-[#b8dd35] flex-shrink-0">active</span>

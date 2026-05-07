@@ -199,6 +199,10 @@
 		selectedIndex = 0;
 	}
 
+	function shortenModel(name: string): string {
+		return name.replace(/^workers_ai\/@cf\//, '');
+	}
+
 	let isCommand = $derived(composerText.trim().startsWith('/'));
 </script>
 
@@ -243,7 +247,7 @@
 				onclick={() => onCommand('__open_model_picker', '')}
 				type="button"
 			>
-				{currentModel}
+				{shortenModel(currentModel)}
 			</button>
 		{/if}
 	</div>
