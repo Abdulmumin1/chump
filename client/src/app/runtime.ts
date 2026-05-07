@@ -17,7 +17,7 @@ const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 10_000;
 const SERVER_WAIT_MS = 15_000;
-const DEFAULT_MANAGED_IDLE_TIMEOUT_SECONDS = 300;
+const DEFAULT_MANAGED_IDLE_TIMEOUT_SECONDS = 1;
 
 export function parseCliArgs(argv: string[]): CliOptions {
   let mode: CliMode = "interactive";

@@ -139,6 +139,13 @@ export async function cancelLastSteering(
   return await invokeAction<{ status: string }>(config, "cancel_last_steering");
 }
 
+export async function cancelSteering(
+  config: ChumpConfig,
+  index: number,
+): Promise<{ status: string }> {
+  return await invokeAction<{ status: string }>(config, "cancel_steering", { index });
+}
+
 export async function setModel(
   config: ChumpConfig,
   provider: string,

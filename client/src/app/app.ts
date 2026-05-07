@@ -21,7 +21,7 @@ import {
   printHelp,
   switchAgent,
 } from "./commands.ts";
-import { connectProvider, readGlobalAuth, updateGlobalAuth } from "./auth.ts";
+import { connectProvider, readGlobalAuth } from "./auth.ts";
 import { logClientEvent } from "./diagnostics.ts";
 import { listModelChoices } from "./models.ts";
 import {
@@ -32,10 +32,13 @@ import {
 } from "./config.ts";
 import {
   consumeToolActivity,
+  setAgentStatusHook,
   setAssistantTextHook,
   setReasoningActivityHook,
   setSteeringAcceptedHook,
+  setSteeringQueueHook,
   setToolActivityHook,
+  setTurnStatusHook,
   setUserMessageHook,
   startEventStream,
 } from "../ui/events.ts";
@@ -114,11 +117,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let closeEventStream: (() => void) | null = null;
   let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
   let resumeSessionId: string | null = null;
-  const [health, sessions] = await Promise.all([
+  const [health, status, sessions] = await Promise.all([
     getHealth(config),
+    getStatus(config),
     getSessions(config),
   ]);
-  promptReader.setFooter(renderFooter(config, health));
+  promptReader.setFooter(renderFooter(config, status));
   promptReader.setSessionSuggestions(sessions.sessions);
   promptReader.setModelSuggestions(await loadModelSuggestions());
   promptReader.setSkillSuggestions(health.skills);
@@ -127,7 +131,42 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     lineQueue.popLast();
   });
   setUserMessageHook((payload) => liveSync.suppressUserMessage(payload));
-  setAssistantTextHook(() => liveSync.suppressAssistantText());
+  setAgentStatusHook((payload) => {
+    promptReader.setFooter(renderFooter(config, payload as {
+      provider: string;
+      model: string;
+      reasoning: Record<string, unknown> | null;
+    }));
+  });
+  setSteeringQueueHook((payload) => {
+    promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
+  });
+  const sharedTurnSync = createSharedTurnSync({
+    config: () => config,
+    liveSync,
+    promptReader,
+    getLocalTurnActive: () => liveSync.hasLocalTurn(),
+    getActiveSteerHandler: () => activeSteerHandler,
+    setActiveSteerHandler: (handler) => {
+      activeSteerHandler = handler;
+    },
+    popQueuedLine: () => lineQueue.popLast(),
+  });
+  sharedTurnSync.install();
+  setAssistantTextHook(() => {
+    sharedTurnSync.beforeAssistantText();
+    return liveSync.suppressAssistantText();
+  });
+
+  if (status.turn_running) {
+    sharedTurnSync.applyTurnStatus({
+      running: true,
+      steering_queue: status.steering_queue ?? [],
+    });
+  }
+  if (status.steering_queue?.length) {
+    promptReader.setQueuedDisplay(steeringQueueSubmissions({ items: status.steering_queue }));
+  }
 
   if (target.note) {
     console.log(`[server] ${target.note}`);
@@ -213,6 +252,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
             },
             (submission) => lineQueue.unshift(submission),
           );
+          promptReader.setQueuedLinePopHandler(() => {
+            lineQueue.popLast();
+          });
+          sharedTurnSync.install();
         }
         continue;
       }
@@ -240,12 +283,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         },
         (submission) => lineQueue.unshift(submission),
       );
+      promptReader.setQueuedLinePopHandler(() => {
+        lineQueue.popLast();
+      });
+      sharedTurnSync.install();
     }
   } finally {
     promptReader.close();
     closeEventStream?.();
     setUserMessageHook(null);
     setAssistantTextHook(null);
+    setAgentStatusHook(null);
+    setSteeringQueueHook(null);
+    sharedTurnSync.dispose();
   }
 
   if (resumeSessionId) {
@@ -510,6 +560,10 @@ class LiveSyncTracker {
     this.localTurnCount = Math.max(0, this.localTurnCount - 1);
   }
 
+  hasLocalTurn(): boolean {
+    return this.localTurnCount > 0;
+  }
+
   suppressUserMessage(payload: Record<string, unknown>): boolean {
     const content = typeof payload.content === "string" ? payload.content.trim() : "";
     if (!content) {
@@ -547,6 +601,143 @@ class LiveSyncTracker {
     queue.splice(index, 1);
     return true;
   }
+}
+
+function createSharedTurnSync(options: {
+  config: () => ChumpConfig;
+  liveSync: LiveSyncTracker;
+  promptReader: ReturnType<typeof createPromptReader>;
+  getLocalTurnActive: () => boolean;
+  getActiveSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null;
+  setActiveSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void;
+  popQueuedLine: () => PromptSubmission | null;
+}): {
+  install: () => void;
+  dispose: () => void;
+  applyTurnStatus: (payload: Record<string, unknown>) => void;
+  beforeAssistantText: () => void;
+} {
+  let remoteTurnRunning = false;
+  let spinnerFrame: string | null = null;
+  let reasoningPreview: string | null = null;
+  const remoteReasoningStream = new LiveReasoningStream({
+    onPreview: (preview) => {
+      reasoningPreview = preview;
+      syncStatus();
+    },
+  });
+  const spinner = createSpinner((frame) => {
+    spinnerFrame = frame;
+    syncStatus();
+  });
+  const remoteSteerHandler = async (submission: PromptSubmission): Promise<boolean> => {
+    const result = await steerCurrentTurn(
+      options.config(),
+      submission.text,
+      submission.attachments,
+    );
+    if (result.status !== "steered") {
+      return false;
+    }
+    options.liveSync.noteLocalSteer(formatSubmissionForDisplay(submission));
+    return true;
+  };
+
+  const applyTurnStatus = (payload: Record<string, unknown>): void => {
+    remoteTurnRunning = payload.running === true;
+    if (Array.isArray(payload.steering_queue)) {
+      options.promptReader.setQueuedDisplay(
+        steeringQueueSubmissions({ items: payload.steering_queue }),
+      );
+    }
+
+    if (remoteTurnRunning) {
+      if (options.getLocalTurnActive()) {
+        return;
+      }
+      spinner.start();
+      if (!options.getActiveSteerHandler()) {
+        options.setActiveSteerHandler(remoteSteerHandler);
+      }
+      options.promptReader.setAbortHandler(() => {
+        void abortCurrentTurn(options.config()).catch(() => {});
+        options.promptReader.setStatus(renderMuted("Aborting..."));
+      });
+      options.promptReader.setQueuedLinePopHandler(() => {
+        void cancelLastSteering(options.config()).catch(() => {});
+      });
+      syncStatus();
+      return;
+    }
+
+    spinner.stop();
+    remoteReasoningStream.finish();
+    spinnerFrame = null;
+    reasoningPreview = null;
+    if (!options.getLocalTurnActive()) {
+      options.promptReader.setStatus(null);
+      options.promptReader.setAbortHandler(null);
+      options.setActiveSteerHandler(null);
+      options.promptReader.setQueuedLinePopHandler(() => {
+        options.popQueuedLine();
+      });
+    }
+  };
+
+  const install = (): void => {
+    setTurnStatusHook(applyTurnStatus);
+    setReasoningActivityHook((payload) => {
+      if (!remoteTurnRunning || options.getLocalTurnActive()) {
+        return;
+      }
+      remoteReasoningStream.render(payload);
+    });
+    setToolActivityHook(() => {
+      if (!remoteTurnRunning || options.getLocalTurnActive()) {
+        return;
+      }
+      remoteReasoningStream.finish();
+      spinner.refresh();
+    });
+  };
+
+  const dispose = (): void => {
+    spinner.stop();
+    remoteReasoningStream.finish();
+    setTurnStatusHook(null);
+    setReasoningActivityHook(null);
+    setToolActivityHook(null);
+  };
+
+  const beforeAssistantText = (): void => {
+    if (!remoteTurnRunning || options.getLocalTurnActive()) {
+      return;
+    }
+    spinner.stop();
+    spinnerFrame = null;
+    options.promptReader.setStatus(null);
+    remoteReasoningStream.finish();
+    reasoningPreview = null;
+  };
+
+  function syncStatus(): void {
+    if (!remoteTurnRunning || options.getLocalTurnActive()) {
+      return;
+    }
+    const lines: string[] = [];
+    if (reasoningPreview) {
+      lines.push(reasoningPreview, "");
+    }
+    if (spinnerFrame) {
+      lines.push(spinnerFrame, "");
+    }
+    if (lines.length > 0) {
+      lines.unshift("");
+    }
+    options.promptReader.setStatus(lines.length > 0 ? lines.join("\n") : null);
+  }
+
+  return { install, dispose, applyTurnStatus, beforeAssistantText };
 }
 
 async function readInputLoop(
@@ -710,7 +901,6 @@ async function handleSlashCommand(
         writeOutput(`${renderMuted("usage: /model <provider>/<model>")}\n`);
         break;
       }
-      await updateGlobalAuth({ provider, model });
       const status = await setModel(config, provider, model);
       context.setFooter(renderFooter(config, status));
       context.setModelSuggestions(await loadModelSuggestions());
@@ -739,7 +929,6 @@ async function handleSlashCommand(
         writeOutput(`${renderMuted("usage: /thinking <none|low|high|xhigh>")}\n`);
         break;
       }
-      await updateGlobalAuth({ reasoning: { mode } });
       const status = await setReasoning(config, mode);
       context.setFooter(renderFooter(config, status));
       writeOutput(`${renderMuted(`thinking set to ${mode}`)}\n`);
@@ -823,12 +1012,13 @@ async function renderSwitchedSession(
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
   options: { skipEmptyTranscript?: boolean } = {},
 ): Promise<void> {
-  const [health, response, sessions] = await Promise.all([
+  const [health, status, response, sessions] = await Promise.all([
     getHealth(config),
+    getStatus(config),
     getMessages(config),
     getSessions(config),
   ]);
-  setFooter(renderFooter(config, health));
+  setFooter(renderFooter(config, status));
   setSessionSuggestions(sessions.sessions);
   if (options.skipEmptyTranscript && response.messages.length === 0) {
     return;
@@ -847,6 +1037,29 @@ function renderFooter(
     config.serverSource,
     config.agentId,
   ]);
+}
+
+function steeringQueueSubmissions(payload: Record<string, unknown>): PromptSubmission[] {
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const submissions: PromptSubmission[] = [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const text = typeof value.content === "string" ? value.content : "";
+    const attachments = Array.isArray(value.attachments) ? value.attachments : [];
+    submissions.push({
+      text,
+      attachments: attachments
+        .filter((attachment): attachment is Record<string, unknown> => Boolean(attachment && typeof attachment === "object"))
+        .map((attachment) => {
+          const label = typeof attachment.label === "string" ? attachment.label : "[attachment]";
+          return { type: "text", label, text: label };
+        }),
+    });
+  }
+  return submissions;
 }
 
 function renderReasoning(reasoning: Record<string, unknown> | null): string {

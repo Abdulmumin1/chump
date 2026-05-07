@@ -4,10 +4,12 @@
 	let {
 		skills = [],
 		currentModel = '',
+		currentThinking = '',
 		onCommand
 	} = $props<{
 		skills: Array<{ name: string; description: string }>;
 		currentModel: string;
+		currentThinking: string;
 		onCommand: (command: string, args: string) => void;
 	}>();
 
@@ -26,7 +28,9 @@
 		{ label: 'workers_ai/@cf/moonshotai/kimi-k2.5', provider: 'workers_ai', model: '@cf/moonshotai/kimi-k2.5' }
 	];
 
-	let view: 'main' | 'models' | 'skills' = $state('main');
+	const THINKING_PRESETS = ['none', 'low', 'high', 'xhigh'];
+
+	let view: 'main' | 'models' | 'thinking' | 'skills' = $state('main');
 
 	async function toggle() {
 		open = !open;
@@ -106,6 +110,15 @@
 						<svg class="w-3.5 h-3.5 text-[#858585] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
 					</button>
 
+					<button class="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-[#2a2d2e] transition-colors" onclick={() => view = 'thinking'} type="button">
+						<svg class="w-4 h-4 text-[#858585] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z"></path></svg>
+						<div class="flex flex-col min-w-0 flex-1">
+							<span class="text-[13px] text-[#cccccc]">Thinking</span>
+							<span class="text-[11px] text-[#858585] truncate">{currentThinking || 'default'}</span>
+						</div>
+						<svg class="w-3.5 h-3.5 text-[#858585] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+					</button>
+
 					{#if skills.length > 0}
 						<button class="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-[#2a2d2e] transition-colors" onclick={() => view = 'skills'} type="button">
 							<svg class="w-4 h-4 text-[#858585] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
@@ -137,6 +150,22 @@
 						<button class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#2a2d2e] transition-colors" onclick={() => execute('model', `${m.provider}/${m.model}`)} type="button">
 							<span class="text-[13px] text-[#cccccc] truncate pr-2">{shortenModel(m.label)}</span>
 							{#if m.label === currentModel}
+								<span class="text-[10px] px-1.5 py-0.5 rounded bg-[#3a4515] text-[#b8dd35] flex-shrink-0">active</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			{:else if view === 'thinking'}
+				<div class="py-1">
+					<button class="w-full text-left px-3 py-2 flex items-center gap-2 text-[#858585] hover:bg-[#2a2d2e] transition-colors" onclick={() => view = 'main'} type="button">
+						<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+						<span class="text-[12px]">Back</span>
+					</button>
+					<div class="h-px bg-[#313133] my-1 mx-2"></div>
+					{#each THINKING_PRESETS as mode (mode)}
+						<button class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#2a2d2e] transition-colors" onclick={() => execute('thinking', mode)} type="button">
+							<span class="text-[13px] text-[#cccccc]">{mode}</span>
+							{#if mode === currentThinking}
 								<span class="text-[10px] px-1.5 py-0.5 rounded bg-[#3a4515] text-[#b8dd35] flex-shrink-0">active</span>
 							{/if}
 						</button>

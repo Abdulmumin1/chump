@@ -53,6 +53,14 @@ export async function setModel(
 	return await invokeAction<ChumpStatus>(serverUrl, agentId, 'set_model', { provider, model });
 }
 
+export async function setReasoning(
+	serverUrl: string,
+	agentId: string,
+	mode: string
+): Promise<ChumpStatus> {
+	return await invokeAction<ChumpStatus>(serverUrl, agentId, 'set_reasoning', { mode });
+}
+
 export async function loadSkill(
 	serverUrl: string,
 	agentId: string,
@@ -82,6 +90,14 @@ export async function steerCurrentTurn(
 	message: string
 ): Promise<{ status: string }> {
 	return await invokeAction<{ status: string }>(serverUrl, agentId, 'steer_current_turn', { message });
+}
+
+export async function cancelSteering(
+	serverUrl: string,
+	agentId: string,
+	index: number
+): Promise<{ status: string }> {
+	return await invokeAction<{ status: string }>(serverUrl, agentId, 'cancel_steering', { index });
 }
 
 export async function streamChat(

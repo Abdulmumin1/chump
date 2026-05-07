@@ -168,11 +168,18 @@ def resolve_model(config: ChumpConfig):
 
 class ChumpAgent(Agent[dict[str, Any]]):
     enable_event_log = True
+    _server_config: ChumpConfig | None = None
+    _server_resources: ResourceCatalog | None = None
+
+    @classmethod
+    def configure(cls, config: ChumpConfig, resources: ResourceCatalog) -> None:
+        cls._server_config = config
+        cls._server_resources = resources
 
     def __init__(self, id: str):
-        config = load_config()
+        config = self._server_config or load_config()
         config.data_dir.mkdir(parents=True, exist_ok=True)
-        resources = ResourceCatalog(config.workspace_root)
+        resources = self._server_resources or ResourceCatalog(config.workspace_root)
         now = time.time()
         super().__init__(
             id,
@@ -200,6 +207,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._last_step_records: list[dict[str, Any]] = []
         self._current_turn: AgentTurn | None = None
         self._pending_steering_events: list[dict[str, Any]] = []
+        self._steering_lock = asyncio.Lock()
         self._turn_instruction_claims: set[str] = set()
 
     @action
@@ -219,6 +227,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "created_at": self.state.get("created_at"),
             "updated_at": self.state.get("updated_at"),
             "last_user_goal": self.state.get("last_user_goal"),
+            "turn_running": self._current_turn is not None and not self._current_turn.done,
+            "steering_queue": list(self._pending_steering_events),
             "instruction_files": [
                 str(item.path) for item in self._resources.system_instructions
             ],
@@ -268,14 +278,18 @@ class ChumpAgent(Agent[dict[str, Any]]):
         if turn is None or turn.done:
             return {"status": "idle"}
         content = build_user_content(message, attachments or [])
-        await turn.steer(content)
-        self._pending_steering_events.append(
-            {
-                "content": message,
-                "attachments": summarize_attachments(attachments or []),
-                "steered": True,
-            }
-        )
+        async with self._steering_lock:
+            if turn is not self._current_turn or turn.done:
+                return {"status": "idle"}
+            await turn.steer(content)
+            self._pending_steering_events.append(
+                {
+                    "content": message,
+                    "attachments": summarize_attachments(attachments or []),
+                    "steered": True,
+                }
+            )
+            await self._emit_steering_queue()
         now = time.time()
         await self.update_state(updated_at=now, last_user_goal=message)
         self._log(f"steer queued: {message} attachments={len(attachments or [])}")
@@ -283,12 +297,24 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @action
     async def cancel_last_steering(self) -> dict[str, Any]:
+        return await self.cancel_steering()
+
+    @action
+    async def cancel_steering(self, index: int | None = None) -> dict[str, Any]:
         turn = self._current_turn
         if turn is None or turn.done or not self._pending_steering_events:
             return {"status": "idle"}
-        self._pending_steering_events.pop()
-        removed = await remove_last_queued_message(turn._steering)
-        self._log(f"steer canceled: removed={removed}")
+        async with self._steering_lock:
+            if turn is not self._current_turn or turn.done or not self._pending_steering_events:
+                return {"status": "idle"}
+            target_index = len(self._pending_steering_events) - 1 if index is None else index
+            if target_index < 0 or target_index >= len(self._pending_steering_events):
+                raise ValueError("queued steering index is out of range")
+            removed = await remove_queued_message_at(turn._steering, target_index)
+            if removed:
+                self._pending_steering_events.pop(target_index)
+            await self._emit_steering_queue()
+        self._log(f"steer canceled: index={target_index} removed={removed}")
         return {"status": "canceled" if removed else "missed"}
 
     @action
@@ -316,7 +342,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
         self.model = resolve_model(self._config)
         self.reasoning = reasoning
-        return await self.status()
+        status = await self.status()
+        await self.emit("agent_status", status)
+        return status
 
     @action
     async def set_reasoning(self, mode: str) -> dict[str, Any]:
@@ -327,7 +355,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
             reasoning=normalize_reasoning_config({"mode": mode}, self._config.provider),
         )
         self.reasoning = self._config.reasoning
-        return await self.status()
+        status = await self.status()
+        await self.emit("agent_status", status)
+        return status
 
     @property
     def current_abort_signal(self) -> AbortSignal | None:
@@ -386,6 +416,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         finally:
             if self._current_turn is turn:
                 self._current_turn = None
+            await self._emit_turn_status(False)
 
     async def _start_turn(
         self,
@@ -422,13 +453,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
             updated_at=now,
             last_user_goal=message,
         )
-
         options = TurnOptions(
             provider_options=self._turn_provider_options(),
             signal=signal,
         )
         turn = self.turn(content, options=options)
         self._current_turn = turn
+        await self._emit_turn_status(True)
         return turn
 
     async def handle_request_stream(
@@ -481,9 +512,28 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     async def _on_step_start(self, event) -> None:
         self._log(f"step {event.step_number} start")
-        while self._pending_steering_events:
-            await self.emit("user_message", self._pending_steering_events.pop(0))
+        async with self._steering_lock:
+            while self._pending_steering_events:
+                await self.emit("user_message", self._pending_steering_events.pop(0))
+                await self._emit_steering_queue()
         await self.emit("status", {"phase": "step_start", "step": event.step_number})
+
+    async def _emit_steering_queue(self) -> None:
+        await self.emit(
+            "steering_queue",
+            {
+                "items": list(self._pending_steering_events),
+            },
+        )
+
+    async def _emit_turn_status(self, running: bool) -> None:
+        await self.emit(
+            "turn_status",
+            {
+                "running": running,
+                "steering_queue": list(self._pending_steering_events),
+            },
+        )
 
     async def _on_step_finish(self, event) -> None:
         record = {
@@ -728,13 +778,13 @@ def message_content_text(content: Any) -> str:
     return "".join(parts)
 
 
-async def remove_last_queued_message(queue: asyncio.Queue[Message]) -> bool:
+async def remove_queued_message_at(queue: asyncio.Queue[Message], index: int) -> bool:
     items: list[Message] = []
     while not queue.empty():
         items.append(await queue.get())
-    removed = bool(items)
+    removed = 0 <= index < len(items)
     if removed:
-        items.pop()
+        items.pop(index)
     for item in items:
         await queue.put(item)
     return removed

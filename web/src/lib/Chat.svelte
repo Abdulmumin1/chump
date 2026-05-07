@@ -8,6 +8,7 @@
 
 	import {
 		abortCurrentTurn,
+		cancelSteering,
 		clearMessages,
 		createSessionId,
 		getEventLog,
@@ -21,6 +22,7 @@
 		openEventStream,
 		sessionTitle,
 		setModel,
+		setReasoning,
 		steerCurrentTurn,
 		streamChat
 	} from '$lib/chump/api';
@@ -81,6 +83,7 @@
 	let eventLog = $state<StoredEvent[]>([]);
 	let activity = $state<ActivityItem[]>([]);
 	let reasoningText = $state('');
+	let steeringQueue = $state<Array<{ content: string; attachments?: Array<Record<string, unknown>> }>>([]);
 	let liveAssistantText = $state('');
 	let composerText = $state('');
 	let isConnecting = $state(false);
@@ -92,8 +95,6 @@
 	let stopEvents: (() => void) | null = null;
 	let lastEventId = 0;
 	let loadToken = 0;
-	let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
-	let sessionsTimer: ReturnType<typeof setTimeout> | null = null;
 	let activeRequestController: AbortController | null = null;
 	let expandedBlocks = $state<Record<string, boolean>>({});
 	let expandedReasoning = $state<Record<string, boolean>>({});
@@ -153,7 +154,7 @@
 	let transcript = $derived(buildTranscript(messages, liveAssistantText, eventLog));
 	let canConnect = $derived(serverUrl.trim().length > 0);
 	let canSend = $derived(Boolean(serverUrl && composerText.trim().length > 0));
-	let canSteer = $derived(Boolean(serverUrl && activeSessionId && composerText.trim().length > 0));
+	let canSteer = $derived(Boolean(serverUrl && activeSessionId && isSending && composerText.trim().length > 0));
 
 	let currentModel = $derived(status ? `${status.provider}/${status.model}` : '');
 	let currentSkills = $derived(status?.skills ?? health?.skills ?? []);
@@ -210,8 +211,6 @@
 		return () => {
 			stopEvents?.();
 			stopEvents = null;
-			clearTimeoutIfNeeded(snapshotTimer);
-			clearTimeoutIfNeeded(sessionsTimer);
 			activeRequestController?.abort();
 		};
 	});
@@ -308,6 +307,8 @@
 			}
 
 			status = nextStatus;
+			isSending = nextStatus.turn_running === true;
+			steeringQueue = parseSteeringQueue({ items: nextStatus.steering_queue ?? [] });
 			sessionState = nextState.state;
 			messages = nextMessages.messages;
 			eventLog = nextEventLog.events;
@@ -369,9 +370,9 @@
 			const chunk = asString(payload?.content);
 			if (chunk) {
 				liveAssistantText += chunk;
+				appendLiveEvent(lastEventId, event.event, payload);
 				await scrollTranscriptToEnd();
 			}
-			scheduleSnapshotRefresh(700);
 			return;
 		}
 
@@ -383,31 +384,41 @@
 			applyReasoningDelta(payload);
 		}
 
+		if (event.event === 'agent_status' && payload) {
+			status = payload as ChumpStatus;
+			return;
+		}
+
+		if (event.event === 'turn_status' && payload) {
+			isSending = payload.running === true;
+			if (Array.isArray(payload.steering_queue)) {
+				steeringQueue = parseSteeringQueue({ items: payload.steering_queue });
+			}
+			if (!isSending) {
+				void refreshSessionsList();
+			}
+			return;
+		}
+
+		if (event.event === 'steering_queue' && payload) {
+			steeringQueue = parseSteeringQueue(payload);
+			return;
+		}
+
 		const nextItem = formatActivityItem(lastEventId, event.event, payload);
 		if (nextItem) {
 			activity = trimTail([...activity, nextItem], 80);
 		}
 
-		if (payload) {
-			eventLog = trimTail(
-				[
-					...eventLog,
-					{
-						id: lastEventId,
-						type: event.event,
-						data: payload
-					}
-				],
-				400
-			);
-		}
+		appendLiveEvent(lastEventId, event.event, payload);
 
 		if (event.event === 'user_message') {
 			liveAssistantText = '';
 		}
 
-		scheduleSnapshotRefresh(event.event === 'user_message' ? 150 : 700);
-		scheduleSessionsRefresh();
+		if (event.event === 'state') {
+			void refreshSessionsList();
+		}
 	}
 
 	async function submitPrompt(): Promise<void> {
@@ -428,14 +439,14 @@
 
 		try {
 			await streamChat(serverUrl, sessionId, text, activeRequestController.signal);
-			scheduleSnapshotRefresh(120);
-			scheduleSessionsRefresh();
 		} catch (error) {
 			if (!activeRequestController.signal.aborted) {
 				connectionError = toErrorMessage(error);
 			}
 		} finally {
-			isSending = false;
+			if (!activeRequestController.signal.aborted) {
+				isSending = false;
+			}
 			activeRequestController = null;
 		}
 	}
@@ -455,10 +466,31 @@
 			const result = await steerCurrentTurn(serverUrl, sessionId, text);
 			composerText = '';
 			actionNotice = result.status;
-			scheduleSnapshotRefresh(120);
 		} catch (error) {
 			connectionError = toErrorMessage(error);
 		}
+	}
+
+	async function deleteSteering(index: number): Promise<void> {
+		if (!serverUrl || !activeSessionId) {
+			return;
+		}
+
+		try {
+			await cancelSteering(serverUrl, activeSessionId, index);
+		} catch (error) {
+			connectionError = toErrorMessage(error);
+		}
+	}
+
+	async function editSteering(index: number): Promise<void> {
+		const item = steeringQueue[index];
+		if (!item) {
+			return;
+		}
+
+		composerText = item.content;
+		await deleteSteering(index);
 	}
 
 	async function abortTurn(): Promise<void> {
@@ -470,7 +502,6 @@
 			activeRequestController?.abort();
 			const result = await abortCurrentTurn(serverUrl, activeSessionId);
 			actionNotice = result.status;
-			scheduleSnapshotRefresh(120);
 		} catch (error) {
 			connectionError = toErrorMessage(error);
 		}
@@ -536,27 +567,6 @@
 		}
 	}
 
-	function scheduleSnapshotRefresh(delayMs = 700): void {
-		clearTimeoutIfNeeded(snapshotTimer);
-		const sessionId = activeSessionId;
-		if (!sessionId) {
-			return;
-		}
-
-		snapshotTimer = setTimeout(() => {
-			snapshotTimer = null;
-			void refreshSessionSnapshot(sessionId);
-		}, delayMs);
-	}
-
-	function scheduleSessionsRefresh(delayMs = 500): void {
-		clearTimeoutIfNeeded(sessionsTimer);
-		sessionsTimer = setTimeout(() => {
-			sessionsTimer = null;
-			void refreshSessionsList();
-		}, delayMs);
-	}
-
 	function handleComposerKeydown(event: KeyboardEvent): void {
 		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
 			event.preventDefault();
@@ -589,6 +599,15 @@
 					status = result;
 					closeModelPicker();
 					pushToast(`Switched to ${provider}/${model}`, 'success');
+					break;
+				}
+				case 'thinking': {
+					if (!['none', 'low', 'high', 'xhigh'].includes(args)) {
+						pushToast('Usage: thinking none|low|high|xhigh', 'error');
+						return;
+					}
+					status = await setReasoning(serverUrl, activeSessionId, args);
+					pushToast(`Thinking set to ${args}`, 'success');
 					break;
 				}
 				case 'skill': {
@@ -629,6 +648,29 @@
 		}
 
 		reasoningText = clipTail(`${reasoningText}${fragment}`, 1200);
+	}
+
+	function parseSteeringQueue(payload: Record<string, unknown>): Array<{ content: string; attachments?: Array<Record<string, unknown>> }> {
+		const items = Array.isArray(payload.items) ? payload.items : [];
+		return items
+			.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+			.map((item) => ({
+				content: asString(item.content),
+				attachments: Array.isArray(item.attachments)
+					? item.attachments.filter((attachment): attachment is Record<string, unknown> => Boolean(attachment && typeof attachment === 'object'))
+					: []
+			}))
+			.filter((item) => item.content.trim() || (item.attachments?.length ?? 0) > 0);
+	}
+
+	function appendLiveEvent(id: number, type: string, data: Record<string, unknown> | null): void {
+		if (!data) {
+			return;
+		}
+		if (eventLog.some((event) => event.id === id && event.type === type)) {
+			return;
+		}
+		eventLog = trimTail([...eventLog, { id, type, data }], 400);
 	}
 
 	function connectDetectedServer(): void {
@@ -1199,11 +1241,6 @@
 		return value.length <= size ? value : value.slice(value.length - size);
 	}
 
-	function clearTimeoutIfNeeded(timer: ReturnType<typeof setTimeout> | null): void {
-		if (timer) {
-			clearTimeout(timer);
-		}
-	}
 </script>
 
 <svelte:head>
@@ -1276,8 +1313,11 @@
 			currentModel={currentModel}
 			workspaceRoot={displayWorkspace}
 			{reasoningInfo}
+			{steeringQueue}
 			onSend={() => void submitPrompt()}
 			onSteer={() => void sendSteering()}
+			onDeleteSteering={(index) => void deleteSteering(index)}
+			onEditSteering={(index) => void editSteering(index)}
 			onCommand={handleCommand}
 		/>
 	</main>

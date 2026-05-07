@@ -12,6 +12,9 @@ let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null =
 let steeringAcceptedHook: ((content: string) => void) | null = null;
 let userMessageHook: ((payload: Record<string, unknown>) => boolean) | null = null;
 let assistantTextHook: ((content: string) => boolean) | null = null;
+let agentStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
+let steeringQueueHook: ((payload: Record<string, unknown>) => void) | null = null;
+let turnStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 let assistantStream: ReturnType<typeof createMarkdownStream> | null = null;
 
 export function setToolActivityHook(hook: (() => void) | null): void {
@@ -38,6 +41,24 @@ export function setAssistantTextHook(
   hook: ((content: string) => boolean) | null,
 ): void {
   assistantTextHook = hook;
+}
+
+export function setAgentStatusHook(
+  hook: ((payload: Record<string, unknown>) => void) | null,
+): void {
+  agentStatusHook = hook;
+}
+
+export function setSteeringQueueHook(
+  hook: ((payload: Record<string, unknown>) => void) | null,
+): void {
+  steeringQueueHook = hook;
+}
+
+export function setTurnStatusHook(
+  hook: ((payload: Record<string, unknown>) => void) | null,
+): void {
+  turnStatusHook = hook;
 }
 
 export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {
@@ -86,6 +107,21 @@ function logEvent(event: SseEvent): void {
 
   if (event.event === "reasoning" && payload) {
     reasoningActivityHook?.(payload);
+    return;
+  }
+
+  if (event.event === "agent_status" && payload) {
+    agentStatusHook?.(payload);
+    return;
+  }
+
+  if (event.event === "steering_queue" && payload) {
+    steeringQueueHook?.(payload);
+    return;
+  }
+
+  if (event.event === "turn_status" && payload) {
+    turnStatusHook?.(payload);
     return;
   }
 

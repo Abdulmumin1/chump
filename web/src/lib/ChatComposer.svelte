@@ -12,8 +12,11 @@
 		currentModel = '',
 		workspaceRoot = '',
 		reasoningInfo = null,
+		steeringQueue = [],
 		onSend,
 		onSteer,
+		onDeleteSteering,
+		onEditSteering,
 		onCommand
 	} = $props<{
 		composerText: string;
@@ -25,8 +28,11 @@
 		currentModel: string;
 		workspaceRoot: string;
 		reasoningInfo: { effort: string | null; budget: number | null } | null;
+		steeringQueue: Array<{ content: string; attachments?: Array<Record<string, unknown>> }>;
 		onSend: () => void;
 		onSteer: () => void;
+		onDeleteSteering: (index: number) => void;
+		onEditSteering: (index: number) => void;
 		onCommand: (command: string, args: string) => void | Promise<void>;
 	}>();
 
@@ -43,6 +49,7 @@
 
 	const ROOT_COMMANDS: Suggestion[] = [
 		{ label: '/model', command: '/model ', description: 'choose provider and model', kind: 'root' },
+		{ label: '/thinking', command: '/thinking ', description: 'choose reasoning level', kind: 'root' },
 		{ label: '/skill', command: '/skill:', description: 'load a skill manually', kind: 'root' },
 		{ label: '/clear', command: '/clear', description: 'clear messages for current session', kind: 'command' },
 		{ label: '/new', command: '/new', description: 'start a fresh session', kind: 'command' }
@@ -58,6 +65,13 @@
 		{ label: 'google/gemini-2.5-flash', command: '/model google/gemini-2.5-flash', description: 'Gemini 2.5 Flash', kind: 'model' },
 		{ label: 'workers_ai/@cf/moonshotai/kimi-k2.6', command: '/model workers_ai/@cf/moonshotai/kimi-k2.6', description: 'Kimi K2.6', kind: 'model' },
 		{ label: 'workers_ai/@cf/moonshotai/kimi-k2.5', command: '/model workers_ai/@cf/moonshotai/kimi-k2.5', description: 'Kimi K2.5', kind: 'model' }
+	];
+
+	const THINKING_PRESETS: Suggestion[] = [
+		{ label: 'none', command: '/thinking none', description: 'disable thinking', kind: 'command' },
+		{ label: 'low', command: '/thinking low', description: 'small thinking budget', kind: 'command' },
+		{ label: 'high', command: '/thinking high', description: 'larger thinking budget', kind: 'command' },
+		{ label: 'xhigh', command: '/thinking xhigh', description: 'maximum thinking budget', kind: 'command' }
 	];
 
 	let suggestions = $derived.by(() => {
@@ -87,6 +101,11 @@
 			return MODEL_PRESETS.filter((m) =>
 				!query || m.label.toLowerCase().includes(query) || m.description.toLowerCase().includes(query)
 			);
+		}
+
+		if (/^\/thinking(?:\s|$)/.test(trimmed)) {
+			const query = trimmed.slice('/thinking'.length).trim().toLowerCase();
+			return THINKING_PRESETS.filter((item) => !query || item.label.includes(query));
 		}
 
 		// Root command completion
@@ -178,6 +197,11 @@
 			void onCommand('model', modelSpec);
 			return;
 		}
+		if (trimmed.startsWith('/thinking ')) {
+			const mode = trimmed.slice('/thinking '.length).trim();
+			void onCommand('thinking', mode);
+			return;
+		}
 		if (trimmed.startsWith('/skill:')) {
 			const skillName = trimmed.slice('/skill:'.length).trim();
 			void onCommand('skill', skillName);
@@ -205,10 +229,44 @@
 		return name.replace(/^workers_ai\/@cf\//, '');
 	}
 
+	function steeringLabel(item: { content: string; attachments?: Array<Record<string, unknown>> }): string {
+		const text = item.content.trim();
+		if (text) return text;
+		const count = item.attachments?.length ?? 0;
+		return `${count} attachment${count === 1 ? '' : 's'}`;
+	}
+
 	let isCommand = $derived(composerText.trim().startsWith('/'));
+	let currentThinking = $derived(reasoningInfo?.effort ?? '');
 </script>
 
 <div class="w-full px-2 md:px-8 pb-4 md:pb-6 pt-2 bg-[#1c1c1e] relative">
+	{#if steeringQueue.length > 0}
+		<div class="max-w-5xl mx-auto mb-2 space-y-2">
+			{#each steeringQueue as item, index (`${index}-${item.content}`)}
+				<div class="group flex items-center gap-2 rounded-[10px] border border-[#313133] bg-[#242426]/95 px-3 py-2 shadow-lg">
+					<span class="text-[10px] font-mono font-bold uppercase tracking-[0.18em] text-[#858585]">Queued</span>
+					<span class="min-w-0 flex-1 truncate text-[13px] text-[#cccccc]">{steeringLabel(item)}</span>
+					<button
+						type="button"
+						aria-label="Delete queued steering"
+						class="flex h-7 w-7 items-center justify-center rounded-[6px] text-[#858585] transition-colors hover:bg-[#333333] hover:text-[#ff6b6b]"
+						onclick={() => onDeleteSteering(index)}
+					>
+						<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 7h12m-9 0V5h6v2m-8 0 1 12h8l1-12"></path></svg>
+					</button>
+					<button
+						type="button"
+						aria-label="Edit queued steering"
+						class="flex h-7 w-7 items-center justify-center rounded-[6px] text-[#858585] transition-colors hover:bg-[#333333] hover:text-[#b8dd35]"
+						onclick={() => onEditSteering(index)}
+					>
+						<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m16.8 4.8 2.4 2.4M4 20h4.5L19.2 9.3a1.7 1.7 0 0 0 0-2.4l-2.1-2.1a1.7 1.7 0 0 0-2.4 0L4 15.5V20Z"></path></svg>
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
 	<div class="max-w-5xl mx-auto bg-[#242426] border border-[#313133] rounded-[8px] flex flex-col focus-within:border-[#4d4d4d] transition-colors shadow-lg relative z-10">
 		<textarea
 			bind:this={textareaElement}
@@ -226,7 +284,7 @@
 					<button class="px-2 md:px-3 py-1 text-[11px] md:text-[12px] bg-[#333333] hover:bg-[#404040] text-[#cccccc] rounded-[4px] transition-colors disabled:opacity-50" onclick={onSteer} disabled={!canSteer}>Steer</button>
 				{/if}
 				{#if !composerText.trim()}
-					<CommandMenu {skills} {currentModel} {onCommand} />
+					<CommandMenu {skills} {currentModel} {currentThinking} {onCommand} />
 				{/if}
 			</div>
 			<div class="flex items-center gap-2">
