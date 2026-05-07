@@ -1154,7 +1154,7 @@
 	<title>chump web</title>
 </svelte:head>
 
-<div class="flex h-screen bg-[#1c1c1e] text-[#d4d4d4] font-sans overflow-hidden selection:bg-[#264f78] selection:text-white relative">
+<div class="flex h-[100dvh] bg-[#1c1c1e] text-[#d4d4d4] font-sans overflow-hidden selection:bg-[#264f78] selection:text-white relative">
 	<!-- Mobile overlay -->
 	{#if sidebarOpen}
 		<button class="fixed inset-0 bg-black/50 z-20 md:hidden" onclick={closeSidebar} aria-label="Close sidebar"></button>

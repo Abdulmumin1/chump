@@ -10,6 +10,6 @@
 	});
 </script>
 
-<div class="flex flex-col min-h-screen bg-[#0a0a0a] text-zinc-300 transition-colors selection:bg-zinc-800 selection:text-zinc-100">
+<div class="flex flex-col min-h-[100dvh] bg-[#0a0a0a] text-zinc-300 transition-colors selection:bg-zinc-800 selection:text-zinc-100">
 	<Chat {data} />
 </div>
