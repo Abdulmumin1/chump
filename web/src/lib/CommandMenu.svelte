@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	let {
 		skills = [],
 		currentModel = '',
@@ -10,6 +12,8 @@
 	}>();
 
 	let open = $state(false);
+	let buttonRef = $state<HTMLButtonElement | null>(null);
+	let menuStyle = $state('');
 
 	const MODEL_PRESETS = [
 		{ label: 'openai/gpt-5.4', provider: 'openai', model: 'gpt-5.4' },
@@ -24,6 +28,30 @@
 
 	let view: 'main' | 'models' | 'skills' = $state('main');
 
+	async function toggle() {
+		open = !open;
+		view = 'main';
+		if (open) {
+			await tick();
+			positionMenu();
+		}
+	}
+
+	function positionMenu() {
+		if (!buttonRef) return;
+		const rect = buttonRef.getBoundingClientRect();
+		const menuWidth = 280;
+		let left = rect.left;
+		// Keep menu inside viewport
+		if (left + menuWidth > window.innerWidth - 8) {
+			left = window.innerWidth - menuWidth - 8;
+		}
+		if (left < 8) {
+			left = 8;
+		}
+		menuStyle = `position:fixed;left:${left}px;bottom:${window.innerHeight - rect.top + 8}px;width:${menuWidth}px;z-index:9999;`;
+	}
+
 	function execute(command: string, args: string) {
 		open = false;
 		view = 'main';
@@ -37,7 +65,7 @@
 
 	function clickOutside(node: HTMLElement, handler: () => void) {
 		const onClick = (e: MouseEvent) => {
-			if (node && !node.contains(e.target as Node)) {
+			if (node && !node.contains(e.target as Node) && !buttonRef?.contains(e.target as Node)) {
 				handler();
 			}
 		};
@@ -54,18 +82,19 @@
 	}
 </script>
 
-<div class="relative" use:clickOutside={close}>
-	<button
-		onclick={(e) => { e.stopPropagation(); open = !open; view = 'main'; }}
-		class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-[#858585] hover:text-[#cccccc] hover:bg-[#2a2d2e] rounded-[6px] transition-colors"
-		aria-label="More actions"
-		type="button"
-	>
-		<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z"></path></svg>
-	</button>
+<button
+	bind:this={buttonRef}
+	onclick={(e) => { e.stopPropagation(); void toggle(); }}
+	class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-[#858585] hover:text-[#cccccc] hover:bg-[#2a2d2e] rounded-[6px] transition-colors"
+	aria-label="More actions"
+	type="button"
+>
+	<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z"></path></svg>
+</button>
 
-	{#if open}
-		<div class="absolute left-0 md:right-0 md:left-auto bottom-full mb-2 w-[260px] md:w-[280px] bg-[#242426] border border-[#313133] rounded-[12px] shadow-2xl overflow-hidden z-[100]">
+{#if open}
+	<div style={menuStyle} use:clickOutside={close}>
+		<div class="bg-[#242426] border border-[#313133] rounded-[12px] shadow-2xl overflow-hidden">
 			{#if view === 'main'}
 				<div class="py-1">
 					<button class="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-[#2a2d2e] transition-colors" onclick={() => view = 'models'} type="button">
@@ -129,5 +158,5 @@
 				</div>
 			{/if}
 		</div>
-	{/if}
-</div>
+	</div>
+{/if}

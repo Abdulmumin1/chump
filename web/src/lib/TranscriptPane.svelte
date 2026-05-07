@@ -1,6 +1,7 @@
 <script lang="ts">
     import ToolBlock from "$lib/ToolBlock.svelte";
     import MarkdownText from "$lib/MarkdownText.svelte";
+    import { marked } from "marked";
 
     let {
         transcript,
@@ -97,9 +98,9 @@
                                 </button>
                                 {#if expandedReasoning[`${item.id}-${index}`] ?? true}
                                     <div
-                                        class="p-2 text-[15px] text-black whitespace-pre-wrap"
+                                        class="p-2 text-[15px] text-neutral-500 whitespace-pre-wrap"
                                     >
-                                        <MarkdownText text={block.text} />
+                                        {@html marked(block.text)}
                                     </div>
                                 {/if}
                             </div>
