@@ -32,9 +32,11 @@ import {
 } from "./config.ts";
 import {
   consumeToolActivity,
+  setAssistantTextHook,
   setReasoningActivityHook,
   setSteeringAcceptedHook,
   setToolActivityHook,
+  setUserMessageHook,
   startEventStream,
 } from "../ui/events.ts";
 import { createPromptReader } from "../ui/input.ts";
@@ -108,6 +110,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const fallbackRl = input.isTTY ? null : createInterface({ input, output });
   const promptReader = createPromptReader(fallbackRl);
   const lineQueue = new AsyncLineQueue();
+  const liveSync = new LiveSyncTracker();
   let closeEventStream: (() => void) | null = null;
   let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
   let resumeSessionId: string | null = null;
@@ -123,6 +126,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   promptReader.setQueuedLinePopHandler(() => {
     lineQueue.popLast();
   });
+  setUserMessageHook((payload) => liveSync.suppressUserMessage(payload));
+  setAssistantTextHook(() => liveSync.suppressAssistantText());
 
   if (target.note) {
     console.log(`[server] ${target.note}`);
@@ -188,6 +193,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
           await runChatTurn(
             config,
             commandResult.submission,
+            liveSync,
             (status) => promptReader.setStatus(status),
             (handler) => promptReader.setAbortHandler(handler),
             (handler) => {
@@ -214,6 +220,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       await runChatTurn(
         config,
         nextLine,
+        liveSync,
         (status) => promptReader.setStatus(status),
         (handler) => promptReader.setAbortHandler(handler),
         (handler) => {
@@ -237,6 +244,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   } finally {
     promptReader.close();
     closeEventStream?.();
+    setUserMessageHook(null);
+    setAssistantTextHook(null);
   }
 
   if (resumeSessionId) {
@@ -280,6 +289,7 @@ function formatCompactNames(values: string[], limit = 4): string {
 async function runChatTurn(
   config: ChumpConfig,
   submission: PromptSubmission,
+  liveSync: LiveSyncTracker,
   setStatus: (status: string | null) => void,
   setAbortHandler: (handler: (() => void) | null) => void,
   setSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void,
@@ -288,6 +298,8 @@ async function runChatTurn(
   requeueSteeredSubmission: (submission: PromptSubmission) => void,
 ): Promise<void> {
   const streamAbortController = new AbortController();
+  liveSync.noteLocalChat(formatSubmissionForDisplay(submission));
+  liveSync.beginLocalTurn();
   let spinnerFrame: string | null = null;
   let reasoningPreview: string | null = null;
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
@@ -350,6 +362,7 @@ async function runChatTurn(
     if (result.status !== "steered") {
       return false;
     }
+    liveSync.noteLocalSteer(formatSubmissionForDisplay(nextSubmission));
     pendingSteeringSubmissions.push(nextSubmission);
     return true;
   });
@@ -425,6 +438,7 @@ async function runChatTurn(
     writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
   } finally {
     streamAbortController.abort();
+    liveSync.endLocalTurn();
     reasoningStream.finish();
     spinner.stop();
     setAbortHandler(null);
@@ -473,6 +487,66 @@ function formatSubmissionForDisplay(submission: PromptSubmission): string {
     return text;
   }
   return `${text.trimEnd()} ${images}`.trim();
+}
+
+class LiveSyncTracker {
+  private readonly localChats: string[] = [];
+  private readonly localSteers: string[] = [];
+  private localTurnCount = 0;
+
+  noteLocalChat(content: string): void {
+    this.push(this.localChats, content);
+  }
+
+  noteLocalSteer(content: string): void {
+    this.push(this.localSteers, content);
+  }
+
+  beginLocalTurn(): void {
+    this.localTurnCount += 1;
+  }
+
+  endLocalTurn(): void {
+    this.localTurnCount = Math.max(0, this.localTurnCount - 1);
+  }
+
+  suppressUserMessage(payload: Record<string, unknown>): boolean {
+    const content = typeof payload.content === "string" ? payload.content.trim() : "";
+    if (!content) {
+      return true;
+    }
+
+    if (payload.steered === true) {
+      this.consume(this.localSteers, content);
+      return false;
+    }
+
+    return this.consume(this.localChats, content);
+  }
+
+  suppressAssistantText(): boolean {
+    return this.localTurnCount > 0;
+  }
+
+  private push(queue: string[], content: string): void {
+    const normalized = content.trim();
+    if (!normalized) {
+      return;
+    }
+    queue.push(normalized);
+    if (queue.length > 16) {
+      queue.splice(0, queue.length - 16);
+    }
+  }
+
+  private consume(queue: string[], content: string): boolean {
+    const index = queue.findIndex((item) => item === content);
+    if (index === -1) {
+      return false;
+    }
+    queue.splice(index, 1);
+    return true;
+  }
 }
 
 async function readInputLoop(
