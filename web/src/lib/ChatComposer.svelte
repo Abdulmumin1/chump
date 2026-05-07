@@ -11,6 +11,7 @@
 		skills = [],
 		currentModel = '',
 		workspaceRoot = '',
+		reasoningInfo = null,
 		onSend,
 		onSteer,
 		onCommand
@@ -23,6 +24,7 @@
 		skills: Array<{ name: string; description: string }>;
 		currentModel: string;
 		workspaceRoot: string;
+		reasoningInfo: { effort: string | null; budget: number | null } | null;
 		onSend: () => void;
 		onSteer: () => void;
 		onCommand: (command: string, args: string) => void | Promise<void>;
@@ -241,15 +243,22 @@
 			<svg class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
 			<span class="truncate">{workspaceRoot || '—'}</span>
 		</div>
-		{#if currentModel}
-			<button
-				class="text-[10px] md:text-[11px] font-mono text-[#6a6a6a] hover:text-[#b8dd35] truncate max-w-[30%] transition-colors text-left"
-				onclick={() => onCommand('__open_model_picker', '')}
-				type="button"
-			>
-				{shortenModel(currentModel)}
-			</button>
-		{/if}
+		<div class="flex items-center gap-2 min-w-0">
+			{#if reasoningInfo?.effort}
+				<span class="text-[10px] md:text-[11px] font-mono text-[#6a6a6a] truncate">
+					{reasoningInfo.effort}{#if reasoningInfo.budget} · {reasoningInfo.budget.toLocaleString()} tok{/if}
+				</span>
+			{/if}
+			{#if currentModel}
+				<button
+					class="text-[10px] md:text-[11px] font-mono text-[#6a6a6a] hover:text-[#b8dd35] truncate transition-colors text-left"
+					onclick={() => onCommand('__open_model_picker', '')}
+					type="button"
+				>
+					{shortenModel(currentModel)}
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	{#if visible}

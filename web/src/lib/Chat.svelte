@@ -155,9 +155,17 @@
 	let canSend = $derived(Boolean(serverUrl && composerText.trim().length > 0));
 	let canSteer = $derived(Boolean(serverUrl && activeSessionId && composerText.trim().length > 0));
 
-	let currentModel = $derived(health ? `${health.provider}/${health.model}` : '');
-	let currentSkills = $derived(health?.skills ?? []);
-	let displayWorkspace = $derived(shortenWorkspacePath(health?.workspace_root ?? ''));
+	let currentModel = $derived(status ? `${status.provider}/${status.model}` : '');
+	let currentSkills = $derived(status?.skills ?? health?.skills ?? []);
+	let displayWorkspace = $derived(shortenWorkspacePath(status?.workspace_root ?? health?.workspace_root ?? ''));
+	let reasoningInfo = $derived.by(() => {
+		const r = status?.reasoning ?? health?.reasoning;
+		if (!r || typeof r !== 'object') return null;
+		return {
+			effort: typeof r.effort === 'string' ? r.effort : null,
+			budget: typeof r.budget === 'number' ? r.budget : null
+		};
+	});
 
 	function shortenWorkspacePath(path: string): string {
 		if (!path) return '';
@@ -1267,6 +1275,7 @@
 			skills={currentSkills}
 			currentModel={currentModel}
 			workspaceRoot={displayWorkspace}
+			{reasoningInfo}
 			onSend={() => void submitPrompt()}
 			onSteer={() => void sendSteering()}
 			onCommand={handleCommand}
