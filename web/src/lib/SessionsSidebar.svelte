@@ -82,10 +82,15 @@
 	<!-- Sticky Footer: Connection status & controls -->
 	<div class="border-t border-[#2b2b2d] bg-[#18181a] p-2 space-y-2">
 		{#if isConnected}
-			<div class="flex items-center gap-2 px-2 py-1">
+			<button
+				onclick={onOpenConnectModal}
+				class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[#252526] transition-colors text-left"
+				type="button"
+			>
 				<span class="w-1.5 h-1.5 rounded-full bg-[#b8dd35] flex-shrink-0"></span>
 				<span class="text-[11px] font-mono text-[#858585] truncate">{serverDisplay()}</span>
-			</div>
+				<svg class="w-3 h-3 text-[#858585] ml-auto flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+			</button>
 		{:else}
 			<button
 				onclick={onOpenConnectModal}
