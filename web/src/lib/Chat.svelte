@@ -97,6 +97,7 @@
 	let expandedBlocks = $state<Record<string, boolean>>({});
 	let expandedReasoning = $state<Record<string, boolean>>({});
 	let sidebarOpen = $state(false);
+	let connectModalOpen = $state(false);
 
 	function toggleBlock(id: string) {
 		expandedBlocks[id] = !expandedBlocks[id];
@@ -109,6 +110,13 @@
 	}
 	function closeSidebar() {
 		sidebarOpen = false;
+	}
+	function openConnectModal() {
+		connectModalOpen = true;
+		closeSidebar();
+	}
+	function closeConnectModal() {
+		connectModalOpen = false;
 	}
 
 	let selectedSession = $derived(sessions.find((session) => session.id === activeSessionId) ?? null);
@@ -231,6 +239,9 @@
 		sessionInput = nextSessionId;
 		liveAssistantText = '';
 		reasoningText = '';
+		messages = [];
+		eventLog = [];
+		activity = [];
 		stopEvents?.();
 		stopEvents = null;
 		await refreshSessionSnapshot(nextSessionId);
@@ -1165,9 +1176,14 @@
 		activeSessionId={activeSessionId}
 		bind:sessionInput
 		health={health}
+		serverUrl={serverUrl}
+		isConnecting={isConnecting}
+		canConnect={canConnect}
 		onCreateSession={() => void createFreshSession()}
 		onOpenSession={() => void openTypedSession()}
 		onSelectSession={(id) => { closeSidebar(); void selectSession(id); }}
+		onOpenConnectModal={openConnectModal}
+		onConnect={() => void connectToServer()}
 		{sessionTitle}
 		{formatDate}
 		open={sidebarOpen}
@@ -1177,19 +1193,17 @@
 	<main class="flex-1 flex flex-col bg-[#1c1c1e] relative min-w-0">
 		<!-- Header Tabs -->
 		<div class="flex items-center border-b border-[#2b2b2d] bg-[#18181a] overflow-x-auto hide-scrollbar">
-			<div class="flex items-center px-3 md:px-4 py-2 border-r border-[#2b2b2d] bg-[#1c1c1e] text-[#cccccc] text-[13px] border-t-[3px] border-t-[#b8dd35] min-w-max gap-2">
-				<button class="md:hidden text-[#858585] hover:text-[#cccccc] transition-colors" onclick={toggleSidebar} aria-label="Toggle sidebar">
+			<div class="flex-1 flex items-center px-3 md:px-4 py-2 gap-3 min-w-0">
+				<button class="md:hidden text-[#858585] hover:text-[#cccccc] transition-colors flex-shrink-0" onclick={toggleSidebar} aria-label="Toggle sidebar">
 					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
 				</button>
-				<span class="truncate">{selectedSession ? sessionTitle(selectedSession) : 'No Session'}</span>
+				<span class="truncate text-[#cccccc] text-[13px]">{selectedSession ? sessionTitle(selectedSession) : 'No Session'}</span>
 			</div>
-			
-			<div class="flex-1 px-2 md:px-4 flex justify-end items-center gap-2 md:gap-4 text-[12px]">
-				<div class="flex items-center gap-1 md:gap-2">
-					<span class="text-[#858585] hidden sm:inline">Server:</span>
-					<input bind:value={serverUrl} class="bg-transparent border-none focus:outline-none text-[#cccccc] w-[120px] md:w-[180px] text-[11px] md:text-[12px]" placeholder="http://127.0.0.1:8080" />
-					<button onclick={() => void connectToServer()} class="text-[#b8dd35] font-medium hover:text-[#d4e935] disabled:opacity-50 text-[11px] md:text-[12px] px-1.5 md:px-2 py-0.5" disabled={!canConnect || isConnecting}>{isConnecting ? '...' : 'Connect'}</button>
-				</div>
+
+			<div class="flex items-center gap-2 px-2 md:px-4 flex-shrink-0">
+				<button aria-label="Create new session" class="w-7 h-7 flex items-center justify-center text-[#858585] hover:text-[#cccccc] hover:bg-[#2a2d2e] rounded-[6px] transition-colors" onclick={() => void createFreshSession()}>
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"></path></svg>
+				</button>
 				{#if isSending}
 					<button class="px-2 md:px-4 py-1 bg-[#4d4d4d] hover:bg-[#5a5a5a] text-white rounded-[4px] transition-colors text-[11px] md:text-[12px]" onclick={() => void abortTurn()}>Abort</button>
 				{/if}
@@ -1222,6 +1236,42 @@
 		/>
 	</main>
 </div>
+
+<!-- Connect Modal -->
+{#if connectModalOpen}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+		<div class="bg-[#1c1c1e] border border-[#313133] rounded-xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden">
+			<div class="flex items-center justify-between px-4 py-3 border-b border-[#313133]">
+				<span class="text-[14px] font-medium text-[#cccccc]">Connect to Server</span>
+				<button class="text-[#858585] hover:text-[#cccccc] transition-colors" onclick={closeConnectModal} aria-label="Close">
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+				</button>
+			</div>
+			<div class="p-4 space-y-4">
+			<div>
+				<label for="connect-url" class="block text-[11px] font-mono text-[#858585] mb-1.5 uppercase tracking-wider">Server URL</label>
+				<input
+					id="connect-url"
+					bind:value={serverUrl}
+					placeholder="http://127.0.0.1:8080"
+					onkeydown={(e) => e.key === 'Enter' && canConnect && !isConnecting && (void connectToServer(), closeConnectModal())}
+					class="w-full bg-[#252526] border border-[#313133] focus:border-[#b8dd35] focus:outline-none rounded-lg px-3 py-2.5 text-[13px] text-[#cccccc] placeholder:text-[#6a6a6a]"
+				/>
+			</div>
+				{#if connectionError}
+					<div class="text-[12px] text-[#f48771]">{connectionError}</div>
+				{/if}
+				<button
+					onclick={() => { void connectToServer(); closeConnectModal(); }}
+					disabled={!canConnect || isConnecting}
+					class="w-full py-2.5 bg-[#b8dd35] hover:bg-[#c4e63f] disabled:opacity-40 disabled:hover:bg-[#b8dd35] text-[#18181a] font-medium rounded-lg transition-colors text-[13px]"
+				>
+					{isConnecting ? 'Connecting...' : 'Connect'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	/* Hide scrollbar for tabs */
