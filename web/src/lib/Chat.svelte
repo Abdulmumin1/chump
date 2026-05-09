@@ -84,7 +84,6 @@
 	let activity = $state<ActivityItem[]>([]);
 	let reasoningText = $state('');
 	let steeringQueue = $state<Array<{ content: string; attachments?: Array<Record<string, unknown>> }>>([]);
-	let liveAssistantText = $state('');
 	let composerText = $state('');
 	let isConnecting = $state(false);
 	let isLoadingSession = $state(false);
@@ -94,7 +93,10 @@
 	let transcriptElement = $state<HTMLDivElement | null>(null);
 	let stopEvents: (() => void) | null = null;
 	let lastEventId = 0;
+	let syntheticEventId = 0;
+	let seenEventKeys = new Set<string>();
 	let loadToken = 0;
+	let streamToken = 0;
 	let activeRequestController: AbortController | null = null;
 	let expandedBlocks = $state<Record<string, boolean>>({});
 	let expandedReasoning = $state<Record<string, boolean>>({});
@@ -151,10 +153,9 @@
 	}
 
 	let selectedSession = $derived(sessions.find((session) => session.id === activeSessionId) ?? null);
-	let transcript = $derived(buildTranscript(messages, liveAssistantText, eventLog));
+	let transcript = $derived(buildTranscript(messages, eventLog));
 	let canConnect = $derived(serverUrl.trim().length > 0);
 	let canSend = $derived(Boolean(serverUrl && composerText.trim().length > 0));
-	let canSteer = $derived(Boolean(serverUrl && activeSessionId && isSending && composerText.trim().length > 0));
 
 	let currentModel = $derived(status ? `${status.provider}/${status.model}` : '');
 	let currentSkills = $derived(status?.skills ?? health?.skills ?? []);
@@ -274,13 +275,16 @@
 
 		activeSessionId = nextSessionId;
 		sessionInput = nextSessionId;
-		liveAssistantText = '';
 		reasoningText = '';
 		messages = [];
 		eventLog = [];
 		activity = [];
+		lastEventId = 0;
+		seenEventKeys = new Set();
+		syntheticEventId = 0;
 		stopEvents?.();
 		stopEvents = null;
+		streamToken += 1;
 		await refreshSessionSnapshot(nextSessionId);
 		openSessionStream(nextSessionId);
 	}
@@ -313,15 +317,9 @@
 			messages = nextMessages.messages;
 			eventLog = nextEventLog.events;
 			lastEventId = nextEventLog.events.at(-1)?.id ?? lastEventId;
+			seenEventKeys = new Set(nextEventLog.events.map((event) => eventKey(event.id, event.type, event.data)));
 			activity = buildActivity(nextEventLog.events);
 			reasoningText = extractReasoning(nextEventLog.events);
-
-			if (liveAssistantText.trim()) {
-				const lastAssistant = findLastAssistantText(nextMessages.messages);
-				if (lastAssistant && lastAssistant.endsWith(liveAssistantText)) {
-					liveAssistantText = '';
-				}
-			}
 
 			await scrollTranscriptToEnd();
 		} catch (error) {
@@ -341,14 +339,18 @@
 			return;
 		}
 
+		const currentStreamToken = ++streamToken;
 		stopEvents = openEventStream(
 			serverUrl,
 			sessionId,
 			{
 				onEvent: (event) => {
-					void handleAgentEvent(event);
+					void handleAgentEvent(sessionId, currentStreamToken, event);
 				},
 				onError: (error) => {
+					if (!isCurrentStream(sessionId, currentStreamToken)) {
+						return;
+					}
 					connectionError = error.message;
 				}
 			},
@@ -356,23 +358,35 @@
 		);
 	}
 
-	async function handleAgentEvent(event: SseEvent): Promise<void> {
+	async function handleAgentEvent(sessionId: string, currentStreamToken: number, event: SseEvent): Promise<void> {
+		if (!isCurrentStream(sessionId, currentStreamToken)) {
+			return;
+		}
+
+		let currentEventId: number | null = null;
 		if (event.id) {
 			const parsed = Number(event.id);
 			if (Number.isFinite(parsed)) {
+				currentEventId = parsed;
 				lastEventId = parsed;
 			}
 		}
+		currentEventId ??= nextSyntheticEventId();
 
 		const payload = parseJson(event.data);
 
 		if (event.event === 'assistant_text') {
 			const chunk = asString(payload?.content);
 			if (chunk) {
-				liveAssistantText += chunk;
-				appendLiveEvent(lastEventId, event.event, payload);
-				await scrollTranscriptToEnd();
+				appendLiveEvent(currentEventId, event.event, payload);
+				if (isCurrentStream(sessionId, currentStreamToken)) {
+					await scrollTranscriptToEnd();
+				}
 			}
+			return;
+		}
+
+		if (!isCurrentStream(sessionId, currentStreamToken)) {
 			return;
 		}
 
@@ -405,15 +419,17 @@
 			return;
 		}
 
-		const nextItem = formatActivityItem(lastEventId, event.event, payload);
+		const nextItem = formatActivityItem(currentEventId, event.event, payload);
 		if (nextItem) {
 			activity = trimTail([...activity, nextItem], 80);
 		}
 
-		appendLiveEvent(lastEventId, event.event, payload);
+		appendLiveEvent(currentEventId, event.event, payload);
 
 		if (event.event === 'user_message') {
-			liveAssistantText = '';
+			if (isCurrentStream(sessionId, currentStreamToken)) {
+				await scrollTranscriptToEnd();
+			}
 		}
 
 		if (event.event === 'state') {
@@ -433,6 +449,17 @@
 		}
 
 		composerText = '';
+		if (isSending) {
+			try {
+				const result = await steerCurrentTurn(serverUrl, sessionId, text);
+				actionNotice = result.status;
+			} catch (error) {
+				composerText = text;
+				connectionError = toErrorMessage(error);
+			}
+			return;
+		}
+
 		isSending = true;
 		actionNotice = '';
 		activeRequestController = new AbortController();
@@ -448,26 +475,6 @@
 				isSending = false;
 			}
 			activeRequestController = null;
-		}
-	}
-
-	async function sendSteering(): Promise<void> {
-		const text = composerText.trim();
-		if (!text || !serverUrl) {
-			return;
-		}
-
-		const sessionId = await ensureActiveSession();
-		if (!sessionId) {
-			return;
-		}
-
-		try {
-			const result = await steerCurrentTurn(serverUrl, sessionId, text);
-			composerText = '';
-			actionNotice = result.status;
-		} catch (error) {
-			connectionError = toErrorMessage(error);
 		}
 	}
 
@@ -554,17 +561,23 @@
 	function clearSessionView(): void {
 		stopEvents?.();
 		stopEvents = null;
+		streamToken += 1;
 		status = null;
 		sessionState = null;
 		messages = [];
 		eventLog = [];
 		activity = [];
 		reasoningText = '';
-		liveAssistantText = '';
 		lastEventId = 0;
+		syntheticEventId = 0;
+		seenEventKeys = new Set();
 		if (!sessions.some((session) => session.id === activeSessionId)) {
 			activeSessionId = '';
 		}
+	}
+
+	function isCurrentStream(sessionId: string, currentStreamToken: number): boolean {
+		return activeSessionId === sessionId && streamToken === currentStreamToken;
 	}
 
 	function handleComposerKeydown(event: KeyboardEvent): void {
@@ -667,10 +680,21 @@
 		if (!data) {
 			return;
 		}
-		if (eventLog.some((event) => event.id === id && event.type === type)) {
+		const key = eventKey(id, type, data);
+		if (seenEventKeys.has(key)) {
 			return;
 		}
+		seenEventKeys.add(key);
 		eventLog = trimTail([...eventLog, { id, type, data }], 400);
+	}
+
+	function eventKey(id: number, type: string, data: Record<string, unknown>): string {
+		return `${id}:${type}:${JSON.stringify(data)}`;
+	}
+
+	function nextSyntheticEventId(): number {
+		syntheticEventId -= 1;
+		return syntheticEventId;
 	}
 
 	function connectDetectedServer(): void {
@@ -719,7 +743,7 @@
 		return error instanceof Error ? error.message : String(error);
 	}
 
-	function buildTranscript(source: StoredMessage[], liveText: string, events: StoredEvent[]): TranscriptMessage[] {
+	function buildTranscript(source: StoredMessage[], events: StoredEvent[]): TranscriptMessage[] {
 		if (hasExactTranscript(events)) {
 			return buildTranscriptFromEvents(events);
 		}
@@ -763,16 +787,6 @@
 				role: message.role,
 				label: formatRole(message.role),
 				blocks: blocks
-			});
-		}
-
-		if (liveText.trim()) {
-			items.push({
-				id: `live-${liveText.length}`,
-				role: 'assistant',
-				label: 'Assistant',
-				blocks: [{ kind: 'text', text: liveText }],
-				live: true
 			});
 		}
 
@@ -1176,23 +1190,6 @@
 		return text;
 	}
 
-	function findLastAssistantText(source: StoredMessage[]): string {
-		for (let index = source.length - 1; index >= 0; index -= 1) {
-			const message = source[index];
-			if (message.role !== 'assistant') {
-				continue;
-			}
-			const blocks = formatMessageBlocks(message.content)
-				.filter((block) => block.kind === 'text')
-				.map((block) => block.text)
-				.join('\n');
-			if (blocks.trim()) {
-				return blocks;
-			}
-		}
-		return '';
-	}
-
 	function formatRole(role: string): string {
 		if (role === 'assistant') {
 			return 'Assistant';
@@ -1303,23 +1300,21 @@
 			{reasoningSummary}
 		/>
 
-		<ChatComposer
-			bind:composerText
-			{activeSessionId}
-			{canSteer}
-			{canSend}
-			{isSending}
-			skills={currentSkills}
-			currentModel={currentModel}
-			workspaceRoot={displayWorkspace}
-			{reasoningInfo}
-			{steeringQueue}
-			onSend={() => void submitPrompt()}
-			onSteer={() => void sendSteering()}
-			onDeleteSteering={(index) => void deleteSteering(index)}
-			onEditSteering={(index) => void editSteering(index)}
-			onCommand={handleCommand}
-		/>
+			<ChatComposer
+				bind:composerText
+				{activeSessionId}
+				{canSend}
+				{isSending}
+				skills={currentSkills}
+				currentModel={currentModel}
+				workspaceRoot={displayWorkspace}
+				{reasoningInfo}
+				{steeringQueue}
+				onSend={() => void submitPrompt()}
+				onDeleteSteering={(index) => void deleteSteering(index)}
+				onEditSteering={(index) => void editSteering(index)}
+				onCommand={handleCommand}
+			/>
 	</main>
 </div>
 

@@ -5,7 +5,6 @@
 	let {
 		composerText = $bindable(),
 		activeSessionId,
-		canSteer,
 		canSend,
 		isSending,
 		skills = [],
@@ -14,14 +13,12 @@
 		reasoningInfo = null,
 		steeringQueue = [],
 		onSend,
-		onSteer,
 		onDeleteSteering,
 		onEditSteering,
 		onCommand
 	} = $props<{
 		composerText: string;
 		activeSessionId: string;
-		canSteer: boolean;
 		canSend: boolean;
 		isSending: boolean;
 		skills: Array<{ name: string; description: string }>;
@@ -30,7 +27,6 @@
 		reasoningInfo: { effort: string | null; budget: number | null } | null;
 		steeringQueue: Array<{ content: string; attachments?: Array<Record<string, unknown>> }>;
 		onSend: () => void;
-		onSteer: () => void;
 		onDeleteSteering: (index: number) => void;
 		onEditSteering: (index: number) => void;
 		onCommand: (command: string, args: string) => void | Promise<void>;
@@ -278,21 +274,18 @@
 			class="w-full bg-transparent border-none rounded-t-[8px] px-3 md:px-4 py-2.5 md:py-3 text-[14px] text-[#cccccc] focus:outline-none resize-none min-h-[52px] md:min-h-[60px] max-h-[200px] md:max-h-[300px] placeholder:text-[#6a6a6a]"
 		></textarea>
 
-		<div class="flex justify-between items-center px-2 md:px-3 py-1.5 md:py-2 border-t border-[#313133] rounded-b-[8px]">
-			<div class="flex items-center gap-2">
-				{#if activeSessionId && composerText.trim() && !isCommand}
-					<button class="px-2 md:px-3 py-1 text-[11px] md:text-[12px] bg-[#333333] hover:bg-[#404040] text-[#cccccc] rounded-[4px] transition-colors disabled:opacity-50" onclick={onSteer} disabled={!canSteer}>Steer</button>
-				{/if}
-				{#if !composerText.trim()}
-					<CommandMenu {skills} {currentModel} {currentThinking} {onCommand} />
-				{/if}
-			</div>
-			<div class="flex items-center gap-2">
-				<span class="text-[11px] md:text-[12px] font-medium text-[#6a6a6a] mr-1 md:mr-2 tracking-wide hidden sm:inline">⌘ Enter</span>
-				<button aria-label="Send message" class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-[#2b2b2b] text-[#858585] hover:bg-[#3b3b3b] hover:text-[#cccccc] rounded-[6px] transition-colors disabled:opacity-50" onclick={onSend} disabled={!canSend || isSending || isCommand}>
-					<svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
-				</button>
-			</div>
+			<div class="flex justify-between items-center px-2 md:px-3 py-1.5 md:py-2 border-t border-[#313133] rounded-b-[8px]">
+				<div class="flex items-center gap-2">
+					{#if !composerText.trim()}
+						<CommandMenu {skills} {currentModel} {currentThinking} {onCommand} />
+					{/if}
+				</div>
+				<div class="flex items-center gap-2">
+					<span class="text-[11px] md:text-[12px] font-medium text-[#6a6a6a] mr-1 md:mr-2 tracking-wide hidden sm:inline">⌘ Enter</span>
+					<button aria-label={isSending ? 'Queue message' : 'Send message'} class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-[#2b2b2b] text-[#858585] hover:bg-[#3b3b3b] hover:text-[#cccccc] rounded-[6px] transition-colors disabled:opacity-50" onclick={onSend} disabled={!canSend || isCommand}>
+						<svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+					</button>
+				</div>
 		</div>
 	</div>
 
