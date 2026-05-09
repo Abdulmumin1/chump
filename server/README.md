@@ -37,7 +37,7 @@ git tag chump-server-v0.1.0
 git push origin chump-server-v0.1.0
 ```
 
-Pushing a `chump-server-v*` tag runs the PyPI job in `.github/workflows/release.yml`.
+Pushing a `chump-server-v*` tag runs the PyPI job and creates a GitHub Release in `.github/workflows/release.yml`.
 
 ## Environment
 
