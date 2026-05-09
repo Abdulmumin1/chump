@@ -1,0 +1,673 @@
+<script lang="ts">
+    import { browser } from "$app/environment";
+    import { tick } from "svelte";
+    import { DIFFS_TAG_NAME, FileDiff, processPatch } from "@pierre/diffs";
+    import "../../node_modules/@pierre/diffs/dist/components/web-components.js";
+
+    let { block, expanded, onToggle } = $props<{
+        block: any;
+        expanded: boolean;
+        onToggle: () => void;
+    }>();
+
+    let diffHosts: HTMLElement[] = [];
+    let diffInstances: FileDiff[] = [];
+    let showFullDiff = $state(false);
+
+    type StructuredDiffChange = {
+        type: "add" | "remove";
+        oldLine: number | null;
+        newLine: number | null;
+        text: string;
+    };
+
+    type StructuredDiff = {
+        path: string;
+        kind?: "add" | "update" | "delete" | "move";
+        sourcePath?: string | null;
+        added: number;
+        removed: number;
+        changes?: StructuredDiffChange[];
+        truncated: boolean;
+        shownChanges?: number;
+        totalChanges?: number;
+    };
+
+    function readStructuredDiffChange(value: unknown): StructuredDiffChange | null {
+        if (!value || typeof value !== "object") return null;
+        const change = value as Record<string, unknown>;
+        if (
+            (change.type !== "add" && change.type !== "remove") ||
+            typeof change.text !== "string"
+        ) {
+            return null;
+        }
+        return {
+            type: change.type,
+            oldLine: typeof change.old_line === "number" ? change.old_line : null,
+            newLine: typeof change.new_line === "number" ? change.new_line : null,
+            text: change.text,
+        };
+    }
+
+    function readStructuredDiff(value: unknown): StructuredDiff | null {
+        if (!value || typeof value !== "object") return null;
+        const diff = value as Record<string, unknown>;
+        if (
+            typeof diff.path !== "string" ||
+            typeof diff.added !== "number" ||
+            typeof diff.removed !== "number"
+        ) {
+            return null;
+        }
+        const changes = Array.isArray(diff.changes)
+            ? diff.changes
+                  .map(readStructuredDiffChange)
+                  .filter((c): c is StructuredDiffChange => c !== null)
+            : undefined;
+        const kind = ["add", "update", "delete", "move"].includes(String(diff.kind))
+            ? (String(diff.kind) as StructuredDiff["kind"])
+            : undefined;
+        return {
+            path: diff.path,
+            kind,
+            sourcePath: typeof diff.source_path === "string" ? diff.source_path : null,
+            added: diff.added,
+            removed: diff.removed,
+            changes,
+            truncated: diff.truncated === true,
+            shownChanges:
+                typeof diff.shown_changes === "number"
+                    ? diff.shown_changes
+                    : undefined,
+            totalChanges:
+                typeof diff.total_changes === "number"
+                    ? diff.total_changes
+                    : undefined,
+        };
+    }
+
+    function readStructuredDiffs(
+        metadata: Record<string, unknown> | undefined,
+    ): StructuredDiff[] {
+        if (!metadata) return [];
+        const files = Array.isArray(metadata.files)
+            ? metadata.files
+                  .map(readStructuredDiff)
+                  .filter((d): d is StructuredDiff => d !== null)
+            : [];
+        if (files.length > 0) return files;
+        const diff = readStructuredDiff(metadata.diff);
+        return diff ? [diff] : [];
+    }
+
+    function stringifyValue(value: unknown): string {
+        if (typeof value === "string") {
+            return value;
+        }
+        try {
+            return JSON.stringify(value, null, 2);
+        } catch {
+            return String(value);
+        }
+    }
+
+    function extractStringField(value: unknown, keys: string[]): string {
+        if (!value || typeof value !== "object") {
+            return "";
+        }
+
+        const record = value as Record<string, unknown>;
+        for (const key of keys) {
+            if (typeof record[key] === "string" && record[key]) {
+                return record[key] as string;
+            }
+        }
+
+        return "";
+    }
+
+    function cleanupDiffs(): void {
+        for (const instance of diffInstances) {
+            instance.cleanUp();
+        }
+        diffInstances = [];
+    }
+
+    function makeSyntheticWritePatch(
+        fileName: string,
+        content: string,
+    ): string {
+        const lines = content.split("\n");
+        const count = lines.length;
+
+        return [
+            "--- /dev/null",
+            `+++ ${fileName}`,
+            `@@ -0,0 +1,${count} @@`,
+            ...lines.map((line) => `+${line}`),
+        ].join("\n");
+    }
+
+    function finalizeSimplifiedHunk(
+        lines: string[],
+        oldStart: number,
+        newStart: number,
+    ): string[] {
+        const oldCount = lines.filter(
+            (line) => !line.startsWith("+") && !line.startsWith("\\"),
+        ).length;
+        const newCount = lines.filter(
+            (line) => !line.startsWith("-") && !line.startsWith("\\"),
+        ).length;
+
+        return [
+            `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`,
+            ...lines,
+        ];
+    }
+
+    function normalizeApplyPatchBody(lines: string[]): string[] {
+        if (lines.some((line) => /^@@\s+-\d/.test(line))) {
+            return lines;
+        }
+
+        const hunks: string[] = [];
+        let currentHunk: string[] = [];
+        let oldStart = 1;
+        let newStart = 1;
+
+        for (const line of lines) {
+            if (line.startsWith("@@")) {
+                if (currentHunk.length > 0) {
+                    hunks.push(
+                        ...finalizeSimplifiedHunk(
+                            currentHunk,
+                            oldStart,
+                            newStart,
+                        ),
+                    );
+                    oldStart += currentHunk.filter(
+                        (entry) =>
+                            !entry.startsWith("+") && !entry.startsWith("\\"),
+                    ).length;
+                    newStart += currentHunk.filter(
+                        (entry) =>
+                            !entry.startsWith("-") && !entry.startsWith("\\"),
+                    ).length;
+                    currentHunk = [];
+                }
+                continue;
+            }
+
+            currentHunk.push(line);
+        }
+
+        if (currentHunk.length > 0) {
+            hunks.push(
+                ...finalizeSimplifiedHunk(currentHunk, oldStart, newStart),
+            );
+        }
+
+        return hunks;
+    }
+
+    function normalizeApplyPatch(patchText: string): string {
+        const lines = patchText.split("\n");
+        const output: string[] = [];
+        let index = 0;
+
+        while (index < lines.length) {
+            const line = lines[index];
+
+            if (line.startsWith("*** Update File: ")) {
+                const originalPath = line
+                    .slice("*** Update File: ".length)
+                    .trim();
+                let nextPath = originalPath;
+                const body: string[] = [];
+                index += 1;
+
+                if (lines[index]?.startsWith("*** Move to: ")) {
+                    nextPath = lines[index]
+                        .slice("*** Move to: ".length)
+                        .trim();
+                    index += 1;
+                }
+
+                while (
+                    index < lines.length &&
+                    !lines[index].startsWith("*** ")
+                ) {
+                    body.push(lines[index]);
+                    index += 1;
+                }
+
+                output.push(
+                    `--- ${originalPath}`,
+                    `+++ ${nextPath}`,
+                    ...normalizeApplyPatchBody(body),
+                    "",
+                );
+                continue;
+            }
+
+            if (line.startsWith("*** Add File: ")) {
+                const filePath = line.slice("*** Add File: ".length).trim();
+                const body: string[] = [];
+                index += 1;
+
+                while (
+                    index < lines.length &&
+                    !lines[index].startsWith("*** ")
+                ) {
+                    body.push(lines[index]);
+                    index += 1;
+                }
+
+                const additions = body.filter((entry) =>
+                    entry.startsWith("+"),
+                ).length;
+                output.push(
+                    "--- /dev/null",
+                    `+++ ${filePath}`,
+                    `@@ -0,0 +1,${additions} @@`,
+                    ...body,
+                    "",
+                );
+                continue;
+            }
+
+            if (line.startsWith("*** Delete File: ")) {
+                const filePath = line.slice("*** Delete File: ".length).trim();
+                output.push(
+                    `--- ${filePath}`,
+                    "+++ /dev/null",
+                    "@@ -1 +0,0 @@",
+                    "-Deleted file",
+                    "",
+                );
+                index += 1;
+                continue;
+            }
+
+            index += 1;
+        }
+
+        return output.join("\n").trim();
+    }
+
+    let effectiveDiffPatch = $derived.by(() => {
+        const toolName = String(block.originalToolName ?? "");
+        const args = block.args ?? {};
+        const directPatch =
+            typeof block.diffContent === "string" && block.diffContent
+                ? block.diffContent
+                : extractStringField(args, [
+                      "patch",
+                      "patchText",
+                      "patch_text",
+                      "diff",
+                      "file_diff",
+                  ]);
+
+        if (!directPatch && !["apply_patch", "write_file", "create_file"].includes(toolName)) {
+            return "";
+        }
+
+        if (
+            (toolName === "write_file" || toolName === "create_file") &&
+            typeof args?.content === "string"
+        ) {
+            const fileName = String(
+                args?.file_path ??
+                    args?.path ??
+                    block.toolName ??
+                    "file",
+            );
+            return makeSyntheticWritePatch(fileName, args.content);
+        }
+
+        if (
+            toolName === "apply_patch" &&
+            typeof directPatch === "string" &&
+            directPatch.includes("*** Begin Patch")
+        ) {
+            return normalizeApplyPatch(directPatch);
+        }
+
+        if (typeof directPatch === "string" && directPatch) {
+            return directPatch;
+        }
+
+        if (
+            toolName === "apply_patch" &&
+            typeof block.text === "string" &&
+            block.text.includes("*** Begin Patch")
+        ) {
+            return normalizeApplyPatch(block.text);
+        }
+
+        return "";
+    });
+
+    let effectiveStructuredDiffs = $derived(readStructuredDiffs(block.metadata));
+    let hasStructuredDiffs = $derived(effectiveStructuredDiffs.length > 0);
+
+    let shouldRenderDiff = $derived(
+        effectiveDiffPatch.trim().length > 0 || hasStructuredDiffs,
+    );
+
+    let diffFiles = $derived.by(() => {
+        if (!effectiveDiffPatch) {
+            return [];
+        }
+
+        try {
+            return processPatch(effectiveDiffPatch, "tool-block", false).files;
+        } catch {
+            return [];
+        }
+    });
+
+    let diffLineCount = $derived.by(() => {
+        if (!effectiveDiffPatch) {
+            return 0;
+        }
+
+        return effectiveDiffPatch.split("\n").length;
+    });
+
+    let shouldClampDiff = $derived(diffLineCount > 100);
+
+    $effect(() => {
+        effectiveDiffPatch;
+        showFullDiff = false;
+    });
+
+    $effect(() => {
+        if (!browser || !shouldRenderDiff) {
+            return;
+        }
+
+        const files = diffFiles;
+
+        void tick().then(() => {
+            cleanupDiffs();
+
+            diffInstances = files.flatMap((file, index) => {
+                const host = diffHosts[index];
+                if (!host) {
+                    return [];
+                }
+
+                const instance = new FileDiff({
+                    theme: "gruvbox-dark-hard",
+                    themeType: "dark",
+                    diffStyle: "unified",
+                    diffIndicators: "classic",
+                    hunkSeparators: "line-info-basic",
+                    overflow: "scroll",
+                });
+
+                instance.render({
+                    fileDiff: file,
+                    fileContainer: host,
+                });
+
+                return [instance];
+            });
+        });
+
+        return () => {
+            cleanupDiffs();
+        };
+    });
+</script>
+
+{#if shouldRenderDiff}
+    <div class="my-4 space-y-3">
+        <div class="px-1 text-[12px] font-mono text-[#858585]">
+            {block.originalToolName === "write_file" ||
+            block.originalToolName === "create_file"
+                ? "Write file"
+                : "Apply patch"}
+        </div>
+
+        {#if hasStructuredDiffs}
+            {#each effectiveStructuredDiffs as diff (diff.path)}
+                <div
+                    class="overflow-hidden rounded-[8px] border border-[#313133] bg-[#1e1e1e]"
+                >
+                    <div
+                        class="border-b border-[#313133] px-3 py-2 text-[12px] font-mono text-[#cccccc]"
+                    >
+                        {#if diff.kind === "add"}
+                            Added
+                        {:else if diff.kind === "delete"}
+                            Deleted
+                        {:else if diff.kind === "move"}
+                            Moved
+                        {:else}
+                            Edited
+                        {/if}
+                        {diff.kind === "move" && diff.sourcePath
+                            ? `${diff.sourcePath} → ${diff.path}`
+                            : diff.path}
+                        <span class="ml-2 text-[#7ee787]"
+                            >(+{diff.added})</span
+                        >
+                        <span class="ml-1 text-[#f48771]"
+                            >(-{diff.removed})</span
+                        >
+                    </div>
+                    <div class="overflow-x-auto">
+                        {#each diff.changes ?? [] as change}
+                            <div
+                                class="flex text-[12px] font-mono leading-relaxed {change.type ===
+                                'add'
+                                    ? 'bg-[#1a331a]'
+                                    : 'bg-[#331a1a]'}"
+                            >
+                                <span
+                                    class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-[#858585]"
+                                    >{change.type === "add"
+                                        ? change.newLine ?? ""
+                                        : change.oldLine ?? ""}</span
+                                >
+                                <span
+                                    class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
+                                    'add'
+                                        ? 'text-[#7ee787]'
+                                        : 'text-[#f48771]'}"
+                                    >{change.type === "add"
+                                        ? "+"
+                                        : "-"}</span
+                                >
+                                <span
+                                    class="px-1 py-0.5 whitespace-pre text-[#d4d4d4]"
+                                    >{change.text}</span
+                                >
+                            </div>
+                        {/each}
+                        {#if diff.truncated}
+                            <div
+                                class="px-3 py-1 text-[12px] font-mono text-[#858585]"
+                            >
+                                ... diff truncated
+                                {#if typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"}
+                                    (showing {diff.shownChanges} of {diff.totalChanges}
+                                    changed lines)
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
+                </div>
+            {/each}
+        {:else if diffFiles.length > 0}
+            {#each diffFiles as file, index (`${file.name}-${index}`)}
+                <div
+                    class="overflow-hidden rounded-[8px] border border-[#313133] bg-[#1e1e1e]"
+                    style:max-height={shouldClampDiff && !showFullDiff
+                        ? "2000px"
+                        : undefined}
+                >
+                    <svelte:element
+                        this={DIFFS_TAG_NAME}
+                        bind:this={diffHosts[index]}
+                        class="block"
+                    />
+                </div>
+            {/each}
+        {:else if effectiveDiffPatch}
+            <pre
+                class="overflow-x-auto rounded-[8px] border border-[#313133] bg-[#1e1e1e] p-4 text-[12px] font-mono text-[#ce9178]"
+                style:max-height={shouldClampDiff && !showFullDiff
+                    ? "2000px"
+                    : undefined}>{effectiveDiffPatch}</pre>
+        {/if}
+
+        {#if shouldClampDiff && !showFullDiff}
+            <div class="px-1">
+                <button
+                    class="text-[12px] font-mono text-[#b8dd35] transition-colors hover:text-[#d4e935]"
+                    onclick={() => {
+                        showFullDiff = true;
+                    }}
+                >
+                    See more
+                </button>
+            </div>
+        {:else if shouldClampDiff && showFullDiff}
+            <div class="px-1">
+                <button
+                    class="text-[12px] font-mono text-[#b8dd35] transition-colors hover:text-[#d4e935]"
+                    onclick={() => {
+                        showFullDiff = false;
+                    }}
+                >
+                    See less
+                </button>
+            </div>
+        {/if}
+
+        {#if block.hasResult}
+            <div class="px-1 text-[12px] font-mono text-[#858585]">
+                Result
+                <span class="ml-2 text-[#cccccc]"
+                    >{typeof block.result === "string"
+                        ? block.result
+                        : stringifyValue(block.result)}</span
+                >
+            </div>
+        {/if}
+    </div>
+{:else}
+    <div class="my-0.5">
+        <button
+            class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-[#2a2d2e] focus:outline-none"
+            onclick={onToggle}
+        >
+            <div class="flex items-center gap-3 overflow-hidden">
+                {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
+                    <span
+                        class="font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
+                        >$</span
+                    >
+                    <span
+                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[13px] text-[#cccccc]"
+                        >{(block.toolName || "").replace("$ ", "")}</span
+                    >
+                {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
+                    <span
+                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
+                        >Read file</span
+                    >
+                    <span
+                        class="truncate font-mono text-[13px] text-[#cccccc] opacity-90"
+                        >{block.toolName !== block.originalToolName
+                            ? block.toolName
+                            : ""}</span
+                    >
+                {:else}
+                    <span
+                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
+                        >{block.originalToolName ||
+                            block.toolName ||
+                            "tool"}</span
+                    >
+                    {#if block.toolName !== block.originalToolName}
+                        <span
+                            class="ml-1 truncate font-mono text-[13px] text-[#cccccc] opacity-80"
+                            >{block.toolName}</span
+                        >
+                    {/if}
+                {/if}
+            </div>
+
+            <div
+                class="ml-4 flex flex-shrink-0 items-center gap-3 text-[#858585] opacity-60 transition-opacity group-hover:opacity-100"
+            >
+                <span class="font-mono text-[11px]"
+                    >{block.originalToolName || "tool"}</span
+                >
+                <svg
+                    class="h-4 w-4 transition-transform duration-200 {expanded
+                        ? 'rotate-180'
+                        : ''}"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    ><path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 9l-7 7-7-7"
+                    ></path></svg
+                >
+            </div>
+        </button>
+
+        {#if expanded}
+            <div
+                class="mt-1.5 mb-3 overflow-hidden rounded-[6px] border border-[#313133] bg-[#1e1e1e] shadow-sm"
+            >
+                <div class="overflow-x-auto bg-[#1e1e1e] p-4">
+                    <pre
+                        class="text-[12px] font-mono leading-relaxed {block.error
+                            ? 'text-[#f48771]'
+                            : 'text-[#ce9178]'}">{block.kind === "tool-call"
+                            ? stringifyValue(block.args)
+                            : block.text}</pre>
+                </div>
+
+                {#if block.kind === "tool-call" && block.hasResult}
+                    <div
+                        class="border-t border-[#313133] bg-[#1e1e1e] p-4 overflow-x-auto"
+                    >
+                        <div class="mb-2 flex items-center gap-2">
+                            <div
+                                class="text-[10px] font-bold uppercase tracking-wider text-[#858585]"
+                            >
+                                Result
+                            </div>
+                            {#if block.error}
+                                <div
+                                    class="rounded-sm border border-[#f48771]/30 bg-[#f48771]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#f48771]"
+                                >
+                                    Failed
+                                </div>
+                            {/if}
+                        </div>
+                        <pre
+                            class="text-[12px] font-mono leading-relaxed {block.error
+                                ? 'text-[#f48771]'
+                                : 'text-[#ce9178]'}">{stringifyValue(
+                                block.result,
+                            )}</pre>
+                    </div>
+                {/if}
+            </div>
+        {/if}
+    </div>
+{/if}

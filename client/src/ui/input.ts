@@ -54,6 +54,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setQueuedDisplay: (submissions: PromptSubmission[]) => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
@@ -70,6 +71,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       },
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
+      setQueuedDisplay: () => {},
       setQueuedLinePopHandler: () => {},
       setModelSuggestions: () => {},
       setSkillSuggestions: () => {},
@@ -92,6 +94,7 @@ function createInteractivePromptReader(): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  setQueuedDisplay: (submissions: PromptSubmission[]) => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
@@ -818,6 +821,10 @@ function createInteractivePromptReader(): {
     },
     popQueuedDisplay() {
       queuedDisplay.shift();
+      requestRedraw();
+    },
+    setQueuedDisplay(submissions: PromptSubmission[]) {
+      queuedDisplay = [...submissions];
       requestRedraw();
     },
     setQueuedLinePopHandler(handler: (() => void) | null) {

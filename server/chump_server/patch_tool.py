@@ -50,7 +50,7 @@ PatchOperation = AddFilePatch | DeleteFilePatch | UpdateFilePatch
 
 
 def parse_patch(patch_text: str) -> list[PatchOperation]:
-    lines = patch_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = _normalize_patch_text(patch_text).split("\n")
     if not lines or lines[0] != "*** Begin Patch":
         raise PatchError("patch must start with '*** Begin Patch'")
 
@@ -66,14 +66,18 @@ def parse_patch(patch_text: str) -> list[PatchOperation]:
                 raise PatchError("patch has unexpected content after '*** End Patch'")
             return operations
 
-        if line.startswith("*** Add File: "):
-            path = line.removeprefix("*** Add File: ").strip()
+        path = _directive_path(line, "Add File")
+        if path is not None:
             _validate_path(path)
             _ensure_unique_path(seen_paths, path)
             index += 1
             content_lines: list[str] = []
             while index < len(lines) and not lines[index].startswith("*** "):
                 entry = lines[index]
+                if entry == "":
+                    content_lines.append("")
+                    index += 1
+                    continue
                 if not entry.startswith("+"):
                     raise PatchError(
                         f"add file '{path}' contains a non-add line: {entry!r}"
@@ -86,22 +90,23 @@ def parse_patch(patch_text: str) -> list[PatchOperation]:
             operations.append(AddFilePatch(path=path, content=content))
             continue
 
-        if line.startswith("*** Delete File: "):
-            path = line.removeprefix("*** Delete File: ").strip()
+        path = _directive_path(line, "Delete File")
+        if path is not None:
             _validate_path(path)
             _ensure_unique_path(seen_paths, path)
             operations.append(DeleteFilePatch(path=path))
             index += 1
             continue
 
-        if line.startswith("*** Update File: "):
-            path = line.removeprefix("*** Update File: ").strip()
+        path = _directive_path(line, "Update File")
+        if path is not None:
             _validate_path(path)
             _ensure_unique_path(seen_paths, path)
             index += 1
             move_to: str | None = None
-            if index < len(lines) and lines[index].startswith("*** Move to: "):
-                move_to = lines[index].removeprefix("*** Move to: ").strip()
+            if index < len(lines):
+                move_to = _directive_path(lines[index], "Move to")
+            if move_to is not None:
                 _validate_path(move_to)
                 _ensure_unique_path(seen_paths, move_to)
                 index += 1
@@ -126,9 +131,10 @@ def parse_patch(patch_text: str) -> list[PatchOperation]:
                     if entry.startswith("@@") or entry.startswith("*** "):
                         break
                     if not entry:
-                        raise PatchError(
-                            f"update file '{path}' contains an unprefixed blank line"
-                        )
+                        old_lines.append("")
+                        new_lines.append("")
+                        index += 1
+                        continue
                     prefix = entry[0]
                     content = entry[1:]
                     if prefix == " ":
@@ -139,9 +145,8 @@ def parse_patch(patch_text: str) -> list[PatchOperation]:
                     elif prefix == "+":
                         new_lines.append(content)
                     else:
-                        raise PatchError(
-                            f"update file '{path}' contains an invalid line: {entry!r}"
-                        )
+                        old_lines.append(entry)
+                        new_lines.append(entry)
                     index += 1
                 if not old_lines and not new_lines:
                     raise PatchError(f"update file '{path}' contains an empty hunk")
@@ -155,6 +160,49 @@ def parse_patch(patch_text: str) -> list[PatchOperation]:
         raise PatchError(f"unexpected patch line: {line!r}")
 
     raise PatchError("patch is missing '*** End Patch'")
+
+
+def _normalize_patch_text(patch_text: str) -> str:
+    normalized = patch_text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    if lines and lines[0].strip().startswith("```"):
+        lines.pop(0)
+        if lines and lines[-1].strip() == "```":
+            lines.pop()
+
+    if not lines:
+        return ""
+
+    if lines[0] != "*** Begin Patch" and _is_patch_directive(lines[0]):
+        lines.insert(0, "*** Begin Patch")
+
+    if lines and lines[0] == "*** Begin Patch" and "*** End Patch" not in lines:
+        lines.append("*** End Patch")
+
+    return "\n".join(lines)
+
+
+def _is_patch_directive(line: str) -> bool:
+    return any(
+        _directive_path(line, name) is not None
+        for name in ("Add File", "Delete File", "Update File")
+    )
+
+
+def _directive_path(line: str, name: str) -> str | None:
+    colon_prefix = f"*** {name}: "
+    space_prefix = f"*** {name} "
+    if line.startswith(colon_prefix):
+        return line.removeprefix(colon_prefix).strip()
+    if line.startswith(space_prefix):
+        return line.removeprefix(space_prefix).strip()
+    return None
 
 
 def read_text_snapshot(path: Path) -> TextSnapshot:

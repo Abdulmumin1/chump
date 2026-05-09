@@ -42,6 +42,8 @@ export type ChumpStatus = {
   created_at: number | null;
   updated_at: number | null;
   last_user_goal: string | null;
+  turn_running?: boolean;
+  steering_queue?: SteeringQueueItem[];
   instruction_files: string[];
   skills: SkillSummary[];
 };
@@ -105,6 +107,12 @@ export type ChatAttachment = ImageAttachment | TextAttachment;
 export type PromptSubmission = {
   text: string;
   attachments: ChatAttachment[];
+};
+
+export type SteeringQueueItem = {
+  content: string;
+  attachments?: Array<Record<string, unknown>>;
+  steered?: boolean;
 };
 
 export type AgentMessagesResponse = {

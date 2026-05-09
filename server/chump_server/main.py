@@ -17,9 +17,11 @@ from .resources import ResourceCatalog
 
 class ChumpServer(AgentServer):
     def __init__(self, config: ChumpConfig):
+        resources = ResourceCatalog(config.workspace_root)
+        ChumpAgent.configure(config, resources)
         super().__init__(ChumpAgent)
         self.chump_config = config
-        self.resources = ResourceCatalog(config.workspace_root)
+        self.resources = resources
         self.started_at = time.time()
         self._managed_idle_task: asyncio.Task[None] | None = None
 
@@ -149,7 +151,7 @@ class ChumpServer(AgentServer):
         timeout = self.chump_config.managed_idle_timeout
         if timeout is None:
             return
-        interval = min(10.0, max(1.0, timeout / 2))
+        interval = max(0.25, min(1.0, timeout / 2))
         while True:
             await asyncio.sleep(interval)
             now = time.time()
@@ -174,7 +176,15 @@ class ChumpServer(AgentServer):
         for meta in self._agents.values():
             agent = meta.agent
             count += len(agent._connections)
-            count += len(agent._sse_connections)
+            stale_sse = []
+            for response in list(agent._sse_connections):
+                task = getattr(response, "task", None)
+                if task is not None and task.done():
+                    stale_sse.append(response)
+                    continue
+                count += 1
+            for response in stale_sse:
+                agent._sse_connections.discard(response)
         return count
 
 
@@ -193,7 +203,6 @@ def main() -> None:
             f"workspace={config.workspace_root}",
             flush=True,
         )
-        print(build_system_prompt("hi", ResourceCatalog(config.workspace_root)))
         instruction_paths = (
             ", ".join(str(item.path) for item in resources.system_instructions)
             or "none"

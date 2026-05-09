@@ -27,3 +27,4 @@ puzzle/*_tmp.py
 
 __pycache__/
 *.pyc
+index.html

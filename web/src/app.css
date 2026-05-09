@@ -1,0 +1,69 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+    --font-mono:
+        "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+}
+
+/* ─── Native app feel ─── */
+
+html,
+body {
+    @apply bg-[#0a0a0a] text-zinc-300 h-full w-full m-0 p-0;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    touch-action: pan-x pan-y;
+}
+
+/* Prevent iOS rubber-band / pull-to-refresh */
+html {
+    overscroll-behavior-y: none;
+}
+
+/* Remove callout menu on long-press (iOS) */
+* {
+    -webkit-touch-callout: none;
+}
+
+/* Allow selection only on actual text content, not chrome */
+input,
+textarea,
+[contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* Buttons, links, and UI chrome should not be selectable */
+button,
+a,
+[role="button"] {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Kill the 300 ms double-tap zoom delay everywhere interactive */
+button,
+a,
+input,
+textarea,
+select,
+[role="button"] {
+    touch-action: manipulation;
+}
+
+/* Prevent input zoom on focus in iOS Safari */
+input,
+textarea,
+select {
+    font-size: 16px;
+}
+
+/* Smooth momentum scrolling for overflow containers */
+.overflow-y-auto,
+.overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+}

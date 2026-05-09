@@ -20,11 +20,10 @@ from ._utils import _diff_metadata
 
 @tool(
     description=(
-        "Use the `apply_patch` tool to edit files. Your patch language is a "
-        "stripped-down, file-oriented diff format with a `*** Begin Patch` "
-        "envelope and `*** Add File`, `*** Delete File`, or `*** Update File` "
-        "sections. For updates, use `@@` hunks with lines prefixed by space, "
-        "`-`, or `+`. Read a file before modifying it."
+        "Edit files with a small patch. Use sections like `*** Update File: path`, "
+        "`*** Add File: path`, or `*** Delete File: path`. For updates, include "
+        "`@@` hunks and mark changed lines with `-` or `+`; unchanged context lines "
+        "may be prefixed with a space. Read a file before modifying it."
     )
 )
 async def apply_patch(
@@ -44,11 +43,10 @@ def bind_apply_patch(
 ):
     @tool(
         description=(
-            "Use the `apply_patch` tool to edit files. Your patch language is a "
-            "stripped-down, file-oriented diff format with a `*** Begin Patch` "
-            "envelope and `*** Add File`, `*** Delete File`, or `*** Update File` "
-            "sections. For updates, use `@@` hunks with lines prefixed by space, "
-            "`-`, or `+`. Read a file before modifying it."
+            "Edit files with a small patch. Use sections like `*** Update File: path`, "
+            "`*** Add File: path`, or `*** Delete File: path`. For updates, include "
+            "`@@` hunks and mark changed lines with `-` or `+`; unchanged context lines "
+            "may be prefixed with a space. Read a file before modifying it."
         )
     )
     async def apply_patch_impl(

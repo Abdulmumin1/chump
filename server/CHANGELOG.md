@@ -1,5 +1,20 @@
 # chump-server
 
+## 0.0.11
+
+### Patch Changes
+
+- Create GitHub Releases automatically from server tags after the PyPI publish step.
+- Keep server release notes in `server/CHANGELOG.md` and extract the matching section for each tagged release.
+
+## 0.0.10
+
+### Patch Changes
+
+- Stabilize the patch tool parser so `apply_patch` accepts the simpler patch form agents tend to produce, including fenced blocks, missing `*** Begin Patch` / `*** End Patch` wrappers, colonless file headers, and unprefixed context lines.
+- Keep live turn state, assistant text, and steering queue updates synchronized across connected clients.
+- Render queued steering and live transcript events from the event stream instead of letting snapshot refreshes overwrite in-progress output.
+
 ## 0.0.6
 
 ### Patch Changes
