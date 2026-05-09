@@ -1,6 +1,6 @@
 {
   "name": "chump-agent",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": false,
   "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",

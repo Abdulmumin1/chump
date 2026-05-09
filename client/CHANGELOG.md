@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.10
+
+### Patch Changes
+
+- 32d1251: Fix web transcript replay and steering behavior so live sessions stay event-sourced, avoid stale snapshot overrides, and queue messages through the normal send action while an agent is running.
+
 ## 0.0.9
 
 ### Patch Changes
