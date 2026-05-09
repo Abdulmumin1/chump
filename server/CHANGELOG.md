@@ -1,5 +1,12 @@
 # chump-server
 
+## 0.0.11
+
+### Patch Changes
+
+- Create GitHub Releases automatically from server tags after the PyPI publish step.
+- Keep server release notes in `server/CHANGELOG.md` and extract the matching section for each tagged release.
+
 ## 0.0.10
 
 ### Patch Changes
