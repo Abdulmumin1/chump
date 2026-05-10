@@ -54,6 +54,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@clack/prompts": "^1.2.0"
+    "@clack/prompts": "^1.2.0",
+    "onlocal": "^0.5.9"
   }
 }

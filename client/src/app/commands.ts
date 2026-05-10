@@ -35,6 +35,12 @@ const ROOT_COMMANDS: Array<{
     action: "fill",
   },
   {
+    label: "/share",
+    command: "/share ",
+    description: "start, inspect, or stop remote sharing",
+    action: "fill",
+  },
+  {
     label: "/skill",
     command: "/skill:",
     description: "load a skill manually",
@@ -94,6 +100,11 @@ export function completeSlashCommand(
   const skillSuggestions = completeSkillCommand(line, context.skills);
   if (skillSuggestions.length > 0) {
     return [skillSuggestions.map(toSuggestionView), line, skillSuggestions];
+  }
+
+  const shareSuggestions = completeShareCommand(line);
+  if (shareSuggestions.length > 0) {
+    return [shareSuggestions.map(toSuggestionView), line, shareSuggestions];
   }
 
   const thinkingSuggestions = completeThinkingCommand(line);
@@ -164,6 +175,39 @@ function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
     kind: "command" as const,
     action: "submit" as const,
   }));
+}
+
+function completeShareCommand(line: string): SlashCommandSuggestion[] {
+  if (!/^\/share(?:\s|$)/.test(line)) {
+    return [];
+  }
+
+  const query = line.slice("/share".length).trim().toLowerCase();
+  const items = [
+    {
+      label: "start",
+      command: "/share",
+      description: "open a public Onlocal URL for this local server",
+    },
+    {
+      label: "status",
+      command: "/share status",
+      description: "show the current share target",
+    },
+    {
+      label: "stop",
+      command: "/share stop",
+      description: "shut down the current share tunnel",
+    },
+  ];
+
+  return items
+    .filter((item) => !query || item.label.startsWith(query))
+    .map((item) => ({
+      ...item,
+      kind: "command" as const,
+      action: "submit" as const,
+    }));
 }
 
 function completeModelCommand(
@@ -325,6 +369,7 @@ export function parseSlashCommand(input: string): {
     case "agent":
     case "session":
     case "model":
+    case "share":
     case "skill":
     case "thinking":
     case "quit":
@@ -340,6 +385,7 @@ export function printHelp(): void {
   }
   writeOutputLine("/session <id>");
   writeOutputLine("/agent <id>");
+  writeOutputLine("/share [status|stop]");
   writeOutputLine("/skill:<name> [args]");
   writeOutputLine("/thinking <none|low|high|xhigh>");
 }
