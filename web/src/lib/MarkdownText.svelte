@@ -26,7 +26,7 @@
 
     :global(.markdown-body strong) {
         font-weight: 700;
-        color: #f4f4f5;
+        color: var(--text-inverse);
     }
 
     :global(.markdown-body em) {
@@ -38,19 +38,19 @@
             "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
             "Liberation Mono", "Courier New", monospace;
         font-size: 0.92em;
-        background: #242426;
-        border: 1px solid #313133;
+        background: var(--bg-code);
+        border: 1px solid var(--border-default);
         border-radius: 6px;
         padding: 0.08rem 0.35rem;
-        color: #e4e4e7;
+        color: var(--text-code);
     }
 
     :global(.markdown-body pre) {
         margin: 0 0 1rem 0;
         padding: 0.9rem 1rem;
         overflow-x: auto;
-        background: #1e1e1e;
-        border: 1px solid #313133;
+        background: var(--bg-code-block);
+        border: 1px solid var(--border-default);
         border-radius: 8px;
     }
 
@@ -73,7 +73,7 @@
     }
 
     :global(.markdown-body a) {
-        color: #b8dd35;
+        color: var(--accent);
         text-decoration: none;
     }
 
@@ -84,8 +84,8 @@
     :global(.markdown-body blockquote) {
         margin: 0 0 1rem 0;
         padding-left: 1rem;
-        border-left: 2px solid #313133;
-        color: #a1a1aa;
+        border-left: 2px solid var(--border-default);
+        color: var(--text-muted);
     }
 
     :global(.markdown-body h1),
@@ -94,12 +94,12 @@
     :global(.markdown-body h4) {
         margin: 0 0 0.75rem 0;
         font-weight: 700;
-        color: #f4f4f5;
+        color: var(--text-inverse);
     }
 
     :global(.markdown-body hr) {
         margin: 1rem 0;
         border: 0;
-        border-top: 1px solid #313133;
+        border-top: 1px solid var(--border-default);
     }
 </style>

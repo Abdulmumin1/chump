@@ -1,17 +1,150 @@
 @import "tailwindcss";
 @custom-variant dark (&:is(.dark *));
 
+/* ─── Light (default) ─── */
+
+:root {
+    --bg-body: #f7f4f0;
+    --bg-surface: #ffffff;
+    --bg-surface-alt: #faf9f7;
+    --bg-elevated: #e8e5e0;
+    --bg-hover: #e0ddd8;
+    --bg-input: #e8e5e0;
+    --bg-select: #f0f2e5;
+    --bg-code: #efedea;
+    --bg-code-block: #f4f2ee;
+    --bg-toast: #efedea;
+    --bg-toast-ok: #e8f0e8;
+    --bg-toast-err: #f5e8e5;
+    --bg-overlay: rgba(0, 0, 0, 0.6);
+    --bg-neutral: #8a847a;
+    --bg-neutral-hover: #9a948a;
+
+    --text-main: #5a524d;
+    --text-secondary: #6b635b;
+    --text-tertiary: #9a948a;
+    --text-muted: #a19a8f;
+    --text-inverse: #3a3530;
+    --text-on-accent: #faf9f7;
+    --text-success: #5a9a5a;
+    --text-error: #c0685c;
+    --text-code: #4a453d;
+    --text-warning: #a07860;
+
+    --border-default: #dedad5;
+    --border-subtle: #dcd8d3;
+    --border-hover: #d5d1cc;
+
+    --accent: #7b8a3f;
+    --accent-hover: #8a9a4a;
+    --accent-bg: #f0f2e5;
+
+    --success: #5a9a5a;
+    --error: #c0685c;
+    --warning: #a07860;
+
+    --scroll-thumb: #c8c4be;
+    --scroll-thumb-hover: #b8b4ae;
+}
+
+/* ─── Dark ─── */
+
+.dark {
+    --bg-body: #0a0a0a;
+    --bg-surface: #1c1c1e;
+    --bg-surface-alt: #18181a;
+    --bg-elevated: #252526;
+    --bg-hover: #2a2d2e;
+    --bg-input: #252526;
+    --bg-select: #3a4515;
+    --bg-code: #242426;
+    --bg-code-block: #1e1e1e;
+    --bg-toast: #242426;
+    --bg-toast-ok: #1a331a;
+    --bg-toast-err: #331a1a;
+    --bg-overlay: rgba(0, 0, 0, 0.6);
+    --bg-neutral: #4d4d4d;
+    --bg-neutral-hover: #5a5a5a;
+
+    --text-main: #d4d4d4;
+    --text-secondary: #cccccc;
+    --text-tertiary: #858585;
+    --text-muted: #8a8a96;
+    --text-inverse: #f4f4f5;
+    --text-on-accent: #18181a;
+    --text-success: #7ee787;
+    --text-error: #f48771;
+    --text-code: #e4e4e7;
+    --text-warning: #ce9178;
+
+    --border-default: #313133;
+    --border-subtle: #2b2b2d;
+    --border-hover: #4d4d4d;
+
+    --accent: #b8dd35;
+    --accent-hover: #c4e63f;
+    --accent-bg: #3a4515;
+
+    --success: #7ee787;
+    --error: #f48771;
+    --warning: #ce9178;
+
+    --scroll-thumb: #424242;
+    --scroll-thumb-hover: #4f4f4f;
+}
+
+/* ─── Tailwind theme hooks ─── */
+
 @theme {
     --font-mono:
         "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
         "Liberation Mono", "Courier New", monospace;
+
+    --color-bg-body: var(--bg-body);
+    --color-bg-surface: var(--bg-surface);
+    --color-bg-surface-alt: var(--bg-surface-alt);
+    --color-bg-elevated: var(--bg-elevated);
+    --color-bg-hover: var(--bg-hover);
+    --color-bg-input: var(--bg-input);
+    --color-bg-select: var(--bg-select);
+    --color-bg-code: var(--bg-code);
+    --color-bg-code-block: var(--bg-code-block);
+    --color-bg-toast: var(--bg-toast);
+    --color-bg-toast-ok: var(--bg-toast-ok);
+    --color-bg-toast-err: var(--bg-toast-err);
+    --color-bg-neutral: var(--bg-neutral);
+    --color-bg-neutral-hover: var(--bg-neutral-hover);
+
+    --color-text-main: var(--text-main);
+    --color-text-secondary: var(--text-secondary);
+    --color-text-tertiary: var(--text-tertiary);
+    --color-text-muted: var(--text-muted);
+    --color-text-inverse: var(--text-inverse);
+    --color-text-on-accent: var(--text-on-accent);
+    --color-text-success: var(--text-success);
+    --color-text-error: var(--text-error);
+    --color-text-code: var(--text-code);
+    --color-text-warning: var(--text-warning);
+
+    --color-border-default: var(--border-default);
+    --color-border-subtle: var(--border-subtle);
+    --color-border-hover: var(--border-hover);
+
+    --color-accent: var(--accent);
+    --color-accent-hover: var(--accent-hover);
+    --color-accent-bg: var(--accent-bg);
+
+    --color-success: var(--success);
+    --color-error: var(--error);
+    --color-warning: var(--warning);
 }
 
-/* ─── Native app feel ─── */
+/* ─── Global resets ─── */
 
-html,
-body {
-    @apply bg-[#0a0a0a] text-zinc-300 h-full w-full m-0 p-0;
+html, body {
+    background: var(--bg-body);
+    color: var(--text-main);
+    @apply h-full w-full m-0 p-0;
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
@@ -19,51 +152,26 @@ body {
     touch-action: pan-x pan-y;
 }
 
-/* Prevent iOS rubber-band / pull-to-refresh */
-html {
-    overscroll-behavior-y: none;
-}
+html { overscroll-behavior-y: none; }
 
-/* Remove callout menu on long-press (iOS) */
-* {
-    -webkit-touch-callout: none;
-}
+* { -webkit-touch-callout: none; }
 
-/* Allow selection only on actual text content, not chrome */
-input,
-textarea,
-[contenteditable] {
+input, textarea, [contenteditable] {
     -webkit-user-select: text;
     user-select: text;
 }
 
-/* Buttons, links, and UI chrome should not be selectable */
-button,
-a,
-[role="button"] {
+button, a, [role="button"] {
     -webkit-user-select: none;
     user-select: none;
 }
 
-/* Kill the 300 ms double-tap zoom delay everywhere interactive */
-button,
-a,
-input,
-textarea,
-select,
-[role="button"] {
+button, a, input, textarea, select, [role="button"] {
     touch-action: manipulation;
 }
 
-/* Prevent input zoom on focus in iOS Safari */
-input,
-textarea,
-select {
-    font-size: 16px;
-}
+input, textarea, select { font-size: 16px; }
 
-/* Smooth momentum scrolling for overflow containers */
-.overflow-y-auto,
-.overflow-x-auto {
+.overflow-y-auto, .overflow-x-auto {
     -webkit-overflow-scrolling: touch;
 }

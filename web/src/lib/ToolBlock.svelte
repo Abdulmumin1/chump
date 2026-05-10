@@ -427,7 +427,7 @@
 
 {#if shouldRenderDiff}
     <div class="my-4 space-y-3">
-        <div class="px-1 text-[12px] font-mono text-[#858585]">
+        <div class="px-1 text-[12px] font-mono text-text-tertiary">
             {block.originalToolName === "write_file" ||
             block.originalToolName === "create_file"
                 ? "Write file"
@@ -437,10 +437,10 @@
         {#if hasStructuredDiffs}
             {#each effectiveStructuredDiffs as diff (diff.path)}
                 <div
-                    class="overflow-hidden rounded-[8px] border border-[#313133] bg-[#1e1e1e]"
+                    class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
                 >
                     <div
-                        class="border-b border-[#313133] px-3 py-2 text-[12px] font-mono text-[#cccccc]"
+                        class="border-b border-border-default px-3 py-2 text-[12px] font-mono text-text-secondary"
                     >
                         {#if diff.kind === "add"}
                             Added
@@ -454,10 +454,10 @@
                         {diff.kind === "move" && diff.sourcePath
                             ? `${diff.sourcePath} → ${diff.path}`
                             : diff.path}
-                        <span class="ml-2 text-[#7ee787]"
+                        <span class="ml-2 text-text-success"
                             >(+{diff.added})</span
                         >
-                        <span class="ml-1 text-[#f48771]"
+                        <span class="ml-1 text-error"
                             >(-{diff.removed})</span
                         >
                     </div>
@@ -466,11 +466,11 @@
                             <div
                                 class="flex text-[12px] font-mono leading-relaxed {change.type ===
                                 'add'
-                                    ? 'bg-[#1a331a]'
-                                    : 'bg-[#331a1a]'}"
+                                    ? 'bg-bg-toast-ok'
+                                    : 'bg-bg-toast-err'}"
                             >
                                 <span
-                                    class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-[#858585]"
+                                    class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-text-tertiary"
                                     >{change.type === "add"
                                         ? change.newLine ?? ""
                                         : change.oldLine ?? ""}</span
@@ -478,21 +478,21 @@
                                 <span
                                     class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
                                     'add'
-                                        ? 'text-[#7ee787]'
-                                        : 'text-[#f48771]'}"
+                                        ? 'text-text-success'
+                                        : 'text-error'}"
                                     >{change.type === "add"
                                         ? "+"
                                         : "-"}</span
                                 >
                                 <span
-                                    class="px-1 py-0.5 whitespace-pre text-[#d4d4d4]"
+                                    class="px-1 py-0.5 whitespace-pre text-text-main"
                                     >{change.text}</span
                                 >
                             </div>
                         {/each}
                         {#if diff.truncated}
                             <div
-                                class="px-3 py-1 text-[12px] font-mono text-[#858585]"
+                                class="px-3 py-1 text-[12px] font-mono text-text-tertiary"
                             >
                                 ... diff truncated
                                 {#if typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"}
@@ -507,7 +507,7 @@
         {:else if diffFiles.length > 0}
             {#each diffFiles as file, index (`${file.name}-${index}`)}
                 <div
-                    class="overflow-hidden rounded-[8px] border border-[#313133] bg-[#1e1e1e]"
+                    class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
                     style:max-height={shouldClampDiff && !showFullDiff
                         ? "2000px"
                         : undefined}
@@ -521,7 +521,7 @@
             {/each}
         {:else if effectiveDiffPatch}
             <pre
-                class="overflow-x-auto rounded-[8px] border border-[#313133] bg-[#1e1e1e] p-4 text-[12px] font-mono text-[#ce9178]"
+                class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[12px] font-mono text-text-warning"
                 style:max-height={shouldClampDiff && !showFullDiff
                     ? "2000px"
                     : undefined}>{effectiveDiffPatch}</pre>
@@ -530,7 +530,7 @@
         {#if shouldClampDiff && !showFullDiff}
             <div class="px-1">
                 <button
-                    class="text-[12px] font-mono text-[#b8dd35] transition-colors hover:text-[#d4e935]"
+                    class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
                     onclick={() => {
                         showFullDiff = true;
                     }}
@@ -541,7 +541,7 @@
         {:else if shouldClampDiff && showFullDiff}
             <div class="px-1">
                 <button
-                    class="text-[12px] font-mono text-[#b8dd35] transition-colors hover:text-[#d4e935]"
+                    class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
                     onclick={() => {
                         showFullDiff = false;
                     }}
@@ -552,9 +552,9 @@
         {/if}
 
         {#if block.hasResult}
-            <div class="px-1 text-[12px] font-mono text-[#858585]">
+            <div class="px-1 text-[12px] font-mono text-text-tertiary">
                 Result
-                <span class="ml-2 text-[#cccccc]"
+                <span class="ml-2 text-text-secondary"
                     >{typeof block.result === "string"
                         ? block.result
                         : stringifyValue(block.result)}</span
@@ -565,40 +565,40 @@
 {:else}
     <div class="my-0.5">
         <button
-            class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-[#2a2d2e] focus:outline-none"
+            class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
+                        class="font-mono text-[13px] font-semibold tracking-wide text-accent"
                         >$</span
                     >
                     <span
-                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[13px] text-[#cccccc]"
+                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[13px] text-text-secondary"
                         >{(block.toolName || "").replace("$ ", "")}</span
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
+                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-accent"
                         >Read file</span
                     >
                     <span
-                        class="truncate font-mono text-[13px] text-[#cccccc] opacity-90"
+                        class="truncate font-mono text-[13px] text-text-secondary opacity-90"
                         >{block.toolName !== block.originalToolName
                             ? block.toolName
                             : ""}</span
                     >
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-[#b8dd35]"
+                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-accent"
                         >{block.originalToolName ||
                             block.toolName ||
                             "tool"}</span
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[13px] text-[#cccccc] opacity-80"
+                            class="ml-1 truncate font-mono text-[13px] text-text-secondary opacity-80"
                             >{block.toolName}</span
                         >
                     {/if}
@@ -606,7 +606,7 @@
             </div>
 
             <div
-                class="ml-4 flex flex-shrink-0 items-center gap-3 text-[#858585] opacity-60 transition-opacity group-hover:opacity-100"
+                class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
             >
                 <span class="font-mono text-[11px]"
                     >{block.originalToolName || "tool"}</span
@@ -630,30 +630,30 @@
 
         {#if expanded}
             <div
-                class="mt-1.5 mb-3 overflow-hidden rounded-[6px] border border-[#313133] bg-[#1e1e1e] shadow-sm"
+                class="mt-1.5 mb-3 overflow-hidden rounded-[6px] border border-border-default bg-bg-code-block"
             >
-                <div class="overflow-x-auto bg-[#1e1e1e] p-4">
+                <div class="overflow-x-auto bg-bg-code-block p-4">
                     <pre
                         class="text-[12px] font-mono leading-relaxed {block.error
-                            ? 'text-[#f48771]'
-                            : 'text-[#ce9178]'}">{block.kind === "tool-call"
+                            ? 'text-error'
+                            : 'text-text-warning'}">{block.kind === "tool-call"
                             ? stringifyValue(block.args)
                             : block.text}</pre>
                 </div>
 
                 {#if block.kind === "tool-call" && block.hasResult}
                     <div
-                        class="border-t border-[#313133] bg-[#1e1e1e] p-4 overflow-x-auto"
+                        class="border-t border-border-default bg-bg-code-block p-4 overflow-x-auto"
                     >
                         <div class="mb-2 flex items-center gap-2">
                             <div
-                                class="text-[10px] font-bold uppercase tracking-wider text-[#858585]"
+                                class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary"
                             >
                                 Result
                             </div>
                             {#if block.error}
                                 <div
-                                    class="rounded-sm border border-[#f48771]/30 bg-[#f48771]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#f48771]"
+                                    class="rounded-sm border border-error/30 bg-error/10 px-1.5 py-0.5 text-[10px] font-bold text-error"
                                 >
                                     Failed
                                 </div>
@@ -661,8 +661,8 @@
                         </div>
                         <pre
                             class="text-[12px] font-mono leading-relaxed {block.error
-                                ? 'text-[#f48771]'
-                                : 'text-[#ce9178]'}">{stringifyValue(
+                                ? 'text-error'
+                                : 'text-text-warning'}">{stringifyValue(
                                 block.result,
                             )}</pre>
                     </div>
