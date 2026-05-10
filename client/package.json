@@ -46,7 +46,7 @@
     "coding-agent",
     "chump"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^24.6.1",
     "typescript": "^5.9.3"
