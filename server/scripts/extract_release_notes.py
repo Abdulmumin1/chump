@@ -20,7 +20,8 @@ def extract_section(changelog: Path, version: str) -> str:
 
     content = "\n".join(notes).strip()
     if not content:
-        raise SystemExit(f"no changelog entry found for {version}")
+        print(f"no changelog entry found for {version}, falling back to default message")
+        return f"Release {version}\n"
     return content + "\n"
 
 

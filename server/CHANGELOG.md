@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.11
+
+- Add install scripts and web redirects for chump client binaries.
+
 ## 0.0.10
 
 ### Patch Changes
