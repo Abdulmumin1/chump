@@ -147,16 +147,60 @@ export function openEventStream(
 	options: {
 		lastEventId?: number;
 		reconnectDelayMs?: number;
+		idleTimeoutMs?: number;
 	} = {}
 ): () => void {
 	const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
+	// Server sends `: keepalive` comments every 30s. If we go ~60s without any
+	// bytes (proxy silently dropped the socket, browser paused us, sleeping
+	// laptop, etc.), tear the connection down and reconnect.
+	const idleTimeoutMs = options.idleTimeoutMs ?? 60000;
 	let closed = false;
 	let lastEventId = options.lastEventId ?? 0;
 	let controller: AbortController | null = null;
+	let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const armIdleTimer = () => {
+		if (idleTimer) {
+			clearTimeout(idleTimer);
+		}
+		idleTimer = setTimeout(() => {
+			controller?.abort();
+		}, idleTimeoutMs);
+	};
+
+	const clearIdleTimer = () => {
+		if (idleTimer) {
+			clearTimeout(idleTimer);
+			idleTimer = null;
+		}
+	};
+
+	const forceReconnect = () => {
+		controller?.abort();
+	};
+
+	const onVisibilityChange = () => {
+		if (typeof document !== 'undefined' && !document.hidden) {
+			forceReconnect();
+		}
+	};
+
+	const onOnline = () => {
+		forceReconnect();
+	};
+
+	if (typeof document !== 'undefined') {
+		document.addEventListener('visibilitychange', onVisibilityChange);
+	}
+	if (typeof window !== 'undefined') {
+		window.addEventListener('online', onOnline);
+	}
 
 	const connect = async (): Promise<void> => {
 		while (!closed) {
 			controller = new AbortController();
+			armIdleTimer();
 			try {
 				const requestUrl = new URL(`${buildAgentUrl(serverUrl, agentId)}/events`);
 				if (lastEventId > 0) {
@@ -174,20 +218,29 @@ export function openEventStream(
 					throw new Error(`event stream failed with ${response.status}`);
 				}
 
-				await consumeSse(response, (event) => {
-					if (event.id) {
-						const parsed = Number(event.id);
-						if (Number.isFinite(parsed)) {
-							lastEventId = parsed;
+				await consumeSse(
+					response,
+					(event) => {
+						if (event.id) {
+							const parsed = Number(event.id);
+							if (Number.isFinite(parsed)) {
+								lastEventId = parsed;
+							}
 						}
-					}
-					handlers.onEvent(event);
-				});
+						handlers.onEvent(event);
+					},
+					armIdleTimer
+				);
 			} catch (error) {
-				if (closed || controller.signal.aborted) {
+				if (closed) {
 					break;
 				}
-				handlers.onError?.(error instanceof Error ? error : new Error(String(error)));
+				// Aborted = deliberate (close, idle watchdog, visibility, online); fall through to reconnect.
+				if (!controller.signal.aborted) {
+					handlers.onError?.(error instanceof Error ? error : new Error(String(error)));
+				}
+			} finally {
+				clearIdleTimer();
 			}
 
 			if (closed) {
@@ -202,7 +255,14 @@ export function openEventStream(
 
 	return () => {
 		closed = true;
+		clearIdleTimer();
 		controller?.abort();
+		if (typeof document !== 'undefined') {
+			document.removeEventListener('visibilitychange', onVisibilityChange);
+		}
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('online', onOnline);
+		}
 	};
 }
 
@@ -213,7 +273,8 @@ export function sessionTitle(session: SessionSummary): string {
 
 export async function consumeSse(
 	response: Response,
-	onEvent: (event: SseEvent) => void
+	onEvent: (event: SseEvent) => void,
+	onActivity?: () => void
 ): Promise<void> {
 	if (!response.body) {
 		throw new Error('response body is not readable');
@@ -228,6 +289,9 @@ export async function consumeSse(
 		if (done) {
 			break;
 		}
+		// Fired for every chunk including `: keepalive` comments — used by
+		// callers to reset idle/heartbeat watchdogs.
+		onActivity?.();
 
 		buffer += decoder.decode(value, { stream: true });
 		let boundary = buffer.indexOf('\n\n');

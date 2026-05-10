@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
+    "https://chump.yaqeen.me",
+    # Local dev for the Svelte web client (Vite default port).
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    # SvelteKit preview / build (`vite preview` / `wrangler dev`) defaults.
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+)
 DEFAULT_MODELS = {
     "codex": "gpt-5.4",
     "openai": "gpt-5.4",
@@ -30,6 +39,7 @@ class ChumpConfig:
     managed_idle_timeout: int | None
     reasoning: dict[str, Any] | None
     verbose: bool
+    allowed_origins: tuple[str, ...]
 
 
 def load_config() -> ChumpConfig:
@@ -63,11 +73,22 @@ def load_config() -> ChumpConfig:
         ),
         max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
         command_timeout=int(os.environ.get("CHUMP_COMMAND_TIMEOUT", "120")),
-        managed_idle_timeout=int_value(os.environ.get("CHUMP_MANAGED_SERVER_IDLE_TIMEOUT")),
+        managed_idle_timeout=int_value(
+            os.environ.get("CHUMP_MANAGED_SERVER_IDLE_TIMEOUT")
+        ),
         reasoning=load_reasoning_config(auth_config, provider),
         verbose=os.environ.get("CHUMP_VERBOSE", "1").lower()
         not in {"0", "false", "no"},
+        allowed_origins=load_allowed_origins(),
     )
+
+
+def load_allowed_origins() -> tuple[str, ...]:
+    raw = os.environ.get("CHUMP_ALLOWED_ORIGINS")
+    if raw is None:
+        return DEFAULT_ALLOWED_ORIGINS
+    items = tuple(origin.strip() for origin in raw.split(",") if origin.strip())
+    return items
 
 
 def load_auth_config() -> dict[str, Any]:
@@ -103,7 +124,8 @@ def apply_auth_environment(
     provider_name: str | None = None,
 ) -> None:
     provider = provider_name or normalize_provider_name(
-        string_value(auth_config.get("provider")) or os.environ.get("CHUMP_PROVIDER", "openai")
+        string_value(auth_config.get("provider"))
+        or os.environ.get("CHUMP_PROVIDER", "openai")
     )
     credentials = auth_config.get("credentials")
     if not isinstance(credentials, dict):
@@ -173,7 +195,9 @@ def normalize_reasoning_config(
         return None
     if effort not in REASONING_EFFORTS:
         valid = ", ".join(sorted(REASONING_EFFORTS))
-        raise ValueError(f"invalid reasoning effort={effort!r}; expected one of: {valid}")
+        raise ValueError(
+            f"invalid reasoning effort={effort!r}; expected one of: {valid}"
+        )
     return {"effort": effort}
 
 

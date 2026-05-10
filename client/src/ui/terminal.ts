@@ -1,50 +1,26 @@
 export type DraftRenderer = {
-  clear: () => void;
-  redraw: () => void;
+  buildClear: () => string;
+  buildRedraw: () => string;
 };
 
 let activeDraft: DraftRenderer | null = null;
-let pauseDepth = 0;
-let draftNeedsRedraw = false;
-let redrawHandle: NodeJS.Immediate | null = null;
 
 export function setActiveDraft(renderer: DraftRenderer | null): void {
   activeDraft = renderer;
-  if (!renderer) {
-    draftNeedsRedraw = false;
-    if (redrawHandle) {
-      clearImmediate(redrawHandle);
-      redrawHandle = null;
-    }
-  }
-}
-
-export function withDraftPaused(action: () => void): void {
-  const shouldClear = pauseDepth === 0 && activeDraft !== null;
-  if (shouldClear) {
-    if (redrawHandle) {
-      clearImmediate(redrawHandle);
-      redrawHandle = null;
-    }
-    activeDraft?.clear();
-    draftNeedsRedraw = true;
-  }
-
-  pauseDepth += 1;
-  try {
-    action();
-  } finally {
-    pauseDepth -= 1;
-    if (pauseDepth === 0 && draftNeedsRedraw) {
-      scheduleDraftRedraw();
-    }
-  }
 }
 
 export function writeOutput(value: string): void {
-  withDraftPaused(() => {
+  if (!activeDraft) {
     process.stdout.write(value);
-  });
+    return;
+  }
+  // Build clear + payload + redraw as a single write so the terminal can never
+  // flush a partial frame between the three. This eliminates the "input box
+  // jumps up then down" flicker when blocks (thinking summaries, tool output,
+  // assistant chunks) are committed to scrollback while the input is live.
+  const clear = activeDraft.buildClear();
+  const redraw = activeDraft.buildRedraw();
+  process.stdout.write(`${clear}${value}${redraw}`);
 }
 
 export function writeOutputLine(value = ""): void {
@@ -52,22 +28,28 @@ export function writeOutputLine(value = ""): void {
 }
 
 export function clearTerminal(): void {
-  withDraftPaused(() => {
+  if (!activeDraft) {
     process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
-  });
-}
-
-function scheduleDraftRedraw(): void {
-  if (redrawHandle) {
     return;
   }
+  const clear = activeDraft.buildClear();
+  const redraw = activeDraft.buildRedraw();
+  process.stdout.write(`${clear}\x1b[2J\x1b[3J\x1b[H${redraw}`);
+}
 
-  redrawHandle = setImmediate(() => {
-    redrawHandle = null;
-    if (!draftNeedsRedraw || pauseDepth !== 0) {
-      return;
-    }
-    draftNeedsRedraw = false;
-    activeDraft?.redraw();
-  });
+// Run an action that needs the live draft cleared (e.g. when reading raw input
+// from the TTY synchronously). Emits clear/redraw as separate writes — only
+// use when you cannot pre-build the payload as a string.
+export function withDraftPaused(action: () => void): void {
+  if (!activeDraft) {
+    action();
+    return;
+  }
+  const draft = activeDraft;
+  process.stdout.write(draft.buildClear());
+  try {
+    action();
+  } finally {
+    process.stdout.write(draft.buildRedraw());
+  }
 }

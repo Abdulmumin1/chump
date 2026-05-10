@@ -24,6 +24,7 @@
     "smoke": "node src/smoke.ts",
     "typecheck": "tsc --noEmit",
     "check": "pnpm run typecheck && pnpm run build",
+    "build:bin": "bun scripts/build-bin.ts",
     "prepack": "pnpm run build",
     "bin:install": "pnpm link --global",
     "bin:uninstall": "pnpm unlink --global chump-agent"
@@ -54,6 +55,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@clack/prompts": "^1.2.0"
+    "@clack/prompts": "^1.2.0",
+    "onlocal": "^0.5.9"
   }
 }

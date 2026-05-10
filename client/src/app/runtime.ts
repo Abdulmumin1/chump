@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -471,19 +472,44 @@ function resolveServerCommand(): ServerCommand {
   const siblingServerDir = path.join(repoRoot, "server");
   const siblingProject = path.join(siblingServerDir, "pyproject.toml");
 
+  let command: ServerCommand;
   if (existsSync(siblingProject)) {
-    return {
+    command = {
       file: "uv",
       args: ["run", "--directory", siblingServerDir, "chump-server"],
       source: "local",
     };
+  } else {
+    command = {
+      file: "uvx",
+      args: ["--from", "chump-server", "chump-server"],
+      source: "installed",
+    };
   }
 
-  return {
-    file: "uvx",
-    args: ["--from", "chump-server", "chump-server"],
-    source: "installed",
-  };
+  if (!commandIsAvailableSync(command.file)) {
+    throw new Error(
+      `${command.file} is not installed or not in PATH.\n\nInstall uv:\n${getUvInstallInstructions()}`,
+    );
+  }
+
+  return command;
+}
+
+function commandIsAvailableSync(command: string): boolean {
+  const shellCmd = process.platform === "win32" ? "where" : "which";
+  try {
+    return spawnSync(shellCmd, [command], { stdio: "ignore" }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function getUvInstallInstructions(): string {
+  if (process.platform === "win32") {
+    return '  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"';
+  }
+  return '  curl -LsSf https://astral.sh/uv/install.sh | sh';
 }
 
 async function isStaleLock(lockDir: string): Promise<boolean> {

@@ -24,6 +24,7 @@ import {
 import { connectProvider, readGlobalAuth } from "./auth.ts";
 import { logClientEvent } from "./diagnostics.ts";
 import { listModelChoices } from "./models.ts";
+import { ShareManager } from "./share.ts";
 import {
   createSessionId,
   loadConfig,
@@ -50,6 +51,7 @@ import {
 } from "../ui/output.ts";
 import {
   createMarkdownStream,
+  renderAccent,
   renderError,
   renderFooterStatus,
   renderMuted,
@@ -65,7 +67,12 @@ import {
   stopManagedServer,
 } from "./runtime.ts";
 import { createSpinner } from "../ui/spinner.ts";
-import type { ChumpConfig, ManagedServerMetadata, PromptSubmission } from "../core/types.ts";
+import type {
+  ChumpConfig,
+  ManagedServerMetadata,
+  PromptSubmission,
+  ShareStatus,
+} from "../core/types.ts";
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const options = parseCliArgs(argv);
@@ -114,6 +121,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const promptReader = createPromptReader(fallbackRl);
   const lineQueue = new AsyncLineQueue();
   const liveSync = new LiveSyncTracker();
+  const shareManager = new ShareManager();
   let closeEventStream: (() => void) | null = null;
   let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
   let resumeSessionId: string | null = null;
@@ -122,7 +130,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     getStatus(config),
     getSessions(config),
   ]);
-  promptReader.setFooter(renderFooter(config, status));
+  promptReader.setFooter(renderFooter(config, status, shareManager.current()));
   promptReader.setSessionSuggestions(sessions.sessions);
   promptReader.setModelSuggestions(await loadModelSuggestions());
   promptReader.setSkillSuggestions(health.skills);
@@ -136,7 +144,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       provider: string;
       model: string;
       reasoning: Record<string, unknown> | null;
-    }));
+    }, shareManager.current()));
   });
   setSteeringQueueHook((payload) => {
     promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
@@ -175,7 +183,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
   if (options.sessionId) {
-    await renderSwitchedSession(config, (footer) => promptReader.setFooter(footer), (sessionsList) => {
+    await renderSwitchedSession(config, shareManager, (footer) => promptReader.setFooter(footer), (sessionsList) => {
       promptReader.setSessionSuggestions(sessionsList);
     }, {
       skipEmptyTranscript: true,
@@ -208,6 +216,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       const commandResult = await handleSlashCommand(line, {
         config,
         closeEventStream,
+        shareManager,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
@@ -291,6 +300,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   } finally {
     promptReader.close();
     closeEventStream?.();
+    await shareManager.dispose();
     setUserMessageHook(null);
     setAssistantTextHook(null);
     setAgentStatusHook(null);
@@ -336,6 +346,108 @@ function formatCompactNames(values: string[], limit = 4): string {
   return `${visible}, ${values.length - limit} more`;
 }
 
+function createActivityStatusController(
+  setStatus: (status: string | null) => void,
+): {
+  start: () => void;
+  stop: () => void;
+  showAborting: () => void;
+  beginTextStreaming: () => void;
+  noteToolActivity: () => void;
+  noteReasoningPreview: (preview: string | null) => void;
+} {
+  let active = false;
+  let streamingText = false;
+  let aborting = false;
+  let spinnerFrame: string | null = null;
+  let reasoningPreview: string | null = null;
+
+  const spinner = createSpinner((frame) => {
+    spinnerFrame = frame;
+    syncStatus();
+  });
+
+  function syncStatus(): void {
+    if (!active) {
+      setStatus(null);
+      return;
+    }
+
+    if (aborting) {
+      setStatus(renderMuted("Aborting..."));
+      return;
+    }
+
+    if (streamingText) {
+      setStatus(null);
+      return;
+    }
+
+    const lines: string[] = [];
+    if (reasoningPreview) {
+      lines.push(reasoningPreview, "");
+    }
+    if (spinnerFrame) {
+      lines.push(spinnerFrame, "");
+    }
+    if (lines.length > 0) {
+      lines.unshift("");
+    }
+    setStatus(lines.length > 0 ? lines.join("\n") : null);
+  }
+
+  return {
+    start() {
+      active = true;
+      streamingText = false;
+      aborting = false;
+      spinner.start();
+      syncStatus();
+    },
+    stop() {
+      active = false;
+      streamingText = false;
+      aborting = false;
+      reasoningPreview = null;
+      spinner.stop();
+      spinnerFrame = null;
+      setStatus(null);
+    },
+    showAborting() {
+      active = true;
+      streamingText = false;
+      aborting = true;
+      spinner.start();
+      syncStatus();
+    },
+    beginTextStreaming() {
+      if (!active) {
+        return;
+      }
+      streamingText = true;
+      aborting = false;
+      syncStatus();
+    },
+    noteToolActivity() {
+      if (!active) {
+        return;
+      }
+      streamingText = false;
+      aborting = false;
+      spinner.refresh();
+      syncStatus();
+    },
+    noteReasoningPreview(preview) {
+      reasoningPreview = preview;
+      if (!active) {
+        return;
+      }
+      aborting = false;
+      syncStatus();
+    },
+  };
+}
+
 async function runChatTurn(
   config: ChumpConfig,
   submission: PromptSubmission,
@@ -350,43 +462,24 @@ async function runChatTurn(
   const streamAbortController = new AbortController();
   liveSync.noteLocalChat(formatSubmissionForDisplay(submission));
   liveSync.beginLocalTurn();
-  let spinnerFrame: string | null = null;
-  let reasoningPreview: string | null = null;
   let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
   let aborting = false;
+  const activityStatus = createActivityStatusController(setStatus);
   const abortTurn = (): void => {
     if (aborting) {
       return;
     }
     aborting = true;
     void abortCurrentTurn(config).catch(() => {});
-    setStatus(renderMuted("Aborting..."));
+    activityStatus.showAborting();
   };
   const flushAssistantTranscript = (): void => {
     markdownStream?.end();
     markdownStream = null;
   };
-  const syncStatus = (): void => {
-    const lines: string[] = [];
-    if (reasoningPreview) {
-      lines.push(reasoningPreview, "");
-    }
-    if (spinnerFrame) {
-      lines.push(spinnerFrame, "");
-    }
-    if (lines.length > 0) {
-      lines.unshift("");
-    }
-    setStatus(lines.length > 0 ? lines.join("\n") : null);
-  };
-  const spinner = createSpinner((frame) => {
-    spinnerFrame = frame;
-    syncStatus();
-  });
   const reasoningStream = new LiveReasoningStream({
     onPreview: (preview) => {
-      reasoningPreview = preview;
-      syncStatus();
+      activityStatus.noteReasoningPreview(preview);
     },
   });
   const pendingSteeringSubmissions: PromptSubmission[] = [];
@@ -416,11 +509,11 @@ async function runChatTurn(
     pendingSteeringSubmissions.push(nextSubmission);
     return true;
   });
-  spinner.start();
+  activityStatus.start();
   setToolActivityHook(() => {
     flushAssistantTranscript();
     reasoningStream.finish();
-    spinner.refresh();
+    activityStatus.noteToolActivity();
   });
   setReasoningActivityHook((payload) => {
     reasoningStream.render(payload);
@@ -436,7 +529,7 @@ async function runChatTurn(
     await streamChat(config, submission.text, submission.attachments, {
       onChunk: (chunk) => {
         reasoningStream.finish();
-        spinner.stop();
+        activityStatus.beginTextStreaming();
         receivedChunk = true;
         if (consumeToolActivity()) {
           writeOutput("\n");
@@ -447,7 +540,6 @@ async function runChatTurn(
       onEnd: () => {
         receivedEnd = true;
         reasoningStream.finish();
-        spinner.stop();
         if (aborting && !receivedChunk) {
           writeOutput(`${renderMuted("(aborted)")}\n`);
           return;
@@ -461,7 +553,6 @@ async function runChatTurn(
       onError: (message) => {
         receivedEnd = true;
         reasoningStream.finish();
-        spinner.stop();
         if (aborting || /aborted/i.test(message)) {
           writeOutput(`${renderMuted("(aborted)")}\n`);
           return;
@@ -475,7 +566,6 @@ async function runChatTurn(
     }
   } catch (error) {
     reasoningStream.finish();
-    spinner.stop();
     flushAssistantTranscript();
     if (!receivedEnd && !aborting) {
       await abortCurrentTurn(config).catch(() => {});
@@ -490,7 +580,7 @@ async function runChatTurn(
     streamAbortController.abort();
     liveSync.endLocalTurn();
     reasoningStream.finish();
-    spinner.stop();
+    activityStatus.stop();
     setAbortHandler(null);
     setSteerHandler(null);
     setQueuedLinePopHandler(null);
@@ -618,17 +708,19 @@ function createSharedTurnSync(options: {
   beforeAssistantText: () => void;
 } {
   let remoteTurnRunning = false;
-  let spinnerFrame: string | null = null;
-  let reasoningPreview: string | null = null;
+  const activityStatus = createActivityStatusController((status) => {
+    if (options.getLocalTurnActive()) {
+      return;
+    }
+    if (!remoteTurnRunning && status !== null) {
+      return;
+    }
+    options.promptReader.setStatus(status);
+  });
   const remoteReasoningStream = new LiveReasoningStream({
     onPreview: (preview) => {
-      reasoningPreview = preview;
-      syncStatus();
+      activityStatus.noteReasoningPreview(preview);
     },
-  });
-  const spinner = createSpinner((frame) => {
-    spinnerFrame = frame;
-    syncStatus();
   });
   const remoteSteerHandler = async (submission: PromptSubmission): Promise<boolean> => {
     const result = await steerCurrentTurn(
@@ -655,27 +747,23 @@ function createSharedTurnSync(options: {
       if (options.getLocalTurnActive()) {
         return;
       }
-      spinner.start();
+      activityStatus.start();
       if (!options.getActiveSteerHandler()) {
         options.setActiveSteerHandler(remoteSteerHandler);
       }
       options.promptReader.setAbortHandler(() => {
         void abortCurrentTurn(options.config()).catch(() => {});
-        options.promptReader.setStatus(renderMuted("Aborting..."));
+        activityStatus.showAborting();
       });
       options.promptReader.setQueuedLinePopHandler(() => {
         void cancelLastSteering(options.config()).catch(() => {});
       });
-      syncStatus();
       return;
     }
 
-    spinner.stop();
+    activityStatus.stop();
     remoteReasoningStream.finish();
-    spinnerFrame = null;
-    reasoningPreview = null;
     if (!options.getLocalTurnActive()) {
-      options.promptReader.setStatus(null);
       options.promptReader.setAbortHandler(null);
       options.setActiveSteerHandler(null);
       options.promptReader.setQueuedLinePopHandler(() => {
@@ -697,12 +785,12 @@ function createSharedTurnSync(options: {
         return;
       }
       remoteReasoningStream.finish();
-      spinner.refresh();
+      activityStatus.noteToolActivity();
     });
   };
 
   const dispose = (): void => {
-    spinner.stop();
+    activityStatus.stop();
     remoteReasoningStream.finish();
     setTurnStatusHook(null);
     setReasoningActivityHook(null);
@@ -713,28 +801,8 @@ function createSharedTurnSync(options: {
     if (!remoteTurnRunning || options.getLocalTurnActive()) {
       return;
     }
-    spinner.stop();
-    spinnerFrame = null;
-    options.promptReader.setStatus(null);
+    activityStatus.beginTextStreaming();
     remoteReasoningStream.finish();
-    reasoningPreview = null;
-  };
-
-  function syncStatus(): void {
-    if (!remoteTurnRunning || options.getLocalTurnActive()) {
-      return;
-    }
-    const lines: string[] = [];
-    if (reasoningPreview) {
-      lines.push(reasoningPreview, "");
-    }
-    if (spinnerFrame) {
-      lines.push(spinnerFrame, "");
-    }
-    if (lines.length > 0) {
-      lines.unshift("");
-    }
-    options.promptReader.setStatus(lines.length > 0 ? lines.join("\n") : null);
   }
 
   return { install, dispose, applyTurnStatus, beforeAssistantText };
@@ -864,6 +932,7 @@ async function handleSlashCommand(
   context: {
     config: ReturnType<typeof loadConfig>;
     closeEventStream: (() => void) | null;
+    shareManager: ShareManager;
     metadata: ManagedServerMetadata | null;
     setFooter: (footer: string | null) => void;
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
@@ -902,9 +971,40 @@ async function handleSlashCommand(
         break;
       }
       const status = await setModel(config, provider, model);
-      context.setFooter(renderFooter(config, status));
+      context.setFooter(renderFooter(config, status, context.shareManager.current()));
       context.setModelSuggestions(await loadModelSuggestions());
       writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
+      break;
+    }
+    case "share": {
+      const mode = (parsed.args[0] ?? "").toLowerCase();
+      if (!mode || mode === "start") {
+        const result = await context.shareManager.start(config);
+        renderShareStatus(result.share, result.reused ? "share already active" : "share started");
+        writeOutput(`${renderMuted("note: transport is live; Chump share auth is the next step")}\n`);
+        context.setFooter(renderFooter(config, await getStatus(config), context.shareManager.current()));
+        break;
+      }
+      if (mode === "status") {
+        const share = context.shareManager.current();
+        if (!share) {
+          writeOutput(`${renderMuted("share is inactive")}\n`);
+          break;
+        }
+        renderShareStatus(share, "share active");
+        break;
+      }
+      if (mode === "stop") {
+        const share = await context.shareManager.stop();
+        if (!share) {
+          writeOutput(`${renderMuted("share is inactive")}\n`);
+          break;
+        }
+        writeOutput(`${renderMuted(`share stopped: ${share.publicUrl}`)}\n`);
+        context.setFooter(renderFooter(config, await getStatus(config), context.shareManager.current()));
+        break;
+      }
+      writeOutput(`${renderMuted("usage: /share [status|stop]")}\n`);
       break;
     }
     case "skill": {
@@ -930,7 +1030,7 @@ async function handleSlashCommand(
         break;
       }
       const status = await setReasoning(config, mode);
-      context.setFooter(renderFooter(config, status));
+      context.setFooter(renderFooter(config, status, context.shareManager.current()));
       writeOutput(`${renderMuted(`thinking set to ${mode}`)}\n`);
       break;
     }
@@ -951,7 +1051,7 @@ async function handleSlashCommand(
         closeEventStream = await context.restartEventStream(config);
         clearTerminal();
         writeOutput(`${renderBanner(config)}\n`);
-        await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions, {
+        await renderSwitchedSession(config, context.shareManager, context.setFooter, context.setSessionSuggestions, {
           skipEmptyTranscript: true,
         });
         context.setSkillSuggestions((await getHealth(config)).skills);
@@ -962,7 +1062,7 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
+      await renderSwitchedSession(config, context.shareManager, context.setFooter, context.setSessionSuggestions);
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -976,7 +1076,7 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(config, context.setFooter, context.setSessionSuggestions);
+      await renderSwitchedSession(config, context.shareManager, context.setFooter, context.setSessionSuggestions);
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -1008,6 +1108,7 @@ function isThinkingMode(value: string | undefined): value is "none" | "low" | "h
 
 async function renderSwitchedSession(
   config: ChumpConfig,
+  shareManager: ShareManager,
   setFooter: (footer: string | null) => void,
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
   options: { skipEmptyTranscript?: boolean } = {},
@@ -1018,7 +1119,7 @@ async function renderSwitchedSession(
     getMessages(config),
     getSessions(config),
   ]);
-  setFooter(renderFooter(config, status));
+  setFooter(renderFooter(config, status, shareManager.current()));
   setSessionSuggestions(sessions.sessions);
   if (options.skipEmptyTranscript && response.messages.length === 0) {
     return;
@@ -1030,13 +1131,28 @@ async function renderSwitchedSession(
 function renderFooter(
   config: ChumpConfig,
   health: { provider: string; model: string; reasoning: Record<string, unknown> | null },
+  share: ShareStatus | null,
 ): string {
+  // Render each part in full; the input frame wraps the footer at the
+  // terminal's width, so a long footer flows onto multiple lines instead of
+  // being hard-truncated with an ellipsis.
   return renderFooterStatus([
     `${health.provider}/${health.model}`,
     renderReasoning(health.reasoning),
+    share ? "shared" : "",
     config.serverSource,
     config.agentId,
   ]);
+}
+
+function renderShareStatus(share: ShareStatus, label: string): void {
+  writeOutput(`${renderMuted(`${label}\n`)}`);
+  writeOutput(`${renderAccent(`${share.publicUrl}\n`)}`);
+  if (share.connectUrl) {
+    writeOutput(`${renderMuted("web: ")}${renderAccent(`${share.connectUrl}\n`)}`);
+  }
+  writeOutput(`${renderMuted(`provider: ${share.provider}\n`)}`);
+  writeOutput(`${renderMuted(`target: ${share.localUrl}\n`)}`);
 }
 
 function steeringQueueSubmissions(payload: Record<string, unknown>): PromptSubmission[] {

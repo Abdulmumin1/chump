@@ -125,30 +125,70 @@ function createInteractivePromptReader(): {
   let nextImageNumber = 1;
   let lastColumns = terminalColumns();
   let redrawScheduled = false;
-  let lastPromptRows: string[] = [];
-  let lastFooterRows: string[] = [];
+  let lastDrawnRowCount = 0;
+  let lastRenderedRows: string[] = [];
+  let lastCursorRowIndex = 0;
+  let lastCursorColumn = 0;
+  let lastFrameSignature = "";
+  let resizeDebounceTimer: NodeJS.Timeout | null = null;
 
   output.write("\x1b[?2004h");
 
-  function clear(): void {
-    const lastFrameRows = [...lastPromptRows, ...lastFooterRows];
-    if (lastFrameRows.length === 0) {
-      output.write("\r\x1b[2K");
-      cursorLine = 0;
-      return;
-    }
-    const moveUp = cursorLine > 0 ? `\x1b[${cursorLine}A` : "";
-    const clearRows = lastFrameRows.map((_, index) => `${index === 0 ? "" : "\n"}\r\x1b[2K`).join("");
-    const moveBackUp = lastFrameRows.length > 1 ? `\x1b[${lastFrameRows.length - 1}A` : "";
-    output.write(`\r${moveUp}${clearRows}${moveBackUp}\r`);
-    cursorLine = 0;
-    lastPromptRows = [];
-    lastFooterRows = [];
+  // Number of physical screen rows a previously-written row currently occupies,
+  // given the terminal's CURRENT columns. Terminals soft-wrap at exactly
+  // `columns`, not at our internal `wrapWidth`, so this must use terminal
+  // columns to correctly account for reflow.
+  function physicalRowsFor(rows: string[], columns: number): number[] {
+    return rows.map((row) =>
+      Math.max(1, Math.ceil(Math.max(visibleLength(row), 0) / Math.max(1, columns))),
+    );
   }
 
-  function redraw(): void {
+  // How many physical rows above the terminal cursor currently belong to the
+  // previously drawn frame. Walks the stored `lastRenderedRows` and reflows
+  // them at the live terminal width.
+  function physicalCursorOffsetFromFrameTop(columns: number): number {
+    if (lastRenderedRows.length === 0) {
+      return cursorLine;
+    }
+    const heights = physicalRowsFor(lastRenderedRows, columns);
+    let above = 0;
+    for (let index = 0; index < lastCursorRowIndex && index < heights.length; index += 1) {
+      above += heights[index] ?? 1;
+    }
+    // The cursor sat at column `lastCursorColumn` within the wrapped row at
+    // its previous render width. After reflow at the new width that column
+    // may now sit on a later physical row of the same logical row.
+    above += Math.floor(Math.max(0, lastCursorColumn) / Math.max(1, columns));
+    return above;
+  }
+
+  function buildClear(): string {
+    // Whenever we wipe what's on screen, invalidate the signature so the next
+    // buildRedraw is forced to emit a frame even if its contents happen to
+    // match the previously displayed frame.
+    lastFrameSignature = "";
+    if (lastDrawnRowCount === 0 && lastRenderedRows.length === 0) {
+      cursorLine = 0;
+      return "\r\x1b[2K";
+    }
+    const moveUpRows = physicalCursorOffsetFromFrameTop(terminalColumns());
+    const moveUp = moveUpRows > 0 ? `\x1b[${moveUpRows}A` : "";
+    cursorLine = 0;
+    lastDrawnRowCount = 0;
+    lastRenderedRows = [];
+    lastCursorRowIndex = 0;
+    lastCursorColumn = 0;
+    return `\r${moveUp}\x1b[J`;
+  }
+
+  function clear(): void {
+    output.write(buildClear());
+  }
+
+  function buildRedraw(): string {
     if (closed || !pendingResolve) {
-      return;
+      return "";
     }
 
     redrawScheduled = false;
@@ -157,7 +197,6 @@ function createInteractivePromptReader(): {
     const target = cursorPosition(value, cursor);
     const slashMenu = getVisibleSlashMenu();
     const statusLines = statusLine ? statusLine.split("\n") : [];
-    const footerLines = footerLine ? footerLine.split("\n") : [];
     const menuLines = renderSlashCommandMenu(
       slashMenu.items,
       slashMenu.selectedIndex,
@@ -174,7 +213,13 @@ function createInteractivePromptReader(): {
         ]
       : [];
     const inputIndent = " ";
-    const rule = renderInputRule(terminalColumns() - 2);
+    const columns = terminalColumns();
+    const wrapWidth = terminalWrapWidth(columns);
+    const footerRows = footerLine
+      ? wrapAnsiLine(footerLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)
+      : [];
+    const frameWidth = Math.max(12, columns - 2);
+    const rule = renderInputRule(frameWidth);
     const promptLines = [
       rule,
       ...lines.map((line) => `${inputIndent}${renderInput(line)}`),
@@ -201,20 +246,12 @@ function createInteractivePromptReader(): {
       cursorFrameLineIndex,
       visibleLength(inputIndent) + target.column,
     );
-    const promptRows = promptFrameLines.flatMap((line) => wrapAnsiLine(line, terminalColumns()));
-    const footerRows = footerLines.flatMap((line) => wrapAnsiLine(line, terminalColumns()));
-    const preserveFooter =
-      sameRows(footerRows, lastFooterRows) &&
-      promptRows.length === lastPromptRows.length;
-    const renderedRows = preserveFooter
-      ? promptRows
-      : [...promptRows, ...footerRows];
-    const previousTotalRows = lastPromptRows.length + lastFooterRows.length;
-    const totalRows = preserveFooter
-      ? Math.max(promptRows.length, 1)
-      : Math.max(renderedRows.length, previousTotalRows, 1);
+    const promptRows = promptFrameLines.flatMap((line) => wrapAnsiLine(line, wrapWidth));
+    const renderedRows = [...promptRows, ...footerRows];
+    const totalRows = Math.max(renderedRows.length, 1);
     const rowsUp = Math.max(0, totalRows - 1 - layout.cursorRow);
-    const moveUp = cursorLine > 0 ? `\x1b[${cursorLine}A` : "";
+    const moveUpRows = physicalCursorOffsetFromFrameTop(columns);
+    const moveUp = moveUpRows > 0 ? `\x1b[${moveUpRows}A` : "";
     const moveToCursorRow = rowsUp > 0 ? `\x1b[${rowsUp}A` : "";
     const moveToCursorColumn = layout.cursorColumn > 0 ? `\x1b[${layout.cursorColumn}C` : "";
     const rows: string[] = [];
@@ -224,12 +261,28 @@ function createInteractivePromptReader(): {
       rows.push(`${index === 0 ? "" : "\n"}\r\x1b[2K${nextRow}`);
     }
 
-    output.write(
-      `\r${moveUp}\x1b[?25l${rows.join("")}\x1b[?25h${moveToCursorRow}\r${moveToCursorColumn}`,
-    );
     cursorLine = layout.cursorRow;
-    lastPromptRows = promptRows;
-    lastFooterRows = footerRows;
+    lastDrawnRowCount = totalRows;
+    lastRenderedRows = renderedRows;
+    lastCursorRowIndex = layout.cursorRow;
+    lastCursorColumn = layout.cursorColumn;
+    lastColumns = columns;
+    const frame = `\r${moveUp}\x1b[J\x1b[?25l${rows.join("")}\x1b[?25h${moveToCursorRow}\r${moveToCursorColumn}`;
+    if (frame === lastFrameSignature) {
+      // Identical frame already on screen — skip the write to avoid the
+      // cursor-hide/show flicker the spinner's 190ms tick would otherwise
+      // cause every time it fires.
+      return "";
+    }
+    lastFrameSignature = frame;
+    return frame;
+  }
+
+  function redraw(): void {
+    const frame = buildRedraw();
+    if (frame) {
+      output.write(frame);
+    }
   }
 
   function redrawOnResize(): void {
@@ -237,8 +290,27 @@ function createInteractivePromptReader(): {
     if (columns === lastColumns) {
       return;
     }
-    lastColumns = columns;
-    requestRedraw();
+    // Debounce: terminals fire many resize events while the user drags. We
+    // only need to repaint once the dust settles. This also avoids a feedback
+    // loop where each rapid event triggers a redraw that itself shifts cursor
+    // position and accumulates ghost rows in scrollback.
+    if (!resizeDebounceTimer) {
+      // Hide cursor while the layout is in flux so it doesn't flicker at a
+      // stale position during the drag.
+      output.write("\x1b[?25l");
+    } else {
+      clearTimeout(resizeDebounceTimer);
+    }
+    resizeDebounceTimer = setTimeout(() => {
+      resizeDebounceTimer = null;
+      if (closed || !pendingResolve) {
+        output.write("\x1b[?25h");
+        return;
+      }
+      // Force-rerender: requestRedraw skips when nothing changed, but the
+      // physical layout may have changed even if our state has not.
+      redraw();
+    }, 80);
   }
 
   function requestRedraw(): void {
@@ -799,7 +871,7 @@ function createInteractivePromptReader(): {
         slashSelection = 0;
         historyIndex = inputHistory.length;
         pendingResolve = resolve;
-        setActiveDraft({ clear, redraw });
+        setActiveDraft({ buildClear, buildRedraw });
         redraw();
       });
     },
@@ -808,6 +880,10 @@ function createInteractivePromptReader(): {
         return;
       }
       closed = true;
+      if (resizeDebounceTimer) {
+        clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = null;
+      }
       const resolve = pendingResolve;
       pendingResolve = null;
       clear();
@@ -958,7 +1034,7 @@ function measureFrameLayout(
     totalRows += rows;
   }
 
-  const width = terminalColumns();
+  const width = terminalWrapWidth(terminalColumns());
   const normalizedCursorColumn = Math.max(0, cursorColumn);
   cursorRow += Math.floor(normalizedCursorColumn / width);
 
@@ -974,7 +1050,7 @@ function indexedPromptPrefix(line: number): string {
 }
 
 function visualRows(value: string): number {
-  const width = terminalColumns();
+  const width = terminalWrapWidth(terminalColumns());
   const length = Math.max(visibleLength(value), 1);
   return Math.ceil(length / width);
 }
@@ -1027,13 +1103,6 @@ function stripAnsi(value: string): string {
   return value.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
-function sameRows(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-  return left.every((value, index) => value === right[index]);
-}
-
 function charDisplayWidth(char: string): number {
   if (char.length === 0) {
     return 0;
@@ -1057,6 +1126,10 @@ function charDisplayWidth(char: string): number {
 
 function terminalColumns(): number {
   return Math.max(process.stdout.columns ?? 80, 20);
+}
+
+function terminalWrapWidth(columns: number): number {
+  return Math.max(1, columns - 1);
 }
 
 function isInsertNewlineSequence(sequence: string): boolean {

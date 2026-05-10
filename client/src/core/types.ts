@@ -151,6 +151,14 @@ export type SkillSummary = {
   description: string;
 };
 
+export type ShareStatus = {
+  provider: "onlocal";
+  publicUrl: string;
+  localUrl: string;
+  connectUrl: string | null;
+  startedAt: number;
+};
+
 export type SseEvent = {
   event: string;
   data: string;
@@ -198,6 +206,7 @@ export type SlashCommand =
   | "agent"
   | "session"
   | "model"
+  | "share"
   | "skill"
   | "thinking"
   | "quit";
