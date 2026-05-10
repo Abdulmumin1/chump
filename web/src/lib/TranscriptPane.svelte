@@ -25,18 +25,18 @@
 </script>
 
 <div class="flex-1 overflow-y-auto p-4 md:p-8" bind:this={transcriptElement}>
-    <div class="max-w-5xl mx-auto flex flex-col gap-6">
+    <div class="max-w-4xl mx-auto flex flex-col gap-6">
         {#if transcript.length === 0}
-            <div class="text-center text-[#858585] text-[13px] mt-10">
+            <div class="text-center text-text-tertiary text-[13px] mt-10">
                 Connect to a server and select a session to begin.
             </div>
         {/if}
 
-        {#each transcript as item (item.id)}
+        {#each transcript as item, itemIndex (item.id)}
             {#if item.role === "user"}
                 <div class="self-end max-w-[85%] md:max-w-[75%]">
                     <div
-                        class="bg-[#252528] border border-[#313133] rounded-xl px-4 py-2.5 text-[14px] text-[#eeeeee] leading-relaxed whitespace-pre-wrap break-words shadow-sm"
+                        class="bg-bg-elevated border border-border-default rounded-xl px-4 py-2.5 text-[14px] text-text-inverse leading-relaxed whitespace-pre-wrap break-words"
                     >
                         {item.blocks
                             .map((b: { text: string }) => b.text)
@@ -44,21 +44,21 @@
                     </div>
                 </div>
             {:else if item.role === "reasoning"}
-                <div class="">
+                <div class="min-w-0 w-full">
                     {#each item.blocks as block, index (`${item.id}-${index}`)}
                         {#if block.kind === "text" && block.text.trim()}
                             <div
-                                class="p-2 transition-colors hover:bg-[#232325]/60"
+                                class="p-2 transition-colors hover:bg-bg-code-block/60 min-w-0"
                             >
                                 <button
-                                    class="flex w-full items-center justify-between gap-4 text-left focus:outline-none"
+                                    class="flex w-full min-w-0 items-center justify-between gap-4 text-left focus:outline-none"
                                     onclick={() =>
                                         onToggleReasoning(
                                             `${item.id}-${index}`,
                                         )}
                                 >
                                     <div
-                                        class="flex items-center gap-3 text-[#a1a1aa] mb-2"
+                                        class="flex min-w-0 items-center gap-3 text-text-muted mb-2"
                                     >
                                         <svg
                                             class="h-5 w-5 flex-shrink-0"
@@ -73,16 +73,19 @@
                                             ></path></svg
                                         >
                                         <span
-                                            class="text-[14px] font-medium tracking-tight text-[#b4b4c2]"
+                                            class="text-[14px] font-medium tracking-tight text-text-muted break-words min-w-0"
                                             >{reasoningSummary(
                                                 block.text,
                                             )}</span
                                         >
                                     </div>
                                     <svg
-                                        class="h-4 w-4 flex-shrink-0 text-[#8a8a96] transition-transform duration-200 {(expandedReasoning[
+                                        class="h-4 w-4 flex-shrink-0 text-text-tertiary transition-transform duration-200 {(expandedReasoning[
                                             `${item.id}-${index}`
-                                        ] ?? true)
+                                        ] ??
+                                        (isSending &&
+                                            itemIndex ===
+                                                transcript.length - 1))
                                             ? 'rotate-180'
                                             : ''}"
                                         fill="none"
@@ -96,9 +99,9 @@
                                         ></path></svg
                                     >
                                 </button>
-                                {#if expandedReasoning[`${item.id}-${index}`] ?? true}
+                                {#if expandedReasoning[`${item.id}-${index}`] ?? (isSending && itemIndex === transcript.length - 1)}
                                     <div
-                                        class="p-2 text-[15px] text-neutral-500 whitespace-pre-wrap"
+                                        class="p-2 text-[12px] text-text-muted break-words overflow-hidden reasoning-marked"
                                     >
                                         {@html marked(block.text)}
                                     </div>
@@ -109,7 +112,9 @@
                 </div>
             {:else}
                 <div
-                    class="flex flex-col gap-2 {item.live ? 'opacity-90' : ''}"
+                    class="flex flex-col gap-2 min-w-0 {item.live
+                        ? 'opacity-90'
+                        : ''}"
                 >
                     {#each item.blocks as block, index (`${item.id}-${index}`)}
                         {#if block.kind === "text" && block.text.trim()}
@@ -125,7 +130,7 @@
                             />
                         {:else if block.kind === "image"}
                             <div
-                                class="p-3 bg-[#242426] border border-[#313133] rounded-md text-[12px] text-[#858585] inline-flex items-center gap-2 w-fit"
+                                class="p-3 bg-bg-code border border-border-default rounded-md text-[12px] text-text-tertiary inline-flex items-center gap-2 w-fit"
                             >
                                 <svg
                                     class="w-4 h-4"
@@ -149,10 +154,25 @@
 
         {#if isSending}
             <div
-                class="flex items-center gap-2 px-2 text-[13px] text-[#858585] animate-pulse"
+                class="flex items-center gap-2 px-2 text-[13px] text-text-tertiary animate-pulse"
             >
-                <span class="w-2 h-2 rounded-full bg-[#b8dd35]"></span> Agent is thinking...
+                <span class="w-2 h-2 rounded-full bg-accent"></span> Chumping...
             </div>
         {/if}
     </div>
 </div>
+
+<style>
+    :global(.reasoning-marked pre) {
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-x: hidden;
+    }
+    :global(.reasoning-marked code) {
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    :global(.reasoning-marked p) {
+        word-break: break-word;
+    }
+</style>
