@@ -154,7 +154,11 @@ html, body {
 
 html { overscroll-behavior-y: none; }
 
-* { -webkit-touch-callout: none; }
+* { 
+    -webkit-touch-callout: none; 
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
+}
 
 input, textarea, [contenteditable] {
     -webkit-user-select: text;

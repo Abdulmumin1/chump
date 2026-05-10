@@ -15,6 +15,7 @@ export type ChumpHealth = {
 	uptime_seconds: number;
 	instruction_files: string[];
 	skills: Array<{ name: string; description: string }>;
+	models?: string[];
 };
 
 export type SessionSummary = {

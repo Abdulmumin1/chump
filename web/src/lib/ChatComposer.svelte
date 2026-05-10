@@ -2,12 +2,15 @@
     import { tick } from "svelte";
     import CommandMenu from "./CommandMenu.svelte";
 
+    import type { ModelChoice } from "$lib/models";
+
     let {
         composerText = $bindable(),
         activeSessionId,
         canSend,
         isSending,
         skills = [],
+        models = [],
         currentModel = "",
         workspaceRoot = "",
         reasoningInfo = null,
@@ -22,6 +25,7 @@
         canSend: boolean;
         isSending: boolean;
         skills: Array<{ name: string; description: string }>;
+        models: ModelChoice[];
         currentModel: string;
         workspaceRoot: string;
         reasoningInfo: { effort: string | null; budget: number | null } | null;
@@ -79,63 +83,6 @@
         },
     ];
 
-    const MODEL_PRESETS: Suggestion[] = [
-        {
-            label: "openai/gpt-5.4",
-            command: "/model openai/gpt-5.4",
-            description: "OpenAI GPT-5.4",
-            kind: "model",
-        },
-        {
-            label: "openai/gpt-5.4-mini",
-            command: "/model openai/gpt-5.4-mini",
-            description: "OpenAI GPT-5.4 Mini",
-            kind: "model",
-        },
-        {
-            label: "openai/gpt-5.3-codex",
-            command: "/model openai/gpt-5.3-codex",
-            description: "OpenAI GPT-5.3 Codex",
-            kind: "model",
-        },
-        {
-            label: "openai/gpt-5.2",
-            command: "/model openai/gpt-5.2",
-            description: "OpenAI GPT-5.2",
-            kind: "model",
-        },
-        {
-            label: "anthropic/claude-sonnet-4-20250514",
-            command: "/model anthropic/claude-sonnet-4-20250514",
-            description: "Claude Sonnet 4",
-            kind: "model",
-        },
-        {
-            label: "google/gemini-2.5-pro",
-            command: "/model google/gemini-2.5-pro",
-            description: "Gemini 2.5 Pro",
-            kind: "model",
-        },
-        {
-            label: "google/gemini-2.5-flash",
-            command: "/model google/gemini-2.5-flash",
-            description: "Gemini 2.5 Flash",
-            kind: "model",
-        },
-        {
-            label: "workers_ai/@cf/moonshotai/kimi-k2.6",
-            command: "/model workers_ai/@cf/moonshotai/kimi-k2.6",
-            description: "Kimi K2.6",
-            kind: "model",
-        },
-        {
-            label: "workers_ai/@cf/moonshotai/kimi-k2.5",
-            command: "/model workers_ai/@cf/moonshotai/kimi-k2.5",
-            description: "Kimi K2.5",
-            kind: "model",
-        },
-    ];
-
     const THINKING_PRESETS: Suggestion[] = [
         {
             label: "none",
@@ -190,12 +137,14 @@
         // Model completion: /model query
         if (/^\/model(?:\s|$)/.test(trimmed)) {
             const query = trimmed.slice("/model".length).trim().toLowerCase();
-            return MODEL_PRESETS.filter(
-                (m) =>
-                    !query ||
-                    m.label.toLowerCase().includes(query) ||
-                    m.description.toLowerCase().includes(query),
-            );
+            return models
+                .filter((m: ModelChoice) => !query || m.label.toLowerCase().includes(query) || m.description.toLowerCase().includes(query))
+                .map((m: ModelChoice) => ({
+                    label: m.label,
+                    command: `/model ${m.label}`,
+                    description: m.description,
+                    kind: "model" as const,
+                }));
         }
 
         if (/^\/thinking(?:\s|$)/.test(trimmed)) {
@@ -423,7 +372,7 @@
             <div class="flex items-center gap-2">
                 {#if !composerText.trim()}
                     <CommandMenu
-                        {skills}
+                        {models}
                         {currentModel}
                         {currentThinking}
                         {onCommand}

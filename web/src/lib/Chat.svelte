@@ -67,6 +67,8 @@
         tone: "default" | "error" | "muted";
     };
 
+    import { listModelChoices, type ModelChoice } from "$lib/models";
+
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
     const initialSessionId = () => data?.initialSessionId ?? "";
@@ -112,6 +114,7 @@
         }>
     >([]);
     let toastId = 0;
+    let modelSearchQuery = $state("");
 
     function pushToast(
         message: string,
@@ -124,45 +127,6 @@
             toasts = toasts.filter((t) => t.id !== id);
         }, 3000);
     }
-
-    const MODEL_PRESETS = [
-        { label: "openai/gpt-5.4", provider: "openai", model: "gpt-5.4" },
-        {
-            label: "openai/gpt-5.4-mini",
-            provider: "openai",
-            model: "gpt-5.4-mini",
-        },
-        {
-            label: "openai/gpt-5.3-codex",
-            provider: "openai",
-            model: "gpt-5.3-codex",
-        },
-        {
-            label: "anthropic/claude-sonnet-4-20250514",
-            provider: "anthropic",
-            model: "claude-sonnet-4-20250514",
-        },
-        {
-            label: "google/gemini-2.5-pro",
-            provider: "google",
-            model: "gemini-2.5-pro",
-        },
-        {
-            label: "google/gemini-2.5-flash",
-            provider: "google",
-            model: "gemini-2.5-flash",
-        },
-        {
-            label: "workers_ai/@cf/moonshotai/kimi-k2.6",
-            provider: "workers_ai",
-            model: "@cf/moonshotai/kimi-k2.6",
-        },
-        {
-            label: "workers_ai/@cf/moonshotai/kimi-k2.5",
-            provider: "workers_ai",
-            model: "@cf/moonshotai/kimi-k2.5",
-        },
-    ];
 
     function toggleBlock(id: string) {
         expandedBlocks[id] = !expandedBlocks[id];
@@ -185,9 +149,11 @@
     }
     function openModelPicker() {
         modelPickerOpen = true;
+        modelSearchQuery = "";
     }
     function closeModelPicker() {
         modelPickerOpen = false;
+        modelSearchQuery = "";
     }
 
     let selectedSession = $derived(
@@ -197,6 +163,23 @@
     let canConnect = $derived(serverUrl.trim().length > 0);
     let canSend = $derived(
         Boolean(serverUrl && composerText.trim().length > 0),
+    );
+
+    let availableModels = $state<ModelChoice[]>([]);
+    
+    onMount(() => {
+        listModelChoices(["openai", "google", "anthropic", "workers_ai", "codex"])
+            .then((choices) => {
+                availableModels = choices;
+            })
+            .catch(console.error);
+    });
+
+    let filteredModels = $derived(
+        availableModels.filter((m) =>
+            m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+            m.description.toLowerCase().includes(modelSearchQuery.toLowerCase())
+        )
     );
 
     let currentModel = $derived(
@@ -228,6 +211,10 @@
             }
         }
         return path;
+    }
+
+    function shortenModel(name: string): string {
+        return name.replace(/^workers_ai\/@cf\//, '');
     }
 
     $effect(() => {
@@ -1611,6 +1598,7 @@
             {canSend}
             {isSending}
             skills={currentSkills}
+            models={availableModels}
             {currentModel}
             workspaceRoot={displayWorkspace}
             {reasoningInfo}
@@ -1626,68 +1614,52 @@
 <!-- Connect Modal -->
 {#if connectModalOpen}
     <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
     >
         <div
-            class="bg-bg-surface border border-border-default rounded-lg w-full max-w-sm flex flex-col overflow-hidden"
+            class="bg-bg-code border border-border-default rounded-[12px] w-full max-w-[320px] flex flex-col overflow-hidden"
         >
-            <div
-                class="flex items-center justify-between px-4 py-3 border-b border-border-default"
-            >
-                <span class="text-[14px] font-medium text-text-secondary"
-                    >Connect to Server</span
-                >
-                <button
-                    class="text-text-tertiary hover:text-text-secondary transition-colors"
-                    onclick={closeConnectModal}
-                    aria-label="Close"
-                >
-                    <svg
-                        class="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        ><path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M6 18L18 6M6 6l12 12"
-                        ></path></svg
+            <div class="py-1">
+                <div class="px-3 py-2 flex items-center justify-between border-b border-border-default mx-2">
+                    <span class="text-[13px] font-medium text-text-secondary">Connect to Server</span>
+                    <button
+                        class="text-text-tertiary hover:bg-bg-elevated rounded p-1 transition-colors flex-shrink-0"
+                        onclick={closeConnectModal}
+                        aria-label="Close"
                     >
-                </button>
-            </div>
-            <div class="p-4 space-y-4">
-                <div>
-                    <label
-                        for="connect-url"
-                        class="block text-[11px] font-mono text-text-tertiary mb-1.5 uppercase tracking-wider"
-                        >Server URL</label
-                    >
-                    <input
-                        id="connect-url"
-                        bind:value={serverUrl}
-                        placeholder="http://127.0.0.1:8080"
-                        onkeydown={(e) =>
-                            e.key === "Enter" &&
-                            canConnect &&
-                            !isConnecting &&
-                            (void connectToServer(), closeConnectModal())}
-                        class="w-full bg-bg-elevated border border-border-default focus:border-accent focus:outline-none rounded-lg px-3 py-2.5 text-[13px] text-text-secondary placeholder:text-text-muted"
-                    />
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
                 </div>
-                {#if connectionError}
-                    <div class="text-[12px] text-error">{connectionError}</div>
-                {/if}
-                <button
-                    onclick={() => {
-                        void connectToServer();
-                        closeConnectModal();
-                    }}
-                    disabled={!canConnect || isConnecting}
-                    class="w-full py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent text-text-on-accent font-medium rounded-lg transition-colors text-[13px]"
-                >
-                    {isConnecting ? "Connecting..." : "Connect"}
-                </button>
+                <div class="p-3">
+                    <div class="bg-bg-elevated border border-transparent focus-within:border-accent rounded-lg flex items-center px-3 py-2 transition-colors">
+                        <input
+                            id="connect-url"
+                            bind:value={serverUrl}
+                            placeholder="http://127.0.0.1:8080"
+                            onkeydown={(e) =>
+                                e.key === "Enter" &&
+                                canConnect &&
+                                !isConnecting &&
+                                (void connectToServer(), closeConnectModal())}
+                            class="w-full bg-transparent border-none text-[13px] text-text-secondary placeholder:text-text-tertiary focus:outline-none"
+                            autocomplete="off"
+                            autofocus
+                        />
+                    </div>
+                    {#if connectionError}
+                        <div class="text-[12px] text-error mt-2 px-1">{connectionError}</div>
+                    {/if}
+                    <button
+                        onclick={() => {
+                            void connectToServer();
+                            closeConnectModal();
+                        }}
+                        disabled={!canConnect || isConnecting}
+                        class="w-full mt-3 py-2 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent text-text-on-accent font-medium rounded-lg transition-colors text-[13px]"
+                    >
+                        {isConnecting ? "Connecting..." : "Connect"}
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -1728,21 +1700,33 @@
                     >
                 </button>
             </div>
+            <div class="px-4 py-2 border-b border-border-default">
+                <input
+                    type="text"
+                    bind:value={modelSearchQuery}
+                    placeholder="Search models..."
+                    class="w-full bg-bg-elevated border border-transparent focus:border-accent focus:outline-none rounded-lg px-3 py-2 text-[13px] text-text-secondary placeholder:text-text-tertiary transition-colors"
+                    autocomplete="off"
+                    autofocus
+                />
+            </div>
             <div class="overflow-y-auto py-1">
-                {#each MODEL_PRESETS as m (m.label)}
+                {#each filteredModels as m (m.label)}
                     <button
-                        onclick={() =>
-                            handleCommand("model", `${m.provider}/${m.model}`)}
+                        onclick={() => {
+                            void handleCommand("model", `${m.provider}/${m.model}`);
+                            closeModelPicker();
+                        }}
                         class="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-bg-elevated transition-colors"
                         type="button"
                     >
                         <div class="flex flex-col min-w-0">
                             <span class="text-[13px] text-text-secondary"
-                                >{m.label.replace(
-                                    /^workers_ai\/@cf\//,
-                                    "",
-                                )}</span
+                                >{shortenModel(m.label)}</span
                             >
+                            {#if m.description}
+                                <span class="text-[11px] text-text-tertiary truncate">{m.description}</span>
+                            {/if}
                         </div>
                         {#if m.label === currentModel}
                             <span
@@ -1751,6 +1735,10 @@
                             >
                         {/if}
                     </button>
+                {:else}
+                    <div class="px-4 py-4 text-center text-[13px] text-text-tertiary">
+                        No models found
+                    </div>
                 {/each}
             </div>
         </div>

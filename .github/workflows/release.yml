@@ -43,10 +43,40 @@ jobs:
         run: pnpm --filter chump-agent run build
 
       - name: Create release PR or publish npm
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm version-packages
           publish: pnpm release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        if: steps.changesets.outputs.published == 'true'
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Build Binaries
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          cd client
+          bun run build:bin
+
+      - name: Get Released Version
+        if: steps.changesets.outputs.published == 'true'
+        id: get_version
+        run: |
+          PUBLISHED_PACKAGES='${{ steps.changesets.outputs.publishedPackages }}'
+          VERSION=$(echo $PUBLISHED_PACKAGES | jq -r '.[] | select(.name == "chump-agent") | .version')
+          echo "tag=chump-agent@$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Upload Release Assets
+        if: steps.changesets.outputs.published == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: client/dist/bin/*
+          tag_name: ${{ steps.get_version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
