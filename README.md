@@ -35,13 +35,13 @@ Then run `chump connect` to set up your provider, and `chump` to start.
 ### Option 3: Prebuilt binary (no Node.js install needed)
 
 ```bash
-curl -fsSL https://onlocal.dev/install.sh | bash
+curl -fsSL https://chump.yaqeen.me/install.sh | bash
 ```
 
 For Windows:
 
 ```powershell
-irm https://onlocal.dev/install.ps1 | iex
+irm https://chump.yaqeen.me/install.ps1 | iex
 ```
 
 ### Option 4: Build from source
