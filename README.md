@@ -1,191 +1,108 @@
 # chump
 
 > A local coding assistant for your terminal.
-> TypeScript in the front, Python in the back.
 
-`chump` is a local coding assistant built around a faster TypeScript CLI and a Python backend powered by `ai-query`.
+`chump` pairs a fast TypeScript CLI with a Python backend to chat with your
+codebase, run commands, and edit files.
 
 ## Quick start
 
-For people installing `chump`:
-
-```bash
-npm install -g chump-agent
-chump connect
-chump
-```
-
-Requirements:
+### Requirements
 
 - Node.js `>=22`
 - `uv` on your `PATH`
 
-The npm package installs the `chump` binary. When `chump` needs a managed
-backend, it starts `chump-server` through `uvx`.
-
-For local development from this repository:
+### Option 1: npm (recommended)
 
 ```bash
+npm install -g chump-agent
+chump connect   # one-time provider setup
+chump           # start coding
+```
+
+### Option 2: npx / bunx / pnpm dlx
+
+```bash
+npx chump-agent
+# or
+bunx chump-agent
+# or
+pnpm dlx chump-agent
+```
+
+Then run `chump connect` to set up your provider, and `chump` to start.
+
+### Option 3: Prebuilt binary (no Node.js install needed)
+
+```bash
+curl -fsSL https://chump.yaqeen.me/install.sh | bash
+```
+
+For Windows:
+
+```powershell
+irm https://chump.yaqeen.me/install.ps1 | iex
+```
+
+### Option 4: Build from source
+
+```bash
+git clone https://github.com/Abdulmumin1/chump.git
+cd chump
 pnpm install
 cd server && uv sync
 cd ../client && pnpm run bin:install
 chump
 ```
 
-What `chump` does after that:
-
-1. Finds your workspace root by walking up to the nearest `.git`
-2. Starts or reuses a local server for that workspace
-3. Opens the interactive CLI
-4. Waits for your instructions
-5. Politely rummages through your repo like a licensed raccoon
-
-## CLI commands
+## Commands
 
 ```bash
-chump [-s <session-id>]
+chump                          # Start interactive CLI
+chump client                   # CLI only, no auto-start server
+chump -c <url>                 # Connect to existing server
+chump server                   # Run backend in foreground
+chump status                   # Show server health
+chump stop                     # Stop managed server
+chump share                    # Share session via tunnel
 ```
 
-Starts the interactive CLI and auto-starts a managed local server when needed.
+Resume or switch sessions:
 
 ```bash
-chump client [-s <session-id>]
+chump -s <session-id>
+cd ~/other-project && chump
 ```
 
-Starts the interactive CLI without auto-starting a server. Useful when the server already exists and you want to live dangerously, but in a very specific way.
+## Slash commands
 
-```bash
-chump -c http://127.0.0.1:8080 [-s <session-id>]
-```
+- `/help` — available commands
+- `/sessions` — saved sessions
+- `/session <id>` — resume
+- `/model` — change provider or model
+- `/agent <id>` — switch session
+- `/clear` — clear messages
+- `/new` — new session
+- `/quit`
 
-Connects to an existing server and never auto-starts a managed one.
+## Environment
 
-```bash
-chump server
-```
+- `CHUMP_PROVIDER` — model provider (`openai`, `google`, `anthropic`, `workers_ai`, `codex`)
+- `CHUMP_MODEL` — override default model
+- `CHUMP_MAX_STEPS` — max agent steps per turn (default: `64`)
+- `CHUMP_COMMAND_TIMEOUT` — shell command timeout in seconds (default: `120`)
+- `CHUMP_VERBOSE` — set to `0` to reduce output
+- `CHUMP_WORKSPACE_ROOT` — override workspace root
+- `CHUMP_DATA_DIR` — where `.chump/` data lives
 
-Runs the backend in the foreground for debugging.
+## Repo layout
 
-```bash
-chump status [-s <session-id>]
-```
+- `client/` — TypeScript CLI (`chump-agent` on npm)
+- `server/` — Python backend (`chump-server` on PyPI)
+- `web/` — SvelteKit web client
+- `ai-query/` — agent framework (local editable dependency)
+- `onlocal/` — tunneling solution
 
-Shows server health, managed server metadata, and current session status.
+## License
 
-Use `chump -s <session-id>` to jump straight back into a saved session.
-
-```bash
-chump stop
-```
-
-Stops the managed local server for the current workspace.
-
-## Interactive slash commands
-
-- `/help` — show available commands
-- `/sessions` — pick a saved session
-- `/session <id>` — jump back into an older session directly
-- `/model` — choose a connected provider and model
-- `/agent <id>` — switch agent/session id directly
-- `/clear` — clear stored messages for the current session
-- `/new` — start a fresh session
-- `/quit` — leave the chat and return to the loving embrace of your shell
-
-## Local files chump creates
-
-Inside your workspace, `chump` keeps its local state in:
-
-```text
-.chump/
-├── chump.sqlite3   # session history and event log
-├── server.json     # managed server metadata
-└── server.log      # backend logs
-```
-
-So yes, it keeps receipts.
-
-## Server routes
-
-If you want to script against the backend or just poke it with `curl` because that feels powerful:
-
-- `GET /health` — server health, config, versions, uptime, active session count
-- `GET /version` — Chump and `ai-query` versions
-- `GET /sessions` — stored session summaries
-- `GET /agent/{id}/messages` — stored messages for one session
-- `GET /agent/{id}/state` — current state for one session
-- `POST /agent/{id}/chat?stream=true` — streaming chat
-- `GET /agent/{id}/events` — session event stream
-
-## Useful environment variables
-
-### Client
-
-- `CHUMP_SERVER_URL` — connect to an existing server
-- `CHUMP_SESSION_ID` — force a specific session id
-- `CHUMP_AGENT_ID` — alias for session id
-
-### Server
-
-- `CHUMP_HOST` — default `127.0.0.1`
-- `CHUMP_PORT` — default `8080` when set manually, random free port when auto-managed
-- `CHUMP_WORKSPACE_ROOT` — workspace root override
-- `CHUMP_DATA_DIR` — where `.chump` data lives
-- `CHUMP_PROVIDER` — `openai`, `google`, `anthropic`, or `workers_ai`
-- `CHUMP_MODEL` — provider-specific default
-- `CHUMP_MAX_STEPS` — default `64`
-- `CHUMP_COMMAND_TIMEOUT` — default `120`
-- `CHUMP_MANAGED_SERVER_IDLE_TIMEOUT` — seconds before an auto-managed server exits after the last CLI disconnects; default `300`
-- `CHUMP_REASONING_EFFORT` — one of `none|minimal|low|medium|high|xhigh`
-- `CHUMP_REASONING_BUDGET` — optional reasoning budget
-- `CHUMP_VERBOSE` — default `1`
-
-## Workspace layout
-
-- `client/` — the TypeScript CLI package
-- `server/` — the Python backend package
-- `ai-query/` — local editable source for the agent framework during development
-- `.plans/` — local planning notes
-
-## Development
-
-### Run the backend directly
-
-```bash
-cd server
-uv sync
-uv run chump-server
-```
-
-### Run checks
-
-```bash
-pnpm typecheck
-pnpm smoke
-```
-
-### Local binary testing
-
-```bash
-cd client
-pnpm run bin:install
-chump
-```
-
-### Package builds
-
-```bash
-pnpm --filter chump-agent run build
-cd server && uv build
-```
-
-The CLI publishes to npm as `chump-agent` and exposes the `chump` binary. The
-server publishes to PyPI as `chump-server`; the CLI uses `uvx --from
-chump-server chump-server` when it is not running from a repository checkout.
-
-### Releases
-
-- npm releases are managed by Changesets through `.github/workflows/release.yml`
-- npm publishing uses npm trusted publishing/OIDC; configure the trusted publisher on npmjs.com for `release.yml`
-- PyPI publishing uses `pypa/gh-action-pypi-publish` when a `chump-server-v*` tag is pushed
-- Configure PyPI trusted publishing for `chump-server`
-- Python versioning uses `hatch-vcs` from tags like `chump-server-v0.1.0`.
+Apache-2.0
