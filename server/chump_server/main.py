@@ -8,6 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from ai_query.agents import AgentServer
+from ai_query.agents.server.types import AgentServerConfig
 from aiohttp import web
 
 from .agent import ChumpAgent, build_system_prompt
@@ -19,7 +20,17 @@ class ChumpServer(AgentServer):
     def __init__(self, config: ChumpConfig):
         resources = ResourceCatalog(config.workspace_root)
         ChumpAgent.configure(config, resources)
-        super().__init__(ChumpAgent)
+        # `allowed_origins=None` makes ai-query's CORS middleware reply with `*`
+        # for any origin, which is fine when the server is only reachable on
+        # loopback. As soon as it's exposed via an onlocal share the wildcard
+        # gets unreliable in practice — pin to a known list so the web client
+        # at chump.yaqeen.me always gets a precise Allow-Origin echo back.
+        agent_config = (
+            AgentServerConfig(allowed_origins=list(config.allowed_origins))
+            if config.allowed_origins
+            else None
+        )
+        super().__init__(ChumpAgent, config=agent_config)
         self.chump_config = config
         self.resources = resources
         self.started_at = time.time()
