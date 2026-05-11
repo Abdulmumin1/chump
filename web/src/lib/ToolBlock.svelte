@@ -298,6 +298,22 @@
         return output.join("\n").trim();
     }
 
+    // For read_file: human-readable offset/limit range, only when partial
+    let readFileRange = $derived.by(() => {
+        if (
+            block.originalToolName !== "read_file" &&
+            block.originalToolName !== "view_file"
+        ) return "";
+        const args = block.args ?? {};
+        const offset = typeof args.offset === "number" ? args.offset : null;
+        const limit = typeof args.limit === "number" ? args.limit : null;
+        if (offset === null && limit === null) return "";
+        const parts: string[] = [];
+        if (offset !== null) parts.push(`offset=${offset}`);
+        if (limit !== null) parts.push(`limit=${limit}`);
+        return parts.join(" ");
+    });
+
     let effectiveDiffPatch = $derived.by(() => {
         const toolName = String(block.originalToolName ?? "");
         const args = block.args ?? {};
@@ -668,6 +684,9 @@
                             ? block.toolName
                             : ""}</span
                     >
+                    {#if readFileRange}
+                        <span class="font-mono text-[11px] text-text-tertiary opacity-70">{readFileRange}</span>
+                    {/if}
                 {:else}
                     <span
                         class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-accent"
@@ -716,7 +735,9 @@
                         class="text-[12px] font-mono leading-relaxed {block.error
                             ? 'text-error'
                             : 'text-text-warning'}">{block.kind === "tool-call"
-                            ? stringifyValue(block.args)
+                            ? (block.originalToolName === "read_file" || block.originalToolName === "view_file"
+                                ? [block.args?.file_path ?? block.args?.path ?? "", readFileRange].filter(Boolean).join(" ")
+                                : stringifyValue(block.args))
                             : block.text}</pre>
                 </div>
 
