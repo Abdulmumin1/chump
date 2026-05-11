@@ -5,7 +5,6 @@ import {
   abortCurrentTurn,
   cancelLastSteering,
   clearMessages,
-  getEventLog,
   getHealth,
   getMessages,
   getSessions,
@@ -1102,8 +1101,7 @@ async function renderSwitchedSession(
   if (options.skipEmptyTranscript && response.messages.length === 0) {
     return;
   }
-  const eventLog = await getEventLog(config);
-  renderSessionTranscript(response.messages, eventLog.events);
+  renderSessionTranscript(response.messages);
 }
 
 function renderFooter(

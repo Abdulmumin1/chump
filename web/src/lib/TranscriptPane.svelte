@@ -46,7 +46,7 @@
             {:else if item.role === "reasoning"}
                 <div class="min-w-0 w-full">
                     {#each item.blocks as block, index (`${item.id}-${index}`)}
-                        {#if block.kind === "text" && block.text.trim()}
+                        {#if (block.kind === "text" || block.kind === "reasoning") && block.text.trim()}
                             <div
                                 class="p-2 transition-colors hover:bg-bg-code-block/60 min-w-0"
                             >
