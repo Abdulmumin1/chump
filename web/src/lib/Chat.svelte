@@ -116,6 +116,10 @@
     let toastId = 0;
     let modelSearchQuery = $state("");
 
+    let currentProvider = $derived(
+        status ? status.provider : ""
+    );
+
     function pushToast(
         message: string,
         type: "default" | "success" | "error" = "default",
@@ -168,7 +172,7 @@
     let availableModels = $state<ModelChoice[]>([]);
     
     onMount(() => {
-        listModelChoices(["openai", "google", "anthropic", "workers_ai", "codex"])
+        listModelChoices(["openai", "google", "anthropic", "workers_ai", "codex", "deepseek", "groq", "xai", "bedrock", "openrouter", "llama"])
             .then((choices) => {
                 availableModels = choices;
             })
@@ -177,8 +181,9 @@
 
     let filteredModels = $derived(
         availableModels.filter((m) =>
-            m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-            m.description.toLowerCase().includes(modelSearchQuery.toLowerCase())
+            (!currentProvider || m.provider === currentProvider) &&
+            (m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+             m.description.toLowerCase().includes(modelSearchQuery.toLowerCase()))
         )
     );
 
@@ -302,6 +307,19 @@
         } catch (error) {
             connectionError = toErrorMessage(error);
         }
+    }
+
+    function patchActiveSession(state: ChumpState): void {
+        sessions = sessions.map((s) =>
+            s.id === activeSessionId
+                ? {
+                      ...s,
+                      title: state.title ?? s.title,
+                      updated_at: state.updated_at ?? s.updated_at,
+                      last_user_goal: state.last_user_goal ?? s.last_user_goal,
+                  }
+                : s,
+        );
     }
 
     async function selectSession(sessionId: string): Promise<void> {
@@ -444,6 +462,7 @@
             typeof payload.state === "object"
         ) {
             sessionState = payload.state as ChumpState;
+            patchActiveSession(payload.state as ChumpState);
         }
 
         if (event.event === "reasoning") {
@@ -488,10 +507,6 @@
             if (isCurrentStream(sessionId, currentStreamToken)) {
                 await scrollTranscriptToEnd();
             }
-        }
-
-        if (event.event === "state") {
-            void refreshSessionsList();
         }
     }
 
@@ -1600,6 +1615,7 @@
             skills={currentSkills}
             models={availableModels}
             {currentModel}
+            {currentProvider}
             workspaceRoot={displayWorkspace}
             {reasoningInfo}
             {steeringQueue}
