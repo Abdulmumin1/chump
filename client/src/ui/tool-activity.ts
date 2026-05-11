@@ -31,13 +31,20 @@ export class ToolActivityRenderer {
   renderToolCall(payload: Record<string, unknown>): void {
     const toolName = readToolName(payload);
     const label = displayToolName(toolName);
-    const renderedArgs = formatToolArgs(toolName, payload.args ?? payload.payload);
+    const renderedArgs = formatToolArgs(
+      toolName,
+      payload.args ?? payload.payload,
+    );
     if (toolName === "bash") {
       this.writeLine(`\n${renderCommand(renderedArgs)}`);
       this.activity = true;
       return;
     }
-    if (toolName === "read_file" || toolName === "web_fetch" || toolName === "website") {
+    if (
+      toolName === "read_file" ||
+      toolName === "web_fetch" ||
+      toolName === "website"
+    ) {
       this.writeLine(`\n${renderToolDone(label, renderedArgs)}`);
       this.activity = true;
       this.pendingTools.push({ name: toolName, args: renderedArgs });
@@ -48,9 +55,15 @@ export class ToolActivityRenderer {
     // is not available).
     const argsDiff = readArgsDiffs(toolName, payload.args ?? payload.payload);
     if (argsDiff.length > 0) {
-      this.writeLine(`\n${argsDiff.map((diff) => renderFileEditDiff(diff)).join("\n")}`);
+      this.writeLine(
+        `\n${argsDiff.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
+      );
       this.activity = true;
-      this.pendingTools.push({ name: toolName, args: renderedArgs, preRendered: true });
+      this.pendingTools.push({
+        name: toolName,
+        args: renderedArgs,
+        preRendered: true,
+      });
       return;
     }
     this.pendingTools.push({ name: toolName, args: renderedArgs });
@@ -62,9 +75,13 @@ export class ToolActivityRenderer {
     const ok =
       typeof payload.status === "string"
         ? payload.status
-        : payload.ok === true ? "ok" : "error";
+        : payload.ok === true
+          ? "ok"
+          : "error";
     const preview =
-      typeof payload.preview === "string" ? payload.preview : compactJson(payload);
+      typeof payload.preview === "string"
+        ? payload.preview
+        : compactJson(payload);
     if (toolName === "bash") {
       this.writeLine(renderCommandOutput(ok, truncatePreview(preview, 500)));
       this.activity = true;
@@ -75,12 +92,16 @@ export class ToolActivityRenderer {
     if (
       ok === "ok" &&
       diffs.length > 0 &&
-      (toolName === "write_file" || toolName === "replace_in_file" || toolName === "apply_patch")
+      (toolName === "write_file" ||
+        toolName === "replace_in_file" ||
+        toolName === "apply_patch")
     ) {
       this.takePendingTool(toolName);
       // Structured metadata diffs are authoritative — always render them.
       // (During live streaming, this replaces the args-based pre-render.)
-      this.writeLine(`\n${diffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`);
+      this.writeLine(
+        `\n${diffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
+      );
       this.activity = true;
       return;
     }
@@ -91,7 +112,12 @@ export class ToolActivityRenderer {
       this.activity = true;
       return;
     }
-    if (ok === "ok" && (toolName === "read_file" || toolName === "web_fetch" || toolName === "website")) {
+    if (
+      ok === "ok" &&
+      (toolName === "read_file" ||
+        toolName === "web_fetch" ||
+        toolName === "website")
+    ) {
       return;
     }
 
@@ -138,6 +164,8 @@ function displayToolName(name: string): string {
   }
   if (name === "website") {
     return "web search";
+  } else if (name === "read_file") {
+    return "Read";
   }
   return name;
 }
@@ -155,7 +183,9 @@ export function formatToolArgs(toolName: string, value: unknown): string {
     const range = [
       offset !== undefined ? `offset=${offset}` : null,
       limit !== undefined ? `limit=${limit}` : null,
-    ].filter(Boolean).join(" ");
+    ]
+      .filter(Boolean)
+      .join(" ");
     return [path, range].filter(Boolean).join(" ");
   }
 
@@ -240,8 +270,10 @@ function readFileEditDiff(value: unknown): FileEditDiffPayload | null {
     changes,
     lines,
     truncated: diff.truncated === true,
-    shownChanges: typeof diff.shown_changes === "number" ? diff.shown_changes : undefined,
-    totalChanges: typeof diff.total_changes === "number" ? diff.total_changes : undefined,
+    shownChanges:
+      typeof diff.shown_changes === "number" ? diff.shown_changes : undefined,
+    totalChanges:
+      typeof diff.total_changes === "number" ? diff.total_changes : undefined,
   };
 }
 
@@ -269,7 +301,9 @@ function readFileEditChange(value: unknown): {
   };
 }
 
-function readFileEditDiffs(payload: Record<string, unknown>): FileEditDiffPayload[] {
+function readFileEditDiffs(
+  payload: Record<string, unknown>,
+): FileEditDiffPayload[] {
   const metadata = payload.metadata;
   if (!metadata || typeof metadata !== "object") {
     return [];

@@ -441,12 +441,12 @@ function renderDiffChange(change: FileEditChange): string {
   if (change.type === "add") {
     return bg(
       palette.diffAddBg,
-      `${muted(number)} ${success("+ ")}${fg(palette.successMuted, padDiffContent(content))}`,
+      `${muted(number)} ${success("+ ")}${fg(palette.successMuted, content)}`,
     );
   }
   return bg(
     palette.diffRemoveBg,
-    `${muted(number)} ${danger("- ")}${fg(palette.dangerMuted, padDiffContent(content))}`,
+    `${muted(number)} ${danger("- ")}${fg(palette.dangerMuted, content)}`,
   );
 }
 
@@ -473,12 +473,12 @@ function renderDiffLinesWithNumbers(lines: string[]): string[] {
     if (line.startsWith("+")) {
       const content = line.slice(1) || " ";
       const num = `${newLine}`.padStart(4, " ");
-      out.push(bg(palette.diffAddBg, `${muted(num)} ${success("+ ")}${fg(palette.successMuted, padDiffContent(content))}`));
+      out.push(bg(palette.diffAddBg, `${muted(num)} ${success("+ ")}${fg(palette.successMuted, content)}`));
       newLine += 1;
     } else if (line.startsWith("-")) {
       const content = line.slice(1) || " ";
       const num = `${oldLine}`.padStart(4, " ");
-      out.push(bg(palette.diffRemoveBg, `${muted(num)} ${danger("- ")}${fg(palette.dangerMuted, padDiffContent(content))}`));
+      out.push(bg(palette.diffRemoveBg, `${muted(num)} ${danger("- ")}${fg(palette.dangerMuted, content)}`));
       oldLine += 1;
     } else {
       // context line (space-prefixed or bare)
@@ -491,11 +491,6 @@ function renderDiffLinesWithNumbers(lines: string[]): string[] {
   }
 
   return out;
-}
-
-function padDiffContent(value: string): string {
-  const minWidth = 72;
-  return value.length >= minWidth ? value : value.padEnd(minWidth, " ");
 }
 
 export function renderCommand(command: string): string {

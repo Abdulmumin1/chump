@@ -34,7 +34,9 @@
         totalChanges?: number;
     };
 
-    function readStructuredDiffChange(value: unknown): StructuredDiffChange | null {
+    function readStructuredDiffChange(
+        value: unknown,
+    ): StructuredDiffChange | null {
         if (!value || typeof value !== "object") return null;
         const change = value as Record<string, unknown>;
         if (
@@ -45,8 +47,10 @@
         }
         return {
             type: change.type,
-            oldLine: typeof change.old_line === "number" ? change.old_line : null,
-            newLine: typeof change.new_line === "number" ? change.new_line : null,
+            oldLine:
+                typeof change.old_line === "number" ? change.old_line : null,
+            newLine:
+                typeof change.new_line === "number" ? change.new_line : null,
             text: change.text,
         };
     }
@@ -66,13 +70,16 @@
                   .map(readStructuredDiffChange)
                   .filter((c): c is StructuredDiffChange => c !== null)
             : undefined;
-        const kind = ["add", "update", "delete", "move"].includes(String(diff.kind))
+        const kind = ["add", "update", "delete", "move"].includes(
+            String(diff.kind),
+        )
             ? (String(diff.kind) as StructuredDiff["kind"])
             : undefined;
         return {
             path: diff.path,
             kind,
-            sourcePath: typeof diff.source_path === "string" ? diff.source_path : null,
+            sourcePath:
+                typeof diff.source_path === "string" ? diff.source_path : null,
             added: diff.added,
             removed: diff.removed,
             changes,
@@ -303,7 +310,8 @@
         if (
             block.originalToolName !== "read_file" &&
             block.originalToolName !== "view_file"
-        ) return "";
+        )
+            return "";
         const args = block.args ?? {};
         const offset = typeof args.offset === "number" ? args.offset : null;
         const limit = typeof args.limit === "number" ? args.limit : null;
@@ -328,7 +336,10 @@
                       "file_diff",
                   ]);
 
-        if (!directPatch && !["apply_patch", "write_file", "create_file"].includes(toolName)) {
+        if (
+            !directPatch &&
+            !["apply_patch", "write_file", "create_file"].includes(toolName)
+        ) {
             return "";
         }
 
@@ -337,15 +348,16 @@
             typeof args?.content === "string"
         ) {
             const fileName = String(
-                args?.file_path ??
-                    args?.path ??
-                    block.toolName ??
-                    "file",
+                args?.file_path ?? args?.path ?? block.toolName ?? "file",
             );
             return makeSyntheticWritePatch(fileName, args.content);
         }
 
-        if (toolName === "apply_patch" && typeof directPatch === "string" && directPatch) {
+        if (
+            toolName === "apply_patch" &&
+            typeof directPatch === "string" &&
+            directPatch
+        ) {
             return normalizeApplyPatch(directPatch);
         }
 
@@ -353,17 +365,16 @@
             return directPatch;
         }
 
-        if (
-            toolName === "apply_patch" &&
-            typeof block.text === "string"
-        ) {
+        if (toolName === "apply_patch" && typeof block.text === "string") {
             return normalizeApplyPatch(block.text);
         }
 
         return "";
     });
 
-    let effectiveStructuredDiffs = $derived(readStructuredDiffs(block.metadata));
+    let effectiveStructuredDiffs = $derived(
+        readStructuredDiffs(block.metadata),
+    );
     let hasStructuredDiffs = $derived(effectiveStructuredDiffs.length > 0);
 
     let shouldRenderDiff = $derived(
@@ -402,10 +413,10 @@
 
     let diffFileNames = $derived.by(() => {
         if (hasStructuredDiffs) {
-            return effectiveStructuredDiffs.map(d => d.path);
+            return effectiveStructuredDiffs.map((d) => d.path);
         }
         if (diffFiles.length > 0) {
-            return diffFiles.map(f => f.name);
+            return diffFiles.map((f) => f.name);
         }
         return [];
     });
@@ -445,7 +456,9 @@
 
     $effect(() => {
         if (!browser || !shouldRenderDiff || !diffExpanded) {
-            return () => { cleanupDiffs(); };
+            return () => {
+                cleanupDiffs();
+            };
         }
 
         const files = diffFiles;
@@ -460,10 +473,10 @@
                 }
 
                 const instance = new FileDiff({
-                    theme: "gruvbox-dark-hard",
-                    themeType: "dark",
+                    theme: "pierre-dark",
+                    themeType: "system",
                     diffStyle: "unified",
-                    diffIndicators: "classic",
+                    diffIndicators: "bars",
                     hunkSeparators: "line-info-basic",
                     overflow: "scroll",
                 });
@@ -487,17 +500,22 @@
     <div class="my-4 space-y-3">
         <button
             class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
-            onclick={() => { diffExpanded = !diffExpanded; }}
+            onclick={() => {
+                diffExpanded = !diffExpanded;
+            }}
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 <span
-                    class="font-mono text-[13px] font-semibold tracking-wide text-accent"
-                >{block.originalToolName === "write_file" ||
-                  block.originalToolName === "create_file"
-                    ? "Write file"
-                    : "Edited"}</span>
+                    class="font-mono text-[11px] font-semibold tracking-wide text-accent"
+                    >{block.originalToolName === "write_file" ||
+                    block.originalToolName === "create_file"
+                        ? "Write file"
+                        : "Edited"}</span
+                >
                 {#if diffFileNamesDisplay}
-                    <span class="max-w-[300px] truncate font-mono text-[12px] text-text-secondary opacity-80">
+                    <span
+                        class="max-w-[300px] truncate font-mono text-[12px] text-text-secondary opacity-80"
+                    >
                         {diffFileNamesDisplay}
                     </span>
                 {/if}
@@ -512,18 +530,23 @@
             <div
                 class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
             >
-                <span class="font-mono text-[11px]">{block.originalToolName || "tool"}</span>
+                <span class="font-mono text-[11px]"
+                    >{block.originalToolName || "tool"}</span
+                >
                 <svg
-                    class="h-4 w-4 transition-transform duration-200 {diffExpanded ? 'rotate-180' : ''}"
+                    class="h-4 w-4 transition-transform duration-200 {diffExpanded
+                        ? 'rotate-180'
+                        : ''}"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
-                ><path
+                    ><path
                         stroke-linecap="round"
                         stroke-linejoin="round"
                         stroke-width="2"
                         d="M19 9l-7 7-7-7"
-                    ></path></svg>
+                    ></path></svg
+                >
             </div>
         </button>
 
@@ -566,8 +589,8 @@
                                     <span
                                         class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-text-tertiary"
                                         >{change.type === "add"
-                                            ? change.newLine ?? ""
-                                            : change.oldLine ?? ""}</span
+                                            ? (change.newLine ?? "")
+                                            : (change.oldLine ?? "")}</span
                                     >
                                     <span
                                         class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
@@ -666,37 +689,40 @@
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[13px] font-semibold tracking-wide text-accent"
+                        class="font-mono text-[11px] font-semibold tracking-wide text-accent"
                         >$</span
                     >
                     <span
-                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[13px] text-text-secondary"
+                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[11px] text-text-secondary"
                         >{(block.toolName || "").replace("$ ", "")}</span
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
                         >Read file</span
                     >
                     <span
-                        class="truncate font-mono text-[13px] text-text-secondary opacity-90"
+                        class="truncate font-mono text-[10px] text-text-secondary opacity-90"
                         >{block.toolName !== block.originalToolName
                             ? block.toolName
                             : ""}</span
                     >
                     {#if readFileRange}
-                        <span class="font-mono text-[11px] text-text-tertiary opacity-70">{readFileRange}</span>
+                        <span
+                            class="font-mono text-[11px] text-text-tertiary opacity-70"
+                            >{readFileRange}</span
+                        >
                     {/if}
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
                         >{block.originalToolName ||
                             block.toolName ||
                             "tool"}</span
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[13px] text-text-secondary opacity-80"
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary opacity-80"
                             >{block.toolName}</span
                         >
                     {/if}
@@ -706,13 +732,10 @@
             <div
                 class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
             >
-                <span class="font-mono text-[11px]"
-                    >{block.originalToolName || "tool"}</span
-                >
                 <svg
                     class="h-4 w-4 transition-transform duration-200 {expanded
                         ? 'rotate-180'
-                        : ''}"
+                        : '-rotate-90'}"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -735,9 +758,17 @@
                         class="text-[12px] font-mono leading-relaxed {block.error
                             ? 'text-error'
                             : 'text-text-warning'}">{block.kind === "tool-call"
-                            ? (block.originalToolName === "read_file" || block.originalToolName === "view_file"
-                                ? [block.args?.file_path ?? block.args?.path ?? "", readFileRange].filter(Boolean).join(" ")
-                                : stringifyValue(block.args))
+                            ? block.originalToolName === "read_file" ||
+                              block.originalToolName === "view_file"
+                                ? [
+                                      block.args?.file_path ??
+                                          block.args?.path ??
+                                          "",
+                                      readFileRange,
+                                  ]
+                                      .filter(Boolean)
+                                      .join(" ")
+                                : stringifyValue(block.args)
                             : block.text}</pre>
                 </div>
 

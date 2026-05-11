@@ -87,7 +87,7 @@
                                             itemIndex ===
                                                 transcript.length - 1))
                                             ? 'rotate-180'
-                                            : ''}"
+                                            : '-rotate-90'}"
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"
