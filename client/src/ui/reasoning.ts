@@ -1,8 +1,4 @@
-import {
-  renderThinkingBlock,
-  renderThinkingLabel,
-  renderThinkingText,
-} from "./render.ts";
+import { renderMuted, renderThinkingBlock, renderThinkingLabel } from "./render.ts";
 import { writeOutput } from "./terminal.ts";
 
 export class ReasoningRenderer {
@@ -38,8 +34,13 @@ export class ReasoningRenderer {
 
 export class LiveReasoningStream {
   private readonly onPreview: ((preview: string | null) => void) | null;
-  private plainText = "";
-  private previewTimer: NodeJS.Timeout | null = null;
+  private buffer = "";
+  private lastPreview = "";
+  private lastUpdateTime = 0;
+  private updateTimer: NodeJS.Timeout | null = null;
+  private readonly previewLineLimit = 1;
+  private readonly previewCharLimit = 320;
+  private readonly minPreviewInterval = 160;
 
   constructor(options: { onPreview?: ((preview: string | null) => void) | null } = {}) {
     this.onPreview = options.onPreview ?? null;
@@ -51,57 +52,78 @@ export class LiveReasoningStream {
       return;
     }
 
-    const merged = mergeReasoningText(this.plainText, text);
-    if (merged === this.plainText) {
+    const next = mergeReasoningText(this.buffer, text);
+    if (next === this.buffer) {
       return;
     }
 
-    this.plainText = merged;
+    this.buffer = next;
     this.schedulePreview();
   }
 
   finish(): void {
-    this.clearPreviewTimer();
+    if (this.updateTimer) {
+      clearTimeout(this.updateTimer);
+      this.updateTimer = null;
+    }
     this.onPreview?.(null);
 
-    const text = cleanReasoningText(this.plainText);
-    if (text) {
-      const block = renderThinkingBlock(null, text);
+    const content = this.buffer.trim();
+    if (content) {
+      const block = renderThinkingBlock(null, this.buffer);
       writeOutput(`\n${block.join("\n")}\n\n`);
     }
 
     this.reset();
   }
 
+  private reset(): void {
+    this.buffer = "";
+    this.lastPreview = "";
+    this.lastUpdateTime = 0;
+    if (this.updateTimer) {
+      clearTimeout(this.updateTimer);
+      this.updateTimer = null;
+    }
+  }
+
   private schedulePreview(): void {
-    if (this.previewTimer) {
+    if (!this.onPreview) {
       return;
     }
-    this.previewTimer = setTimeout(() => {
-      this.previewTimer = null;
-      this.onPreview?.(this.preview());
-    }, 120);
-  }
-
-  private preview(): string | null {
-    const text = cleanReasoningPreview(this.plainText);
-    if (!text) {
-      return null;
+    if (this.updateTimer) {
+      return;
     }
-    const clipped = text.length > 96 ? `...${text.slice(-93)}` : text;
-    return `${renderThinkingLabel()} ${renderThinkingText(clipped)}`;
-  }
 
-  private clearPreviewTimer(): void {
-    if (this.previewTimer) {
-      clearTimeout(this.previewTimer);
-      this.previewTimer = null;
+    const now = Date.now();
+    const timeSinceLastUpdate = now - this.lastUpdateTime;
+    if (timeSinceLastUpdate >= this.minPreviewInterval) {
+      this.updatePreview();
+      return;
     }
+
+    this.updateTimer = setTimeout(
+      () => this.updatePreview(),
+      this.minPreviewInterval - timeSinceLastUpdate,
+    );
   }
 
-  private reset(): void {
-    this.clearPreviewTimer();
-    this.plainText = "";
+  private updatePreview(): void {
+    if (this.updateTimer) {
+      clearTimeout(this.updateTimer);
+      this.updateTimer = null;
+    }
+
+    const preview = renderReasoningPreview(
+      this.buffer,
+      this.previewLineLimit,
+      this.previewCharLimit,
+    );
+    if (preview && preview !== this.lastPreview) {
+      this.lastPreview = preview;
+      this.onPreview?.(preview);
+    }
+    this.lastUpdateTime = Date.now();
   }
 }
 
@@ -166,10 +188,6 @@ function cleanReasoningText(value: string): string {
     .join("\n");
 }
 
-function cleanReasoningPreview(value: string): string {
-  return cleanReasoningText(value).replace(/\s+/g, " ").trim();
-}
-
 function dedupeAdjacentWords(value: string): string {
   const words = value.split(" ");
   const cleaned: string[] = [];
@@ -185,4 +203,30 @@ function dedupeAdjacentWords(value: string): string {
 
 function stripWord(value: string): string {
   return value.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, "");
+}
+
+function renderReasoningPreview(
+  value: string,
+  lineLimit: number,
+  charLimit: number,
+): string {
+  const cleaned = cleanReasoningText(value);
+  if (!cleaned) {
+    return "";
+  }
+
+  const clipped =
+    cleaned.length > charLimit
+      ? `...${cleaned.slice(cleaned.length - charLimit).trimStart()}`
+      : cleaned;
+  const lines = clipped
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const visible = lines.slice(-lineLimit).join("\n");
+  if (!visible) {
+    return "";
+  }
+
+  return `${renderThinkingLabel()} ${renderMuted(visible.replace(/\s+/g, " "))}`;
 }

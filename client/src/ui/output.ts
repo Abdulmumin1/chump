@@ -5,7 +5,7 @@ import {
   renderUserMessage,
 } from "./render.ts";
 import { ReasoningRenderer } from "./reasoning.ts";
-import { writeOutput, writeOutputLine } from "./terminal.ts";
+import { writeOutput, writeOutputLine, withDraftPaused } from "./terminal.ts";
 import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import type {
   ChumpHealth,
@@ -20,28 +20,36 @@ const MAX_REPLAY_MESSAGES = 80;
 export function renderStoredMessages(
   messages: Array<{ role: string; content: unknown }>,
 ): void {
-  if (messages.length === 0) {
-    writeOutputLine("(no stored messages)");
-    return;
-  }
+  // Pause the input draft during message rendering to prevent
+  // input box borders/controls from mixing with the content
+  withDraftPaused(() => {
+    if (messages.length === 0) {
+      writeOutputLine("(no stored messages)");
+      return;
+    }
 
-  for (const [index, message] of messages.entries()) {
-    writeOutputLine(`[${index + 1}] ${message.role}`);
-    writeOutputLine(formatStoredContent(message.content));
-  }
+    for (const [index, message] of messages.entries()) {
+      writeOutputLine(`[${index + 1}] ${message.role}`);
+      writeOutputLine(formatStoredContent(message.content));
+    }
+  });
 }
 
 export function renderSessionTranscript(
   messages: Array<{ role: string; content: unknown }>,
   events: StoredEvent[] = [],
 ): void {
-  if (hasExactTranscript(events)) {
-    const replay = recentEventWindow(events);
-    renderEventTimeline(replay.events, replay.skipped);
-    return;
-  }
+  // Pause the input draft during transcript rendering to prevent
+  // input box borders/controls from mixing with the session content
+  withDraftPaused(() => {
+    if (hasExactTranscript(events)) {
+      const replay = recentEventWindow(events);
+      renderEventTimeline(replay.events, replay.skipped);
+      return;
+    }
 
-  renderApproximateTranscript(recentMessages(messages), events);
+    renderApproximateTranscript(recentMessages(messages), events);
+  });
 }
 
 function renderApproximateTranscript(
@@ -202,18 +210,22 @@ export function renderSessions(
     last_user_goal: string | null;
   }>,
 ): void {
-  if (sessions.length === 0) {
-    writeOutputLine("(no stored sessions)");
-    return;
-  }
+  // Pause the input draft during session list rendering to prevent
+  // input box borders/controls from mixing with the content
+  withDraftPaused(() => {
+    if (sessions.length === 0) {
+      writeOutputLine("(no stored sessions)");
+      return;
+    }
 
-  writeOutputLine(renderMuted(`${"Updated".padEnd(18, " ")}${"Created".padEnd(18, " ")}Conversation`));
-  for (const session of sessions) {
-    const title = sessionTitle(session);
-    const updated = session.updated_at ? formatSessionTime(session.updated_at) : "-";
-    const created = session.created_at ? formatSessionTime(session.created_at) : "-";
-    writeOutputLine(`${renderMuted(updated.padEnd(18, " "))}${renderMuted(created.padEnd(18, " "))}${title}`);
-  }
+    writeOutputLine(renderMuted(`${"Updated".padEnd(18, " ")}${"Created".padEnd(18, " ")}Conversation`));
+    for (const session of sessions) {
+      const title = sessionTitle(session);
+      const updated = session.updated_at ? formatSessionTime(session.updated_at) : "-";
+      const created = session.created_at ? formatSessionTime(session.created_at) : "-";
+      writeOutputLine(`${renderMuted(updated.padEnd(18, " "))}${renderMuted(created.padEnd(18, " "))}${title}`);
+    }
+  });
 }
 
 export function renderServerStatus(
@@ -221,19 +233,23 @@ export function renderServerStatus(
   status: ChumpStatus,
   metadata: ManagedServerMetadata | null,
 ): void {
-  if (!metadata) {
+  // Pause the input draft during server status rendering to prevent
+  // input box borders/controls from mixing with the content
+  withDraftPaused(() => {
+    if (!metadata) {
+      writeOutputLine(JSON.stringify({
+        health,
+        agent: status,
+      }, null, 2));
+      return;
+    }
+
     writeOutputLine(JSON.stringify({
+      server: metadata,
       health,
       agent: status,
     }, null, 2));
-    return;
-  }
-
-  writeOutputLine(JSON.stringify({
-    server: metadata,
-    health,
-    agent: status,
-  }, null, 2));
+  });
 }
 
 function renderUserContent(content: unknown): boolean {

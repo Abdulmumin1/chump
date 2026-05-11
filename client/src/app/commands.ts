@@ -8,7 +8,7 @@ import type {
   SlashCommandSuggestion,
   SlashCommandSuggestionView,
 } from "../core/types.ts";
-import { writeOutputLine } from "../ui/terminal.ts";
+import { writeOutputLine, withDraftPaused } from "../ui/terminal.ts";
 
 const ROOT_COMMANDS: Array<{
   label: string;
@@ -380,14 +380,18 @@ export function parseSlashCommand(input: string): {
 }
 
 export function printHelp(): void {
-  for (const command of ROOT_COMMANDS) {
-    writeOutputLine(command.label);
-  }
-  writeOutputLine("/session <id>");
-  writeOutputLine("/agent <id>");
-  writeOutputLine("/share [status|stop]");
-  writeOutputLine("/skill:<name> [args]");
-  writeOutputLine("/thinking <none|low|high|xhigh>");
+  // Pause the input draft during help rendering to prevent
+  // input box borders/controls from mixing with the content
+  withDraftPaused(() => {
+    for (const command of ROOT_COMMANDS) {
+      writeOutputLine(command.label);
+    }
+    writeOutputLine("/session <id>");
+    writeOutputLine("/agent <id>");
+    writeOutputLine("/share [status|stop]");
+    writeOutputLine("/skill:<name> [args]");
+    writeOutputLine("/thinking <none|low|high|xhigh>");
+  });
 }
 
 export function switchAgent(

@@ -37,6 +37,13 @@ const PROVIDERS = {
       { key: "GOOGLE_API_KEY", label: "Google API key", secret: true },
     ],
   },
+  deepseek: {
+    label: "DeepSeek",
+    defaultModel: "deepseek-v4-pro",
+    fields: [
+      { key: "DEEPSEEK_API_KEY", label: "DeepSeek API key", secret: true },
+    ],
+  },
   workers_ai: {
     label: "Cloudflare Workers AI",
     defaultModel: "@cf/moonshotai/kimi-k2.5",
@@ -145,7 +152,6 @@ async function promptProvider(): Promise<ProviderId> {
     options: Object.entries(PROVIDERS).map(([id, provider]) => ({
       value: id,
       label: provider.label,
-      hint: provider.defaultModel,
     })),
   });
   cancelIfNeeded(value);

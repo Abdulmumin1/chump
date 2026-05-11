@@ -23,6 +23,59 @@ DEFAULT_MODELS = {
     "google": "gemini-2.5-flash",
     "anthropic": "claude-sonnet-4-20250514",
     "workers_ai": "@cf/moonshotai/kimi-k2.5",
+    "deepseek": "deepseek-v4-pro",
+}
+
+PROVIDER_MODELS = {
+    "codex": {
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5-codex",
+    },
+    "openai": {
+        "gpt-5.5",
+        "gpt-5.4-pro",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.3-codex",
+        "gpt-5.2",
+        "gpt-5.2-pro",
+        "gpt-5.2-chat-latest",
+        "gpt-5.1",
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-5-codex",
+    },
+    "google": {
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash-lite",
+    },
+    "anthropic": {
+        "claude-sonnet-4-20250514",
+    },
+    "workers_ai": {
+        "@cf/zai-org/glm-4.7-flash",
+        "@cf/nvidia/nemotron-3-120b-a12b",
+        "@cf/moonshotai/kimi-k2.5",
+        "@cf/moonshotai/kimi-k2.6",
+    },
+    "deepseek": {
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+    },
 }
 
 
@@ -60,17 +113,21 @@ def load_config() -> ChumpConfig:
         or "openai"
     )
 
+    env_model = os.environ.get("CHUMP_MODEL")
+    auth_model = string_value(auth_config.get("model"))
+    model = normalize_model_name(
+        provider,
+        env_model or auth_model or DEFAULT_MODELS[provider],
+        strict=env_model is not None,
+    )
+
     return ChumpConfig(
         host=os.environ.get("CHUMP_HOST", "127.0.0.1"),
         port=int(os.environ.get("CHUMP_PORT", "8080")),
         workspace_root=workspace_root,
         data_dir=data_dir,
         provider=provider,
-        model=(
-            os.environ.get("CHUMP_MODEL")
-            or string_value(auth_config.get("model"))
-            or DEFAULT_MODELS[provider]
-        ),
+        model=model,
         max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
         command_timeout=int(os.environ.get("CHUMP_COMMAND_TIMEOUT", "120")),
         managed_idle_timeout=int_value(
@@ -221,7 +278,28 @@ def normalize_provider_name(value: str) -> str:
         return "workers_ai"
     if normalized in {"chatgpt", "openai_codex"}:
         return "codex"
+    if normalized in {"deepseek"}:
+        return "deepseek"
     if normalized not in DEFAULT_MODELS:
         valid = ", ".join(sorted(DEFAULT_MODELS))
         raise ValueError(f"invalid CHUMP_PROVIDER={value!r}; expected one of: {valid}")
     return normalized
+
+
+def normalize_model_name(
+    provider: str,
+    model: str,
+    *,
+    strict: bool = True,
+) -> str:
+    normalized_provider = normalize_provider_name(provider)
+    normalized_model = model.strip()
+    allowed = PROVIDER_MODELS[normalized_provider]
+    if normalized_model in allowed:
+        return normalized_model
+    if not strict:
+        return DEFAULT_MODELS[normalized_provider]
+    valid = ", ".join(sorted(allowed))
+    raise ValueError(
+        f"invalid model={model!r} for provider={normalized_provider!r}; expected one of: {valid}"
+    )

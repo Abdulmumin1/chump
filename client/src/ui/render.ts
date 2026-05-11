@@ -169,24 +169,38 @@ function renderMarkdownLine(line: string, inCodeBlock: boolean): string {
     return `${indent}${accent(trimmedStart)}`;
   }
 
+  // Horizontal rules: --- / *** / ___ (3+ chars, optionally spaced)
+  if (/^(\*\s*){3,}$|^(-\s*){3,}$|^(_\s*){3,}$/.test(trimmedStart)) {
+    const cols = process.stdout.columns ?? 80;
+    return muted("─".repeat(Math.max(12, cols - 2)));
+  }
+
   const heading = /^(#{1,6})\s+(.+)$/.exec(trimmedStart);
   if (heading) {
-    return `${indent}${bold(fg(palette.foregroundStrong, heading[2]))}`;
+    const level = (heading[1] ?? "").length;
+    const text = renderInlineMarkdown(heading[2] ?? "");
+    // H1/H2 bold+strong, H3+ just bold
+    return level <= 2
+      ? `${indent}${bold(fg(palette.foregroundStrong, text))}`
+      : `${indent}${bold(text)}`;
   }
 
-  const bullet = /^([-*+])\s+(.+)$/.exec(trimmedStart);
+  const bullet = /^([-*+])\s+(.*)$/.exec(trimmedStart);
   if (bullet) {
-    return `${indent}${muted("•")} ${renderInlineMarkdown(bullet[2])}`;
+    return `${indent}${muted("•")} ${renderInlineMarkdown(bullet[2] ?? "")}`;
   }
 
-  const numbered = /^(\d+)\.\s+(.+)$/.exec(trimmedStart);
+  const numbered = /^(\d+)[.)]\s+(.*)$/.exec(trimmedStart);
   if (numbered) {
-    return `${indent}${muted(`${numbered[1]}.`)} ${renderInlineMarkdown(numbered[2])}`;
+    return `${indent}${muted(`${numbered[1]}.`)} ${renderInlineMarkdown(numbered[2] ?? "")}`;
   }
 
-  const quote = /^>\s?(.+)$/.exec(trimmedStart);
+  const quote = /^(>{1,})\s?(.*)$/.exec(trimmedStart);
   if (quote) {
-    return `${indent}${muted("│")} ${muted(stripAnsi(renderInlineMarkdown(quote[1])))}`;
+    const depth = (quote[1] ?? "").length;
+    const bar = muted("│ ".repeat(depth).trimEnd());
+    const inner = renderInlineMarkdown(quote[2] ?? "");
+    return `${indent}${bar} ${muted(stripAnsi(inner))}`;
   }
 
   return renderInlineMarkdown(line);
@@ -198,58 +212,85 @@ function renderInlineMarkdown(value: string): string {
   const source = normalizeMarkdownEscapes(value);
 
   while (index < source.length) {
-    if (source[index] === "`") {
+    // ── code spans ────────────────────────────────────────────────────────────
+    // Double-backtick: ``code`` (content may contain single backticks)
+    if (source.startsWith("``", index) && source[index + 2] !== "`") {
+      const end = source.indexOf("``", index + 2);
+      if (end > index + 2) {
+        rendered += accent(source.slice(index + 2, end));
+        index = end + 2;
+        continue;
+      }
+    }
+
+    // Single-backtick: `code`
+    if (source[index] === "`" && source[index + 1] !== "`") {
       const end = source.indexOf("`", index + 1);
-      if (end > index + 1) {
+      if (end > index) {
         rendered += accent(source.slice(index + 1, end));
         index = end + 1;
         continue;
       }
     }
 
-    if (source.startsWith("**", index)) {
-      const end = source.indexOf("**", index + 2);
+    // ── strikethrough ─────────────────────────────────────────────────────────
+    if (source.startsWith("~~", index)) {
+      const end = source.indexOf("~~", index + 2);
       if (end > index + 2) {
-        rendered += bold(fg(palette.foregroundStrong, source.slice(index + 2, end)));
+        rendered += muted(renderInlineMarkdown(source.slice(index + 2, end)));
         index = end + 2;
         continue;
       }
     }
 
-    if (source.startsWith("__", index)) {
-      const end = source.indexOf("__", index + 2);
-      if (end > index + 2) {
-        rendered += bold(fg(palette.foregroundStrong, source.slice(index + 2, end)));
+    // ── bold (**text** or __text__) ───────────────────────────────────────────
+    if (source.startsWith("**", index) && source[index + 2] !== " ") {
+      const end = findClosingDelimiter(source, "**", index + 2);
+      if (end !== -1) {
+        rendered += bold(fg(palette.foregroundStrong, renderInlineMarkdown(source.slice(index + 2, end))));
         index = end + 2;
         continue;
       }
     }
 
-    if (source[index] === "*") {
-      const end = source.indexOf("*", index + 1);
-      if (end > index + 1 && source[index + 1] !== " ") {
-        rendered += italic(foreground(source.slice(index + 1, end)));
+    if (source.startsWith("__", index) && source[index + 2] !== " ") {
+      const end = findClosingDelimiter(source, "__", index + 2);
+      if (end !== -1) {
+        rendered += bold(fg(palette.foregroundStrong, renderInlineMarkdown(source.slice(index + 2, end))));
+        index = end + 2;
+        continue;
+      }
+    }
+
+    // ── italic (*text* or _text_) ─────────────────────────────────────────────
+    // Only match single * or _ that are not part of ** / __
+    if (source[index] === "*" && source[index + 1] !== "*" && source[index + 1] !== " ") {
+      const end = findSingleDelimiter(source, "*", index + 1);
+      if (end !== -1) {
+        rendered += italic(renderInlineMarkdown(source.slice(index + 1, end)));
         index = end + 1;
         continue;
       }
     }
 
-    if (source[index] === "_") {
-      const end = source.indexOf("_", index + 1);
-      if (end > index + 1 && source[index + 1] !== " ") {
-        rendered += italic(foreground(source.slice(index + 1, end)));
+    if (source[index] === "_" && source[index + 1] !== "_" && source[index + 1] !== " ") {
+      const end = findSingleDelimiter(source, "_", index + 1);
+      if (end !== -1) {
+        rendered += italic(renderInlineMarkdown(source.slice(index + 1, end)));
         index = end + 1;
         continue;
       }
     }
 
+    // ── links [label](url) ────────────────────────────────────────────────────
     if (source[index] === "[") {
       const labelEnd = source.indexOf("]", index + 1);
-      const urlStart = labelEnd === -1 ? -1 : labelEnd + 1;
-      if (labelEnd > index + 1 && source[urlStart] === "(") {
-        const urlEnd = source.indexOf(")", urlStart + 1);
-        if (urlEnd > urlStart + 1) {
-          rendered += `${underline(foreground(source.slice(index + 1, labelEnd)))} ${muted(source.slice(urlStart + 1, urlEnd))}`;
+      if (labelEnd !== -1 && source[labelEnd + 1] === "(") {
+        const urlEnd = source.indexOf(")", labelEnd + 2);
+        if (urlEnd !== -1) {
+          const label = source.slice(index + 1, labelEnd);
+          const url = source.slice(labelEnd + 2, urlEnd);
+          rendered += `${underline(renderInlineMarkdown(label))} ${muted(url)}`;
           index = urlEnd + 1;
           continue;
         }
@@ -261,6 +302,47 @@ function renderInlineMarkdown(value: string): string {
   }
 
   return rendered;
+}
+
+/**
+ * Find the next occurrence of a two-character closing delimiter (e.g. "**"),
+ * ensuring it is not preceded by a space (so "** word **" doesn't close early).
+ */
+function findClosingDelimiter(source: string, delimiter: string, fromIndex: number): number {
+  let i = fromIndex;
+  while (i <= source.length - delimiter.length) {
+    const pos = source.indexOf(delimiter, i);
+    if (pos === -1) return -1;
+    // Must not have a space immediately before the delimiter
+    if (pos > fromIndex && source[pos - 1] !== " ") {
+      return pos;
+    }
+    i = pos + 1;
+  }
+  return -1;
+}
+
+/**
+ * Find the next single-character delimiter (e.g. "*" or "_") that is not
+ * doubled (i.e. not followed by the same char) and not preceded by a space.
+ */
+function findSingleDelimiter(source: string, delimiter: string, fromIndex: number): number {
+  let i = fromIndex;
+  while (i < source.length) {
+    const pos = source.indexOf(delimiter, i);
+    if (pos === -1) return -1;
+    // Skip doubled delimiters (** or __)
+    if (source[pos + 1] === delimiter) {
+      i = pos + 2;
+      continue;
+    }
+    // Must not be preceded by space
+    if (source[pos - 1] !== " ") {
+      return pos;
+    }
+    i = pos + 1;
+  }
+  return -1;
 }
 
 function normalizeMarkdownEscapes(value: string): string {
@@ -452,6 +534,7 @@ export function renderThinkingText(message: string): string {
   return fg(palette.thinkingText, message);
 }
 
+
 function isLightTerminal(): boolean {
   const theme = process.env.CHUMP_THEME?.toLowerCase();
   if (theme === "light") return true;
@@ -537,10 +620,20 @@ export function renderThinkingBlock(
     lines.push(renderThinkingLabel());
   }
 
-  const wrapped = wrapPlainText(message.trim(), Math.max(24, (process.stdout.columns ?? 80) - 4));
-  if (wrapped.length > 0) {
+  const content = message.trim();
+  if (content) {
+    // Strip markdown to plain text, then word-wrap and apply uniform thinking colour.
+    const wrapWidth = Math.max(24, (process.stdout.columns ?? 80) - 4);
+    const plainLines = renderMarkdownBlock(content).split("\n").map(stripAnsi);
     lines.push("");
-    lines.push(...wrapped.map((line) => `${muted("│")} ${renderThinkingText(line)}`));
+    for (const plainLine of plainLines) {
+      if (plainLine.length > wrapWidth) {
+        const subWrapped = wrapPlainText(plainLine, wrapWidth);
+        lines.push(...subWrapped.map((l) => `${muted("│")} ${renderThinkingText(l)}`));
+      } else {
+        lines.push(`${muted("│")} ${renderThinkingText(plainLine)}`);
+      }
+    }
   }
 
   return lines;

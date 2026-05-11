@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 
 from ai_query import step_count_is
 from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
-from ai_query.providers import anthropic, google, openai, workers_ai
+from ai_query.providers import anthropic, google, openai, workers_ai, deepseek
 from ai_query.types import AbortSignal, ImagePart, Message, ProviderOptions, TextPart
 
 from .codex_provider import codex_model
@@ -163,6 +163,8 @@ def resolve_model(config: ChumpConfig):
         return anthropic(config.model, base_url=os.environ.get("ANTHROPIC_BASE_URL"))
     if provider_name == "workers_ai":
         return workers_ai(config.model)
+    if provider_name == "deepseek":
+        return deepseek(config.model)
     raise ValueError(f"unsupported provider: {config.provider}")
 
 
@@ -322,13 +324,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
         from .config import (
             apply_auth_environment,
             load_auth_config,
+            normalize_model_name,
             normalize_provider_name,
             normalize_reasoning_config,
         )
 
         provider_name = normalize_provider_name(provider)
-        if not model.strip():
-            raise ValueError("model is required")
+        model_name = normalize_model_name(provider_name, model)
         auth_config = load_auth_config()
         apply_auth_environment(auth_config, provider_name)
         reasoning = normalize_reasoning_config(
@@ -337,7 +339,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._config = replace(
             self._config,
             provider=provider_name,
-            model=model.strip(),
+            model=model_name,
             reasoning=reasoning,
         )
         self.model = resolve_model(self._config)
