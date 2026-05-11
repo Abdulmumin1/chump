@@ -46,7 +46,7 @@
             {:else if item.role === "reasoning"}
                 <div class="min-w-0 w-full">
                     {#each item.blocks as block, index (`${item.id}-${index}`)}
-                        {#if block.kind === "text" && block.text.trim()}
+                        {#if (block.kind === "text" || block.kind === "reasoning") && block.text.trim()}
                             <div
                                 class="p-2 transition-colors hover:bg-bg-code-block/60 min-w-0"
                             >
@@ -87,7 +87,7 @@
                                             itemIndex ===
                                                 transcript.length - 1))
                                             ? 'rotate-180'
-                                            : ''}"
+                                            : '-rotate-90'}"
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"

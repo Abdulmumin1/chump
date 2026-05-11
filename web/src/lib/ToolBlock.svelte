@@ -13,6 +13,7 @@
     let diffHosts: HTMLElement[] = [];
     let diffInstances: FileDiff[] = [];
     let showFullDiff = $state(false);
+    let diffExpanded = $state(false);
 
     type StructuredDiffChange = {
         type: "add" | "remove";
@@ -33,7 +34,9 @@
         totalChanges?: number;
     };
 
-    function readStructuredDiffChange(value: unknown): StructuredDiffChange | null {
+    function readStructuredDiffChange(
+        value: unknown,
+    ): StructuredDiffChange | null {
         if (!value || typeof value !== "object") return null;
         const change = value as Record<string, unknown>;
         if (
@@ -44,8 +47,10 @@
         }
         return {
             type: change.type,
-            oldLine: typeof change.old_line === "number" ? change.old_line : null,
-            newLine: typeof change.new_line === "number" ? change.new_line : null,
+            oldLine:
+                typeof change.old_line === "number" ? change.old_line : null,
+            newLine:
+                typeof change.new_line === "number" ? change.new_line : null,
             text: change.text,
         };
     }
@@ -65,13 +70,16 @@
                   .map(readStructuredDiffChange)
                   .filter((c): c is StructuredDiffChange => c !== null)
             : undefined;
-        const kind = ["add", "update", "delete", "move"].includes(String(diff.kind))
+        const kind = ["add", "update", "delete", "move"].includes(
+            String(diff.kind),
+        )
             ? (String(diff.kind) as StructuredDiff["kind"])
             : undefined;
         return {
             path: diff.path,
             kind,
-            sourcePath: typeof diff.source_path === "string" ? diff.source_path : null,
+            sourcePath:
+                typeof diff.source_path === "string" ? diff.source_path : null,
             added: diff.added,
             removed: diff.removed,
             changes,
@@ -297,6 +305,23 @@
         return output.join("\n").trim();
     }
 
+    // For read_file: human-readable offset/limit range, only when partial
+    let readFileRange = $derived.by(() => {
+        if (
+            block.originalToolName !== "read_file" &&
+            block.originalToolName !== "view_file"
+        )
+            return "";
+        const args = block.args ?? {};
+        const offset = typeof args.offset === "number" ? args.offset : null;
+        const limit = typeof args.limit === "number" ? args.limit : null;
+        if (offset === null && limit === null) return "";
+        const parts: string[] = [];
+        if (offset !== null) parts.push(`offset=${offset}`);
+        if (limit !== null) parts.push(`limit=${limit}`);
+        return parts.join(" ");
+    });
+
     let effectiveDiffPatch = $derived.by(() => {
         const toolName = String(block.originalToolName ?? "");
         const args = block.args ?? {};
@@ -311,7 +336,10 @@
                       "file_diff",
                   ]);
 
-        if (!directPatch && !["apply_patch", "write_file", "create_file"].includes(toolName)) {
+        if (
+            !directPatch &&
+            !["apply_patch", "write_file", "create_file"].includes(toolName)
+        ) {
             return "";
         }
 
@@ -320,10 +348,7 @@
             typeof args?.content === "string"
         ) {
             const fileName = String(
-                args?.file_path ??
-                    args?.path ??
-                    block.toolName ??
-                    "file",
+                args?.file_path ?? args?.path ?? block.toolName ?? "file",
             );
             return makeSyntheticWritePatch(fileName, args.content);
         }
@@ -331,7 +356,7 @@
         if (
             toolName === "apply_patch" &&
             typeof directPatch === "string" &&
-            directPatch.includes("*** Begin Patch")
+            directPatch
         ) {
             return normalizeApplyPatch(directPatch);
         }
@@ -340,23 +365,67 @@
             return directPatch;
         }
 
-        if (
-            toolName === "apply_patch" &&
-            typeof block.text === "string" &&
-            block.text.includes("*** Begin Patch")
-        ) {
+        if (toolName === "apply_patch" && typeof block.text === "string") {
             return normalizeApplyPatch(block.text);
         }
 
         return "";
     });
 
-    let effectiveStructuredDiffs = $derived(readStructuredDiffs(block.metadata));
+    let effectiveStructuredDiffs = $derived(
+        readStructuredDiffs(block.metadata),
+    );
     let hasStructuredDiffs = $derived(effectiveStructuredDiffs.length > 0);
 
     let shouldRenderDiff = $derived(
         effectiveDiffPatch.trim().length > 0 || hasStructuredDiffs,
     );
+
+    let totalAdded = $derived.by(() => {
+        if (hasStructuredDiffs) {
+            return effectiveStructuredDiffs.reduce((s, d) => s + d.added, 0);
+        }
+        if (effectiveDiffPatch) {
+            const lines = effectiveDiffPatch.split("\n");
+            let count = 0;
+            for (const line of lines) {
+                if (line.startsWith("+") && !line.startsWith("+++")) count++;
+            }
+            return count;
+        }
+        return 0;
+    });
+
+    let totalRemoved = $derived.by(() => {
+        if (hasStructuredDiffs) {
+            return effectiveStructuredDiffs.reduce((s, d) => s + d.removed, 0);
+        }
+        if (effectiveDiffPatch) {
+            const lines = effectiveDiffPatch.split("\n");
+            let count = 0;
+            for (const line of lines) {
+                if (line.startsWith("-") && !line.startsWith("---")) count++;
+            }
+            return count;
+        }
+        return 0;
+    });
+
+    let diffFileNames = $derived.by(() => {
+        if (hasStructuredDiffs) {
+            return effectiveStructuredDiffs.map((d) => d.path);
+        }
+        if (diffFiles.length > 0) {
+            return diffFiles.map((f) => f.name);
+        }
+        return [];
+    });
+
+    let diffFileNamesDisplay = $derived.by(() => {
+        if (diffFileNames.length === 0) return "";
+        if (diffFileNames.length <= 2) return diffFileNames.join(", ");
+        return `${diffFileNames[0]}, ${diffFileNames[1]}, +${diffFileNames.length - 2} more`;
+    });
 
     let diffFiles = $derived.by(() => {
         if (!effectiveDiffPatch) {
@@ -386,8 +455,10 @@
     });
 
     $effect(() => {
-        if (!browser || !shouldRenderDiff) {
-            return;
+        if (!browser || !shouldRenderDiff || !diffExpanded) {
+            return () => {
+                cleanupDiffs();
+            };
         }
 
         const files = diffFiles;
@@ -402,10 +473,10 @@
                 }
 
                 const instance = new FileDiff({
-                    theme: "gruvbox-dark-hard",
-                    themeType: "dark",
+                    theme: "pierre-dark",
+                    themeType: "system",
                     diffStyle: "unified",
-                    diffIndicators: "classic",
+                    diffIndicators: "bars",
                     hunkSeparators: "line-info-basic",
                     overflow: "scroll",
                 });
@@ -427,139 +498,186 @@
 
 {#if shouldRenderDiff}
     <div class="my-4 space-y-3">
-        <div class="px-1 text-[12px] font-mono text-text-tertiary">
-            {block.originalToolName === "write_file" ||
-            block.originalToolName === "create_file"
-                ? "Write file"
-                : "Apply patch"}
-        </div>
-
-        {#if hasStructuredDiffs}
-            {#each effectiveStructuredDiffs as diff (diff.path)}
-                <div
-                    class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
+        <button
+            class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            onclick={() => {
+                diffExpanded = !diffExpanded;
+            }}
+        >
+            <div class="flex items-center gap-3 overflow-hidden">
+                <span
+                    class="font-mono text-[11px] font-semibold tracking-wide text-accent"
+                    >{block.originalToolName === "write_file" ||
+                    block.originalToolName === "create_file"
+                        ? "Write file"
+                        : "Edited"}</span
                 >
-                    <div
-                        class="border-b border-border-default px-3 py-2 text-[12px] font-mono text-text-secondary"
+                {#if diffFileNamesDisplay}
+                    <span
+                        class="max-w-[300px] truncate font-mono text-[12px] text-text-secondary opacity-80"
                     >
-                        {#if diff.kind === "add"}
-                            Added
-                        {:else if diff.kind === "delete"}
-                            Deleted
-                        {:else if diff.kind === "move"}
-                            Moved
-                        {:else}
-                            Edited
-                        {/if}
-                        {diff.kind === "move" && diff.sourcePath
-                            ? `${diff.sourcePath} → ${diff.path}`
-                            : diff.path}
-                        <span class="ml-2 text-text-success"
-                            >(+{diff.added})</span
+                        {diffFileNamesDisplay}
+                    </span>
+                {/if}
+                {#if totalAdded > 0 || totalRemoved > 0}
+                    <span class="text-[12px] font-mono">
+                        <span class="text-text-success">+{totalAdded}</span>
+                        <span class="text-error"> -{totalRemoved}</span>
+                    </span>
+                {/if}
+            </div>
+
+            <div
+                class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
+            >
+                <span class="font-mono text-[11px]"
+                    >{block.originalToolName || "tool"}</span
+                >
+                <svg
+                    class="h-4 w-4 transition-transform duration-200 {diffExpanded
+                        ? 'rotate-180'
+                        : ''}"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    ><path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 9l-7 7-7-7"
+                    ></path></svg
+                >
+            </div>
+        </button>
+
+        {#if diffExpanded}
+            {#if hasStructuredDiffs}
+                {#each effectiveStructuredDiffs as diff (diff.path)}
+                    <div
+                        class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
+                    >
+                        <div
+                            class="border-b border-border-default px-3 py-2 text-[12px] font-mono text-text-secondary"
                         >
-                        <span class="ml-1 text-error"
-                            >(-{diff.removed})</span
-                        >
-                    </div>
-                    <div class="overflow-x-auto">
-                        {#each diff.changes ?? [] as change}
-                            <div
-                                class="flex text-[12px] font-mono leading-relaxed {change.type ===
-                                'add'
-                                    ? 'bg-bg-toast-ok'
-                                    : 'bg-bg-toast-err'}"
+                            {#if diff.kind === "add"}
+                                Added
+                            {:else if diff.kind === "delete"}
+                                Deleted
+                            {:else if diff.kind === "move"}
+                                Moved
+                            {:else}
+                                Edited
+                            {/if}
+                            {diff.kind === "move" && diff.sourcePath
+                                ? `${diff.sourcePath} → ${diff.path}`
+                                : diff.path}
+                            <span class="ml-2 text-text-success"
+                                >(+{diff.added})</span
                             >
-                                <span
-                                    class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-text-tertiary"
-                                    >{change.type === "add"
-                                        ? change.newLine ?? ""
-                                        : change.oldLine ?? ""}</span
-                                >
-                                <span
-                                    class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
+                            <span class="ml-1 text-error"
+                                >(-{diff.removed})</span
+                            >
+                        </div>
+                        <div class="overflow-x-auto">
+                            {#each diff.changes ?? [] as change}
+                                <div
+                                    class="flex text-[12px] font-mono leading-relaxed {change.type ===
                                     'add'
-                                        ? 'text-text-success'
-                                        : 'text-error'}"
-                                    >{change.type === "add"
-                                        ? "+"
-                                        : "-"}</span
+                                        ? 'bg-bg-toast-ok'
+                                        : 'bg-bg-toast-err'}"
                                 >
-                                <span
-                                    class="px-1 py-0.5 whitespace-pre text-text-main"
-                                    >{change.text}</span
+                                    <span
+                                        class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-text-tertiary"
+                                        >{change.type === "add"
+                                            ? (change.newLine ?? "")
+                                            : (change.oldLine ?? "")}</span
+                                    >
+                                    <span
+                                        class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
+                                        'add'
+                                            ? 'text-text-success'
+                                            : 'text-error'}"
+                                        >{change.type === "add"
+                                            ? "+"
+                                            : "-"}</span
+                                    >
+                                    <span
+                                        class="px-1 py-0.5 whitespace-pre text-text-main"
+                                        >{change.text}</span
+                                    >
+                                </div>
+                            {/each}
+                            {#if diff.truncated}
+                                <div
+                                    class="px-3 py-1 text-[12px] font-mono text-text-tertiary"
                                 >
-                            </div>
-                        {/each}
-                        {#if diff.truncated}
-                            <div
-                                class="px-3 py-1 text-[12px] font-mono text-text-tertiary"
-                            >
-                                ... diff truncated
-                                {#if typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"}
-                                    (showing {diff.shownChanges} of {diff.totalChanges}
-                                    changed lines)
-                                {/if}
-                            </div>
-                        {/if}
+                                    ... diff truncated
+                                    {#if typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"}
+                                        (showing {diff.shownChanges} of {diff.totalChanges}
+                                        changed lines)
+                                    {/if}
+                                </div>
+                            {/if}
+                        </div>
                     </div>
-                </div>
-            {/each}
-        {:else if diffFiles.length > 0}
-            {#each diffFiles as file, index (`${file.name}-${index}`)}
-                <div
-                    class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
+                {/each}
+            {:else if diffFiles.length > 0}
+                {#each diffFiles as file, index (`${file.name}-${index}`)}
+                    <div
+                        class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
+                        style:max-height={shouldClampDiff && !showFullDiff
+                            ? "2000px"
+                            : undefined}
+                    >
+                        <svelte:element
+                            this={DIFFS_TAG_NAME}
+                            bind:this={diffHosts[index]}
+                            class="block"
+                        />
+                    </div>
+                {/each}
+            {:else if effectiveDiffPatch}
+                <pre
+                    class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[12px] font-mono text-text-warning"
                     style:max-height={shouldClampDiff && !showFullDiff
                         ? "2000px"
-                        : undefined}
-                >
-                    <svelte:element
-                        this={DIFFS_TAG_NAME}
-                        bind:this={diffHosts[index]}
-                        class="block"
-                    />
+                        : undefined}>{effectiveDiffPatch}</pre>
+            {/if}
+
+            {#if shouldClampDiff && !showFullDiff}
+                <div class="px-1">
+                    <button
+                        class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
+                        onclick={() => {
+                            showFullDiff = true;
+                        }}
+                    >
+                        See more
+                    </button>
                 </div>
-            {/each}
-        {:else if effectiveDiffPatch}
-            <pre
-                class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[12px] font-mono text-text-warning"
-                style:max-height={shouldClampDiff && !showFullDiff
-                    ? "2000px"
-                    : undefined}>{effectiveDiffPatch}</pre>
-        {/if}
+            {:else if shouldClampDiff && showFullDiff}
+                <div class="px-1">
+                    <button
+                        class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
+                        onclick={() => {
+                            showFullDiff = false;
+                        }}
+                    >
+                        See less
+                    </button>
+                </div>
+            {/if}
 
-        {#if shouldClampDiff && !showFullDiff}
-            <div class="px-1">
-                <button
-                    class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
-                    onclick={() => {
-                        showFullDiff = true;
-                    }}
-                >
-                    See more
-                </button>
-            </div>
-        {:else if shouldClampDiff && showFullDiff}
-            <div class="px-1">
-                <button
-                    class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
-                    onclick={() => {
-                        showFullDiff = false;
-                    }}
-                >
-                    See less
-                </button>
-            </div>
-        {/if}
-
-        {#if block.hasResult}
-            <div class="px-1 text-[12px] font-mono text-text-tertiary">
-                Result
-                <span class="ml-2 text-text-secondary"
-                    >{typeof block.result === "string"
-                        ? block.result
-                        : stringifyValue(block.result)}</span
-                >
-            </div>
+            {#if block.hasResult}
+                <div class="px-1 text-[12px] font-mono text-text-tertiary">
+                    Result
+                    <span class="ml-2 text-text-secondary"
+                        >{typeof block.result === "string"
+                            ? block.result
+                            : stringifyValue(block.result)}</span
+                    >
+                </div>
+            {/if}
         {/if}
     </div>
 {:else}
@@ -571,34 +689,40 @@
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[13px] font-semibold tracking-wide text-accent"
+                        class="font-mono text-[11px] font-semibold tracking-wide text-accent"
                         >$</span
                     >
                     <span
-                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[13px] text-text-secondary"
+                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[11px] text-text-secondary"
                         >{(block.toolName || "").replace("$ ", "")}</span
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
                         >Read file</span
                     >
                     <span
-                        class="truncate font-mono text-[13px] text-text-secondary opacity-90"
+                        class="truncate font-mono text-[10px] text-text-secondary opacity-90"
                         >{block.toolName !== block.originalToolName
                             ? block.toolName
                             : ""}</span
                     >
+                    {#if readFileRange}
+                        <span
+                            class="font-mono text-[11px] text-text-tertiary opacity-70"
+                            >{readFileRange}</span
+                        >
+                    {/if}
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[13px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
                         >{block.originalToolName ||
                             block.toolName ||
                             "tool"}</span
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[13px] text-text-secondary opacity-80"
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary opacity-80"
                             >{block.toolName}</span
                         >
                     {/if}
@@ -608,13 +732,10 @@
             <div
                 class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
             >
-                <span class="font-mono text-[11px]"
-                    >{block.originalToolName || "tool"}</span
-                >
                 <svg
                     class="h-4 w-4 transition-transform duration-200 {expanded
                         ? 'rotate-180'
-                        : ''}"
+                        : '-rotate-90'}"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -637,7 +758,17 @@
                         class="text-[12px] font-mono leading-relaxed {block.error
                             ? 'text-error'
                             : 'text-text-warning'}">{block.kind === "tool-call"
-                            ? stringifyValue(block.args)
+                            ? block.originalToolName === "read_file" ||
+                              block.originalToolName === "view_file"
+                                ? [
+                                      block.args?.file_path ??
+                                          block.args?.path ??
+                                          "",
+                                      readFileRange,
+                                  ]
+                                      .filter(Boolean)
+                                      .join(" ")
+                                : stringifyValue(block.args)
                             : block.text}</pre>
                 </div>
 

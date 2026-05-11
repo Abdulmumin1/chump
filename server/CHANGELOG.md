@@ -1,5 +1,12 @@
 # chump-server
 
+## 0.0.12
+
+- Add DeepSeek provider support with model normalization.
+- Upgrade the backend dependency to `ai-query==1.7.43`.
+- Validate and normalize model names against known provider model sets.
+- Load model from `CHUMP_MODEL` environment variable, auth config, or provider default.
+
 ## 0.0.11
 
 - Add install scripts and web redirects for chump client binaries.

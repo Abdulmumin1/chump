@@ -13,6 +13,7 @@
         models = [],
         currentModel = "",
         workspaceRoot = "",
+        currentProvider = "",
         reasoningInfo = null,
         steeringQueue = ["nice and seeet"],
         onSend,
@@ -27,6 +28,7 @@
         skills: Array<{ name: string; description: string }>;
         models: ModelChoice[];
         currentModel: string;
+        currentProvider: string;
         workspaceRoot: string;
         reasoningInfo: { effort: string | null; budget: number | null } | null;
         steeringQueue: Array<{
@@ -138,7 +140,8 @@
         if (/^\/model(?:\s|$)/.test(trimmed)) {
             const query = trimmed.slice("/model".length).trim().toLowerCase();
             return models
-                .filter((m: ModelChoice) => !query || m.label.toLowerCase().includes(query) || m.description.toLowerCase().includes(query))
+                .filter((m: ModelChoice) =>
+                    m.provider === currentProvider && (!query || m.label.toLowerCase().includes(query) || m.description.toLowerCase().includes(query)))
                 .map((m: ModelChoice) => ({
                     label: m.label,
                     command: `/model ${m.label}`,

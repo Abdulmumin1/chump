@@ -40,6 +40,12 @@ export type TextMessagePart = {
 	text: string;
 };
 
+export type ReasoningMessagePart = {
+	type: 'reasoning';
+	text: string;
+	data?: Record<string, unknown>;
+};
+
 export type ToolCallMessagePart = {
 	type: 'tool_call';
 	tool_call: {
@@ -72,6 +78,7 @@ export type UnknownMessagePart = {
 
 export type MessagePart =
 	| TextMessagePart
+	| ReasoningMessagePart
 	| ToolCallMessagePart
 	| ToolResultMessagePart
 	| ImageMessagePart

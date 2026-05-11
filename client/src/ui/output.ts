@@ -1,52 +1,49 @@
 import {
-  createMarkdownStream,
   renderMarkdownBlock,
   renderMuted,
   renderUserMessage,
 } from "./render.ts";
 import { ReasoningRenderer } from "./reasoning.ts";
-import { writeOutput, writeOutputLine } from "./terminal.ts";
+import { writeOutput, writeOutputLine, withDraftPaused } from "./terminal.ts";
 import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import type {
   ChumpHealth,
   ChumpStatus,
   ManagedServerMetadata,
-  StoredEvent,
 } from "../core/types.ts";
 
-const MAX_REPLAY_USER_TURNS = 20;
 const MAX_REPLAY_MESSAGES = 80;
 
 export function renderStoredMessages(
   messages: Array<{ role: string; content: unknown }>,
 ): void {
-  if (messages.length === 0) {
-    writeOutputLine("(no stored messages)");
-    return;
-  }
+  // Pause the input draft during message rendering to prevent
+  // input box borders/controls from mixing with the content
+  withDraftPaused(() => {
+    if (messages.length === 0) {
+      writeOutputLine("(no stored messages)");
+      return;
+    }
 
-  for (const [index, message] of messages.entries()) {
-    writeOutputLine(`[${index + 1}] ${message.role}`);
-    writeOutputLine(formatStoredContent(message.content));
-  }
+    for (const [index, message] of messages.entries()) {
+      writeOutputLine(`[${index + 1}] ${message.role}`);
+      writeOutputLine(formatStoredContent(message.content));
+    }
+  });
 }
 
 export function renderSessionTranscript(
   messages: Array<{ role: string; content: unknown }>,
-  events: StoredEvent[] = [],
 ): void {
-  if (hasExactTranscript(events)) {
-    const replay = recentEventWindow(events);
-    renderEventTimeline(replay.events, replay.skipped);
-    return;
-  }
-
-  renderApproximateTranscript(recentMessages(messages), events);
+  // Pause the input draft during transcript rendering to prevent
+  // input box borders/controls from mixing with the session content
+  withDraftPaused(() => {
+    renderApproximateTranscript(recentMessages(messages));
+  });
 }
 
 function renderApproximateTranscript(
   messages: Array<{ role: string; content: unknown }>,
-  events: StoredEvent[] = [],
 ): void {
   if (messages.length === 0) {
     writeOutputLine(renderMuted("(no messages in session)"));
@@ -55,7 +52,6 @@ function renderApproximateTranscript(
 
   const toolRenderer = new ToolActivityRenderer(writeOutputLine);
   const reasoningRenderer = new ReasoningRenderer();
-  const replayEvents = new TranscriptEventCursor(events);
   let renderedMessages = 0;
 
   for (const message of messages) {
@@ -65,13 +61,11 @@ function renderApproximateTranscript(
     }
 
     if (message.role === "assistant" || message.role === "tool") {
-      replayEvents.renderLeadingReasoning(reasoningRenderer);
       reasoningRenderer.flush();
-      renderedMessages += renderAssistantContent(
-        message.content,
-        toolRenderer,
-        replayEvents,
-      );
+      if (message.role === "assistant" && toolRenderer.consumeActivity()) {
+        writeOutputLine();
+      }
+      renderedMessages += renderAssistantContent(message.content, toolRenderer, reasoningRenderer);
       continue;
     }
 
@@ -83,100 +77,11 @@ function renderApproximateTranscript(
     }
   }
 
+  reasoningRenderer.flush();
+
   if (renderedMessages === 0) {
     writeOutputLine(renderMuted("(no renderable messages in session)"));
   }
-
-  replayEvents.renderLeadingReasoning(reasoningRenderer);
-  reasoningRenderer.flush();
-}
-
-function renderEventTimeline(events: StoredEvent[], skippedEvents = 0): void {
-  const toolRenderer = new ToolActivityRenderer(writeOutputLine);
-  const reasoningRenderer = new ReasoningRenderer();
-  let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
-  let renderedItems = 0;
-
-  if (skippedEvents > 0) {
-    writeOutputLine(renderMuted(`(showing recent transcript; skipped ${skippedEvents} older events)`));
-  }
-
-  const flushAssistantText = (): void => {
-    markdownStream?.end();
-    markdownStream = null;
-  };
-
-  for (const event of events) {
-    switch (event.type) {
-      case "user_message": {
-        flushAssistantText();
-        reasoningRenderer.flush();
-        const text = typeof event.data.content === "string" ? event.data.content.trim() : "";
-        if (!text) {
-          break;
-        }
-        writeOutput(`${renderUserMessage(text)}\n`);
-        renderedItems += 1;
-        break;
-      }
-      case "reasoning":
-        flushAssistantText();
-        reasoningRenderer.render(event.data);
-        renderedItems += 1;
-        break;
-      case "assistant_text": {
-        reasoningRenderer.flush();
-        const text = typeof event.data.content === "string" ? event.data.content : "";
-        if (!text) {
-          break;
-        }
-        markdownStream ??= createMarkdownStream();
-        markdownStream.write(text);
-        renderedItems += 1;
-        break;
-      }
-      case "tool_call":
-        flushAssistantText();
-        reasoningRenderer.flush();
-        toolRenderer.renderToolCall(event.data);
-        renderedItems += 1;
-        break;
-      case "tool_result":
-        flushAssistantText();
-        reasoningRenderer.flush();
-        toolRenderer.renderToolResult(event.data);
-        renderedItems += 1;
-        break;
-      default:
-        break;
-    }
-  }
-
-  flushAssistantText();
-  reasoningRenderer.flush();
-
-  if (renderedItems === 0) {
-    writeOutputLine(renderMuted("(no renderable messages in session)"));
-  }
-}
-
-function recentEventWindow(events: StoredEvent[]): {
-  events: StoredEvent[];
-  skipped: number;
-} {
-  const userMessageIndexes = events
-    .map((event, index) => event.type === "user_message" ? index : -1)
-    .filter((index) => index >= 0);
-
-  if (userMessageIndexes.length <= MAX_REPLAY_USER_TURNS) {
-    return { events, skipped: 0 };
-  }
-
-  const start = userMessageIndexes[userMessageIndexes.length - MAX_REPLAY_USER_TURNS] ?? 0;
-  return {
-    events: events.slice(start),
-    skipped: start,
-  };
 }
 
 function recentMessages(
@@ -202,18 +107,22 @@ export function renderSessions(
     last_user_goal: string | null;
   }>,
 ): void {
-  if (sessions.length === 0) {
-    writeOutputLine("(no stored sessions)");
-    return;
-  }
+  // Pause the input draft during session list rendering to prevent
+  // input box borders/controls from mixing with the content
+  withDraftPaused(() => {
+    if (sessions.length === 0) {
+      writeOutputLine("(no stored sessions)");
+      return;
+    }
 
-  writeOutputLine(renderMuted(`${"Updated".padEnd(18, " ")}${"Created".padEnd(18, " ")}Conversation`));
-  for (const session of sessions) {
-    const title = sessionTitle(session);
-    const updated = session.updated_at ? formatSessionTime(session.updated_at) : "-";
-    const created = session.created_at ? formatSessionTime(session.created_at) : "-";
-    writeOutputLine(`${renderMuted(updated.padEnd(18, " "))}${renderMuted(created.padEnd(18, " "))}${title}`);
-  }
+    writeOutputLine(renderMuted(`${"Updated".padEnd(18, " ")}${"Created".padEnd(18, " ")}Conversation`));
+    for (const session of sessions) {
+      const title = sessionTitle(session);
+      const updated = session.updated_at ? formatSessionTime(session.updated_at) : "-";
+      const created = session.created_at ? formatSessionTime(session.created_at) : "-";
+      writeOutputLine(`${renderMuted(updated.padEnd(18, " "))}${renderMuted(created.padEnd(18, " "))}${title}`);
+    }
+  });
 }
 
 export function renderServerStatus(
@@ -221,19 +130,23 @@ export function renderServerStatus(
   status: ChumpStatus,
   metadata: ManagedServerMetadata | null,
 ): void {
-  if (!metadata) {
+  // Pause the input draft during server status rendering to prevent
+  // input box borders/controls from mixing with the content
+  withDraftPaused(() => {
+    if (!metadata) {
+      writeOutputLine(JSON.stringify({
+        health,
+        agent: status,
+      }, null, 2));
+      return;
+    }
+
     writeOutputLine(JSON.stringify({
+      server: metadata,
       health,
       agent: status,
     }, null, 2));
-    return;
-  }
-
-  writeOutputLine(JSON.stringify({
-    server: metadata,
-    health,
-    agent: status,
-  }, null, 2));
+  });
 }
 
 function renderUserContent(content: unknown): boolean {
@@ -248,7 +161,7 @@ function renderUserContent(content: unknown): boolean {
 function renderAssistantContent(
   content: unknown,
   toolRenderer: ToolActivityRenderer,
-  replayEvents: TranscriptEventCursor,
+  reasoningRenderer: ReasoningRenderer,
 ): number {
   if (typeof content === "string") {
     return renderAssistantText(content);
@@ -260,25 +173,35 @@ function renderAssistantContent(
 
   let renderedParts = 0;
   for (const part of content) {
+    const reasoning = readReasoningPart(part);
+    if (reasoning !== null) {
+      reasoningRenderer.render({ text: reasoning, kind: "delta", provider: "" });
+      renderedParts += 1;
+      continue;
+    }
+
     const text = readTextPart(part);
     if (text !== null) {
+      reasoningRenderer.flush();
+      if (toolRenderer.consumeActivity()) {
+        writeOutputLine();
+      }
       renderedParts += renderAssistantText(text);
       continue;
     }
 
     const toolCall = readToolCallPart(part);
     if (toolCall) {
-      toolRenderer.renderToolCall(replayEvents.takeToolCall(toolCall.name) ?? {
-        name: toolCall.name,
-        args: toolCall.arguments,
-      });
+      reasoningRenderer.flush();
+      toolRenderer.renderToolCall({ name: toolCall.name, args: toolCall.arguments });
       renderedParts += 1;
       continue;
     }
 
     const toolResult = readToolResultPart(part);
     if (toolResult) {
-      toolRenderer.renderToolResult(replayEvents.takeToolResult(toolResult.toolName) ?? {
+      reasoningRenderer.flush();
+      toolRenderer.renderToolResult({
         name: toolResult.toolName,
         ok: !toolResult.isError,
         status: toolResult.isError ? "error" : "ok",
@@ -291,69 +214,13 @@ function renderAssistantContent(
   return renderedParts;
 }
 
-class TranscriptEventCursor {
-  private readonly events: StoredEvent[] = [];
-
-  constructor(events: StoredEvent[]) {
-    for (const event of events) {
-      if (
-        event.type !== "tool_call" &&
-        event.type !== "tool_result" &&
-        event.type !== "reasoning"
-      ) {
-        continue;
-      }
-      this.events.push(event);
-    }
-  }
-
-  takeToolCall(toolName: string): Record<string, unknown> | null {
-    return this.takeNextEvent("tool_call", toolName);
-  }
-
-  takeToolResult(toolName: string): Record<string, unknown> | null {
-    return this.takeNextEvent("tool_result", toolName);
-  }
-
-  renderLeadingReasoning(reasoningRenderer: ReasoningRenderer): void {
-    while (this.events[0]?.type === "reasoning") {
-      const event = this.events.shift();
-      if (!event) {
-        break;
-      }
-      reasoningRenderer.render(event.data);
-    }
-  }
-
-  private takeNextEvent(type: "tool_call" | "tool_result", toolName: string): Record<string, unknown> | null {
-    for (let index = 0; index < this.events.length; index += 1) {
-      const event = this.events[index];
-      if (!event || event.type !== type) {
-        continue;
-      }
-      if (readEventToolName(event.data) !== toolName) {
-        continue;
-      }
-      this.events.splice(index, 1);
-      return event.data;
-    }
+function readReasoningPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") {
     return null;
   }
-}
-
-function hasExactTranscript(events: StoredEvent[]): boolean {
-  return events.some((event) => event.type === "user_message" || event.type === "assistant_text");
-}
-
-function readEventToolName(data: Record<string, unknown>): string | null {
-  if (typeof data.name === "string") {
-    return data.name;
-  }
-  if (typeof data.tool === "string") {
-    return data.tool;
-  }
-  if (typeof data.tool_name === "string") {
-    return data.tool_name;
+  const value = part as Record<string, unknown>;
+  if (value.type === "reasoning" && typeof value.text === "string") {
+    return value.text;
   }
   return null;
 }

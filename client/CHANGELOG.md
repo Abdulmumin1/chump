@@ -1,5 +1,17 @@
 # chump-agent
 
+## 0.0.12
+
+### Patch Changes
+
+- fix(cli): improve replay rendering, terminal wrapping, and diff display
+  fix(cli): add blank line between tool activity and assistant text on replay
+  fix(cli): use columns-1 for input rule to prevent terminal wrap
+  fix(cli): extend input border rule to full terminal width
+  fix: diff filename display and web patch parsing
+  fix(cli): render apply_patch and write_file diffs from stored message args
+  refactor: use /messages as single source of truth for transcript rendering
+
 ## 0.0.11
 
 ### Patch Changes

@@ -11,7 +11,6 @@
         cancelSteering,
         clearMessages,
         createSessionId,
-        getEventLog,
         getHealth,
         getMessages,
         getSessions,
@@ -32,13 +31,12 @@
         ChumpStatus,
         MessagePart,
         SessionSummary,
-        StoredEvent,
         StoredMessage,
         SseEvent,
     } from "$lib/chump/types";
 
     type TranscriptBlock = {
-        kind: "text" | "tool-call" | "tool-result" | "image";
+        kind: "text" | "tool-call" | "tool-result" | "image" | "reasoning";
         text: string;
         error?: boolean;
         toolCallId?: string;
@@ -81,9 +79,7 @@
     let sessionState = $state<ChumpState | null>(null);
     let sessions = $state<SessionSummary[]>([]);
     let messages = $state<StoredMessage[]>([]);
-    let eventLog = $state<StoredEvent[]>([]);
     let activity = $state<ActivityItem[]>([]);
-    let reasoningText = $state("");
     let steeringQueue = $state<
         Array<{ content: string; attachments?: Array<Record<string, unknown>> }>
     >([]);
@@ -96,8 +92,6 @@
     let transcriptElement = $state<HTMLDivElement | null>(null);
     let stopEvents: (() => void) | null = null;
     let lastEventId = 0;
-    let syntheticEventId = 0;
-    let seenEventKeys = new Set<string>();
     let loadToken = 0;
     let streamToken = 0;
     let activeRequestController: AbortController | null = null;
@@ -115,6 +109,10 @@
     >([]);
     let toastId = 0;
     let modelSearchQuery = $state("");
+
+    let currentProvider = $derived(
+        status ? status.provider : ""
+    );
 
     function pushToast(
         message: string,
@@ -159,7 +157,7 @@
     let selectedSession = $derived(
         sessions.find((session) => session.id === activeSessionId) ?? null,
     );
-    let transcript = $derived(buildTranscript(messages, eventLog));
+    let transcript = $derived(buildTranscript(messages));
     let canConnect = $derived(serverUrl.trim().length > 0);
     let canSend = $derived(
         Boolean(serverUrl && composerText.trim().length > 0),
@@ -168,7 +166,7 @@
     let availableModels = $state<ModelChoice[]>([]);
     
     onMount(() => {
-        listModelChoices(["openai", "google", "anthropic", "workers_ai", "codex"])
+        listModelChoices(["openai", "google", "anthropic", "workers_ai", "codex", "deepseek", "groq", "xai", "bedrock", "openrouter", "llama"])
             .then((choices) => {
                 availableModels = choices;
             })
@@ -177,8 +175,9 @@
 
     let filteredModels = $derived(
         availableModels.filter((m) =>
-            m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-            m.description.toLowerCase().includes(modelSearchQuery.toLowerCase())
+            (!currentProvider || m.provider === currentProvider) &&
+            (m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+             m.description.toLowerCase().includes(modelSearchQuery.toLowerCase()))
         )
     );
 
@@ -304,6 +303,19 @@
         }
     }
 
+    function patchActiveSession(state: ChumpState): void {
+        sessions = sessions.map((s) =>
+            s.id === activeSessionId
+                ? {
+                      ...s,
+                      title: state.title ?? s.title,
+                      updated_at: state.updated_at ?? s.updated_at,
+                      last_user_goal: state.last_user_goal ?? s.last_user_goal,
+                  }
+                : s,
+        );
+    }
+
     async function selectSession(sessionId: string): Promise<void> {
         const nextSessionId = sessionId.trim();
         if (!nextSessionId || !serverUrl) {
@@ -312,13 +324,9 @@
 
         activeSessionId = nextSessionId;
         sessionInput = nextSessionId;
-        reasoningText = "";
         messages = [];
-        eventLog = [];
         activity = [];
         lastEventId = 0;
-        seenEventKeys = new Set();
-        syntheticEventId = 0;
         stopEvents?.();
         stopEvents = null;
         streamToken += 1;
@@ -336,12 +344,11 @@
         connectionError = "";
 
         try {
-            const [nextStatus, nextState, nextMessages, nextEventLog] =
+            const [nextStatus, nextState, nextMessages] =
                 await Promise.all([
                     getStatus(serverUrl, sessionId),
                     getState(serverUrl, sessionId),
                     getMessages(serverUrl, sessionId),
-                    getEventLog(serverUrl, sessionId),
                 ]);
 
             if (currentToken !== loadToken || activeSessionId !== sessionId) {
@@ -355,15 +362,6 @@
             });
             sessionState = nextState.state;
             messages = nextMessages.messages;
-            eventLog = nextEventLog.events;
-            lastEventId = nextEventLog.events.at(-1)?.id ?? lastEventId;
-            seenEventKeys = new Set(
-                nextEventLog.events.map((event) =>
-                    eventKey(event.id, event.type, event.data),
-                ),
-            );
-            activity = buildActivity(nextEventLog.events);
-            reasoningText = extractReasoning(nextEventLog.events);
 
             await scrollTranscriptToEnd();
         } catch (error) {
@@ -411,25 +409,20 @@
             return;
         }
 
-        let currentEventId: number | null = null;
         if (event.id) {
             const parsed = Number(event.id);
             if (Number.isFinite(parsed)) {
-                currentEventId = parsed;
                 lastEventId = parsed;
             }
         }
-        currentEventId ??= nextSyntheticEventId();
 
         const payload = parseJson(event.data);
 
-        if (event.event === "assistant_text") {
-            const chunk = asString(payload?.content);
-            if (chunk) {
-                appendLiveEvent(currentEventId, event.event, payload);
-                if (isCurrentStream(sessionId, currentStreamToken)) {
-                    await scrollTranscriptToEnd();
-                }
+        // Fast path: streaming text chunks — mutate messages directly
+        if (event.event === "assistant_text" || event.event === "reasoning") {
+            applyLiveEvent(event.event, payload);
+            if (isCurrentStream(sessionId, currentStreamToken)) {
+                await scrollTranscriptToEnd();
             }
             return;
         }
@@ -444,10 +437,7 @@
             typeof payload.state === "object"
         ) {
             sessionState = payload.state as ChumpState;
-        }
-
-        if (event.event === "reasoning") {
-            applyReasoningDelta(payload);
+            patchActiveSession(payload.state as ChumpState);
         }
 
         if (event.event === "agent_status" && payload) {
@@ -463,6 +453,8 @@
                 });
             }
             if (!isSending) {
+                // Replace live messages with canonical server state
+                void refreshMessages(sessionId, currentStreamToken);
                 void refreshSessionsList();
             }
             return;
@@ -474,7 +466,7 @@
         }
 
         const nextItem = formatActivityItem(
-            currentEventId,
+            event.id ? Number(event.id) : 0,
             event.event,
             payload,
         );
@@ -482,16 +474,26 @@
             activity = trimTail([...activity, nextItem], 80);
         }
 
-        appendLiveEvent(currentEventId, event.event, payload);
+        applyLiveEvent(event.event, payload);
 
         if (event.event === "user_message") {
             if (isCurrentStream(sessionId, currentStreamToken)) {
                 await scrollTranscriptToEnd();
             }
         }
+    }
 
-        if (event.event === "state") {
-            void refreshSessionsList();
+    async function refreshMessages(
+        sessionId: string,
+        currentStreamToken: number,
+    ): Promise<void> {
+        if (!serverUrl) return;
+        try {
+            const response = await getMessages(serverUrl, sessionId);
+            if (!isCurrentStream(sessionId, currentStreamToken)) return;
+            messages = response.messages;
+        } catch {
+            // Non-fatal: live messages are still displayed
         }
     }
 
@@ -632,12 +634,8 @@
         status = null;
         sessionState = null;
         messages = [];
-        eventLog = [];
         activity = [];
-        reasoningText = "";
         lastEventId = 0;
-        syntheticEventId = 0;
-        seenEventKeys = new Set();
         if (!sessions.some((session) => session.id === activeSessionId)) {
             activeSessionId = "";
         }
@@ -744,21 +742,6 @@
         });
     }
 
-    function applyReasoningDelta(
-        payload: Record<string, unknown> | null,
-    ): void {
-        if (!payload) {
-            return;
-        }
-
-        const fragment = asString(payload.text);
-        if (!fragment) {
-            return;
-        }
-
-        reasoningText = clipTail(`${reasoningText}${fragment}`, 1200);
-    }
-
     function parseSteeringQueue(
         payload: Record<string, unknown>,
     ): Array<{
@@ -787,33 +770,91 @@
             );
     }
 
-    function appendLiveEvent(
-        id: number,
+    function getLiveAssistantMessage(): StoredMessage & { live: true } {
+        const last = messages.at(-1) as any;
+        if (last?.live && last?.role === "assistant") {
+            return last;
+        }
+        const msg = { role: "assistant", content: [] as MessagePart[], live: true as const };
+        messages = [...messages, msg];
+        return msg;
+    }
+
+    function applyLiveEvent(
         type: string,
         data: Record<string, unknown> | null,
     ): void {
-        if (!data) {
+        if (!data) return;
+
+        if (type === "user_message") {
+            const text = asString(data.content);
+            if (text) {
+                messages = [...messages, { role: "user", content: text }];
+            }
             return;
         }
-        const key = eventKey(id, type, data);
-        if (seenEventKeys.has(key)) {
+
+        if (type === "reasoning") {
+            const fragment = asString(data.text);
+            if (!fragment) return;
+            const msg = getLiveAssistantMessage();
+            const parts = msg.content as MessagePart[];
+            const last = parts.at(-1) as any;
+            if (last?.type === "reasoning") {
+                last.text = mergeReasoningText(last.text, fragment);
+            } else {
+                parts.push({ type: "reasoning", text: fragment });
+            }
+            messages = [...messages];
             return;
         }
-        seenEventKeys.add(key);
-        eventLog = trimTail([...eventLog, { id, type, data }], 400);
-    }
 
-    function eventKey(
-        id: number,
-        type: string,
-        data: Record<string, unknown>,
-    ): string {
-        return `${id}:${type}:${JSON.stringify(data)}`;
-    }
+        if (type === "assistant_text") {
+            const chunk = asString(data.content);
+            if (!chunk) return;
+            const msg = getLiveAssistantMessage();
+            const parts = msg.content as MessagePart[];
+            const last = parts.at(-1) as any;
+            if (last?.type === "text") {
+                last.text += chunk;
+            } else {
+                parts.push({ type: "text", text: chunk });
+            }
+            messages = [...messages];
+            return;
+        }
 
-    function nextSyntheticEventId(): number {
-        syntheticEventId -= 1;
-        return syntheticEventId;
+        if (type === "tool_call") {
+            const toolName = asString(data.name) || asString(data.tool) || "tool";
+            const args = asArgsRecord(data.args ?? data.payload ?? data.arguments ?? {});
+            const id = asString(data.id) || asString(data.tool_call_id) || `live-${Date.now()}`;
+            const msg = getLiveAssistantMessage();
+            (msg.content as MessagePart[]).push({
+                type: "tool_call",
+                tool_call: { id, name: toolName, arguments: args ?? {} },
+            });
+            messages = [...messages];
+            return;
+        }
+
+        if (type === "tool_result") {
+            const toolName = asString(data.name) || asString(data.tool) || asString(data.tool_name) || "tool";
+            const toolCallId = asString(data.tool_call_id) || asString(data.id) || "";
+            const result = data.result ?? data.output ?? data.preview ?? "";
+            const isError = data.ok === false || data.status === "error" || data.is_error === true;
+            messages = [...messages, {
+                role: "tool",
+                content: [{
+                    type: "tool_result",
+                    tool_result: {
+                        tool_call_id: toolCallId,
+                        tool_name: toolName,
+                        result,
+                        is_error: isError,
+                    },
+                }],
+            }];
+        }
     }
 
     function parseJson(value: string): Record<string, unknown> | null {
@@ -857,18 +898,70 @@
         return error instanceof Error ? error.message : String(error);
     }
 
-    function buildTranscript(
-        source: StoredMessage[],
-        events: StoredEvent[],
-    ): TranscriptMessage[] {
-        if (hasExactTranscript(events)) {
-            return buildTranscriptFromEvents(events);
-        }
-
+    function buildTranscript(source: StoredMessage[]): TranscriptMessage[] {
         const items: TranscriptMessage[] = [];
 
         for (let i = 0; i < source.length; i++) {
             const message = source[i];
+
+            // Assistant messages: split reasoning parts out as separate items
+            if (message.role === "assistant" && Array.isArray(message.content)) {
+                let reasoningBuf = "";
+                const nonReasoningBlocks: TranscriptBlock[] = [];
+
+                for (const part of message.content as MessagePart[]) {
+                    const candidate = part as Record<string, unknown>;
+                    if (candidate.type === "reasoning") {
+                        const fragment = asString(candidate.text);
+                        if (fragment) {
+                            reasoningBuf = mergeReasoningText(reasoningBuf, fragment);
+                        }
+                        continue;
+                    }
+                    // Flush accumulated reasoning before a non-reasoning part
+                    if (reasoningBuf) {
+                        const text = cleanReasoningText(reasoningBuf);
+                        if (text) {
+                            items.push({
+                                id: `${i}-reasoning-${items.length}`,
+                                role: "reasoning",
+                                label: "Reasoning",
+                                blocks: [{ kind: "reasoning", text }],
+                                live: (message as any).live,
+                            });
+                        }
+                        reasoningBuf = "";
+                    }
+                    const block = formatPartBlock(part);
+                    if (block) nonReasoningBlocks.push(block);
+                }
+
+                // Flush any trailing reasoning (reasoning-only assistant message)
+                if (reasoningBuf) {
+                    const text = cleanReasoningText(reasoningBuf);
+                    if (text) {
+                        items.push({
+                            id: `${i}-reasoning-${items.length}`,
+                            role: "reasoning",
+                            label: "Reasoning",
+                            blocks: [{ kind: "reasoning", text }],
+                            live: (message as any).live,
+                        });
+                    }
+                }
+
+                if (nonReasoningBlocks.length > 0) {
+                    items.push({
+                        id: `${i}-assistant`,
+                        role: "assistant",
+                        label: "Assistant",
+                        blocks: nonReasoningBlocks,
+                        live: (message as any).live,
+                    });
+                }
+                continue;
+            }
+
             let blocks = formatMessageBlocks(message.content);
 
             if (message.role === "tool" || message.role === "user") {
@@ -892,7 +985,7 @@
                             if (found) break;
                         }
                         if (!found) allMerged = false;
-                        else block.hasResult = true; // Mark as merged
+                        else block.hasResult = true;
                     } else {
                         allMerged = false;
                     }
@@ -906,238 +999,12 @@
                 id: `${i}-${message.role}`,
                 role: message.role,
                 label: formatRole(message.role),
-                blocks: blocks,
+                blocks,
+                live: (message as any).live,
             });
         }
 
         return items;
-    }
-
-    function buildTranscriptFromEvents(
-        events: StoredEvent[],
-    ): TranscriptMessage[] {
-        const items: TranscriptMessage[] = [];
-        let assistantBuffer = "";
-        let reasoningBuffer = "";
-        let sequence = 0;
-
-        const flushReasoning = () => {
-            const text = cleanReasoningText(reasoningBuffer);
-            if (!text) {
-                reasoningBuffer = "";
-                return;
-            }
-
-            items.push({
-                id: `reasoning-${sequence++}`,
-                role: "reasoning",
-                label: "Reasoning",
-                blocks: [{ kind: "text", text }],
-            });
-            reasoningBuffer = "";
-        };
-
-        const flushAssistant = () => {
-            const text = assistantBuffer.trim();
-            if (!text) {
-                assistantBuffer = "";
-                return;
-            }
-
-            items.push({
-                id: `assistant-${sequence++}`,
-                role: "assistant",
-                label: "Assistant",
-                blocks: [{ kind: "text", text }],
-            });
-            assistantBuffer = "";
-        };
-
-        for (const event of events) {
-            if (event.type !== "assistant_text") {
-                flushAssistant();
-            }
-
-            switch (event.type) {
-                case "user_message": {
-                    flushReasoning();
-                    const text = asString(event.data.content).trim();
-                    if (!text) break;
-                    items.push({
-                        id: `user-${sequence++}`,
-                        role: "user",
-                        label: "You",
-                        blocks: [{ kind: "text", text }],
-                    });
-                    break;
-                }
-                case "reasoning": {
-                    reasoningBuffer = mergeReasoningText(
-                        reasoningBuffer,
-                        asString(event.data.text),
-                    );
-                    break;
-                }
-                case "assistant_text": {
-                    flushReasoning();
-                    assistantBuffer += asString(event.data.content);
-                    break;
-                }
-                case "tool_call": {
-                    flushReasoning();
-                    const block = formatEventToolCall(event.data);
-                    if (block) {
-                        items.push({
-                            id: `tool-call-${sequence++}`,
-                            role: "assistant",
-                            label: "Assistant",
-                            blocks: [block],
-                        });
-                    }
-                    break;
-                }
-                case "tool_result": {
-                    flushReasoning();
-                    mergeToolResultIntoTranscript(items, event.data);
-                    break;
-                }
-            }
-        }
-
-        flushAssistant();
-        flushReasoning();
-        return items;
-    }
-
-    function hasExactTranscript(events: StoredEvent[]): boolean {
-        return events.some(
-            (event) =>
-                event.type === "user_message" ||
-                event.type === "assistant_text",
-        );
-    }
-
-    function formatEventToolCall(
-        payload: Record<string, unknown>,
-    ): TranscriptBlock | null {
-        const toolName =
-            asString(payload.name) || asString(payload.tool) || "tool";
-        const args = asArgsRecord(payload.args ?? payload.payload ?? {});
-        let headerTitle = toolName;
-        let isDiff = false;
-        let diffContent = "";
-
-        if (toolName === "bash" || toolName === "execute_command") {
-            const cmd = asString(args.command) || asString(args.cmd) || "";
-            if (cmd) headerTitle = `$ ${cmd}`;
-        } else if (toolName === "read_file" || toolName === "view_file") {
-            const file = asString(args.file_path) || asString(args.path) || "";
-            if (file) headerTitle = file.split("/").pop() || file;
-        } else if (
-            toolName === "edit_file" ||
-            toolName === "apply_patch" ||
-            toolName === "write_file" ||
-            toolName === "create_file"
-        ) {
-            const file = asString(args.file_path) || asString(args.path) || "";
-            if (file) headerTitle = file.split("/").pop() || file;
-        }
-
-        if (
-            typeof args.patch === "string" ||
-            typeof args.patchText === "string" ||
-            typeof args.patch_text === "string" ||
-            typeof args.diff === "string" ||
-            typeof args.file_diff === "string"
-        ) {
-            isDiff = true;
-            diffContent = (args.patch ||
-                args.patchText ||
-                args.patch_text ||
-                args.diff ||
-                args.file_diff) as string;
-        } else if (
-            typeof args.content === "string" &&
-            (toolName === "write_file" || toolName === "create_file")
-        ) {
-            isDiff = true;
-            diffContent =
-                `+++ ${headerTitle}\n@@ -0,0 +1 @@\n` +
-                args.content
-                    .split("\n")
-                    .map((l) => `+${l}`)
-                    .join("\n");
-        }
-
-        return {
-            kind: "tool-call",
-            text: `${toolName}\n${stringifyValue(args)}`,
-            toolName: headerTitle,
-            originalToolName: toolName,
-            args,
-            isDiff,
-            diffContent,
-        };
-    }
-
-    function mergeToolResultIntoTranscript(
-        items: TranscriptMessage[],
-        payload: Record<string, unknown>,
-    ): void {
-        const toolName =
-            asString(payload.tool_name) ||
-            asString(payload.tool) ||
-            asString(payload.name);
-        for (let index = items.length - 1; index >= 0; index -= 1) {
-            const item = items[index];
-            for (const block of item.blocks) {
-                if (
-                    block.kind === "tool-call" &&
-                    block.originalToolName === toolName &&
-                    !block.hasResult
-                ) {
-                    block.result =
-                        payload.preview ??
-                        payload.error ??
-                        payload.result ??
-                        payload.output;
-                    block.metadata = asRecord(payload.metadata) ?? undefined;
-                    block.error =
-                        payload.is_error === true ||
-                        payload.ok === false ||
-                        payload.status === "error";
-                    block.hasResult = true;
-                    return;
-                }
-            }
-        }
-
-        items.push({
-            id: `tool-result-fallback-${items.length}`,
-            role: "assistant",
-            label: "Assistant",
-            blocks: [
-                {
-                    kind: "tool-result",
-                    text: stringifyValue(
-                        payload.preview ??
-                            payload.error ??
-                            payload.result ??
-                            payload.output,
-                    ),
-                    error:
-                        payload.is_error === true ||
-                        payload.ok === false ||
-                        payload.status === "error",
-                    result:
-                        payload.preview ??
-                        payload.error ??
-                        payload.result ??
-                        payload.output,
-                    originalToolName: toolName,
-                },
-            ],
-        });
     }
 
     function mergeReasoningText(existing: string, incoming: string): string {
@@ -1221,6 +1088,96 @@
         const words = text.trim().split(/\s+/).filter(Boolean).length;
         const seconds = Math.max(1, Math.round(words / 35));
         return `Thought for ${seconds} second${seconds === 1 ? "" : "s"}`;
+    }
+
+    function formatPartBlock(part: MessagePart): TranscriptBlock | null {
+        const candidate = part as Record<string, unknown>;
+        const kind = typeof candidate.type === "string" ? candidate.type : "";
+
+        if (kind === "text") {
+            return { kind: "text", text: asString(candidate.text) };
+        }
+        if (kind === "tool_call") {
+            const toolCall = asRecord(candidate.tool_call);
+            const args = asArgsRecord(toolCall?.arguments ?? {});
+            const toolName = asString(toolCall?.name) || "tool";
+            let isDiff = false;
+            let diffContent = "";
+            let headerTitle = toolName;
+
+            if (toolName === "bash" || toolName === "execute_command") {
+                const cmd = asString(args?.command) || asString(args?.cmd) || "";
+                if (cmd) headerTitle = `$ ${cmd}`;
+            } else if (toolName === "read_file" || toolName === "view_file") {
+                const file = asString(args?.file_path) || asString(args?.path) || "";
+                if (file) headerTitle = file.split("/").pop() || file;
+            } else if (
+                toolName === "edit_file" ||
+                toolName === "apply_patch" ||
+                toolName === "write_file" ||
+                toolName === "create_file"
+            ) {
+                const file = asString(args?.file_path) || asString(args?.path) || "";
+                if (file) headerTitle = file.split("/").pop() || file;
+            }
+
+            if (
+                args &&
+                (typeof args.patch === "string" ||
+                    typeof args.patchText === "string" ||
+                    typeof args.patch_text === "string" ||
+                    typeof args.diff === "string" ||
+                    typeof args.file_diff === "string")
+            ) {
+                isDiff = true;
+                diffContent = (args.patch ||
+                    args.patchText ||
+                    args.patch_text ||
+                    args.diff ||
+                    args.file_diff) as string;
+            } else if (
+                args &&
+                typeof args.content === "string" &&
+                (toolName === "write_file" || toolName === "create_file")
+            ) {
+                isDiff = true;
+                diffContent =
+                    `+++ ${headerTitle}\n@@ -0,0 +1 @@\n` +
+                    args.content
+                        .split("\n")
+                        .map((l) => `+${l}`)
+                        .join("\n");
+            }
+
+            return {
+                kind: "tool-call",
+                text: `${toolName}\n${stringifyValue(args)}`,
+                toolCallId: asString(toolCall?.id),
+                toolName: headerTitle,
+                originalToolName: toolName,
+                args: args ?? undefined,
+                isDiff,
+                diffContent,
+            };
+        }
+        if (kind === "tool_result") {
+            const toolResult = asRecord(candidate.tool_result);
+            return {
+                kind: "tool-result",
+                toolCallId: asString(toolResult?.tool_call_id),
+                text: stringifyValue(toolResult?.result),
+                error: toolResult?.is_error === true,
+                result: toolResult?.result,
+            };
+        }
+        if (kind === "image") {
+            const mediaType = asString(candidate.media_type);
+            return {
+                kind: "image",
+                text: mediaType ? `image · ${mediaType}` : "image",
+            };
+        }
+        return { kind: "text", text: stringifyValue(part) };
     }
 
     function formatMessageBlocks(
@@ -1336,17 +1293,6 @@
         return blocks.length > 0 ? blocks : [{ kind: "text", text: "" }];
     }
 
-    function buildActivity(events: StoredEvent[]): ActivityItem[] {
-        return trimTail(
-            events
-                .map((event) =>
-                    formatActivityItem(event.id, event.type, event.data),
-                )
-                .filter((item): item is ActivityItem => item !== null),
-            80,
-        );
-    }
-
     function formatActivityItem(
         id: number,
         type: string,
@@ -1419,20 +1365,6 @@
         return null;
     }
 
-    function extractReasoning(events: StoredEvent[]): string {
-        let text = "";
-        for (const event of events) {
-            if (event.type !== "reasoning") {
-                continue;
-            }
-            const fragment = asString(event.data.text);
-            if (fragment) {
-                text = clipTail(`${text}${fragment}`, 1200);
-            }
-        }
-        return text;
-    }
-
     function formatRole(role: string): string {
         if (role === "assistant") {
             return "Assistant";
@@ -1477,9 +1409,6 @@
         return trimTail(items, size).slice().reverse();
     }
 
-    function clipTail(value: string, size: number): string {
-        return value.length <= size ? value : value.slice(value.length - size);
-    }
 </script>
 
 <svelte:head>
@@ -1600,6 +1529,7 @@
             skills={currentSkills}
             models={availableModels}
             {currentModel}
+            {currentProvider}
             workspaceRoot={displayWorkspace}
             {reasoningInfo}
             {steeringQueue}

@@ -5,7 +5,6 @@ import {
   abortCurrentTurn,
   cancelLastSteering,
   clearMessages,
-  getEventLog,
   getHealth,
   getMessages,
   getSessions,
@@ -21,7 +20,7 @@ import {
   printHelp,
   switchAgent,
 } from "./commands.ts";
-import { connectProvider, readGlobalAuth } from "./auth.ts";
+import { connectProvider, readGlobalAuth, updateGlobalAuth } from "./auth.ts";
 import { logClientEvent } from "./diagnostics.ts";
 import { listModelChoices } from "./models.ts";
 import { ShareManager } from "./share.ts";
@@ -357,10 +356,8 @@ function createActivityStatusController(
   noteReasoningPreview: (preview: string | null) => void;
 } {
   let active = false;
-  let streamingText = false;
   let aborting = false;
   let spinnerFrame: string | null = null;
-  let reasoningPreview: string | null = null;
 
   const spinner = createSpinner((frame) => {
     spinnerFrame = frame;
@@ -378,44 +375,25 @@ function createActivityStatusController(
       return;
     }
 
-    if (streamingText) {
-      setStatus(null);
-      return;
-    }
-
-    const lines: string[] = [];
-    if (reasoningPreview) {
-      lines.push(reasoningPreview, "");
-    }
-    if (spinnerFrame) {
-      lines.push(spinnerFrame, "");
-    }
-    if (lines.length > 0) {
-      lines.unshift("");
-    }
-    setStatus(lines.length > 0 ? lines.join("\n") : null);
+    setStatus(spinnerFrame ?? renderMuted("Transmogrifying"));
   }
 
   return {
     start() {
       active = true;
-      streamingText = false;
       aborting = false;
       spinner.start();
       syncStatus();
     },
     stop() {
       active = false;
-      streamingText = false;
       aborting = false;
-      reasoningPreview = null;
       spinner.stop();
       spinnerFrame = null;
       setStatus(null);
     },
     showAborting() {
       active = true;
-      streamingText = false;
       aborting = true;
       spinner.start();
       syncStatus();
@@ -424,7 +402,6 @@ function createActivityStatusController(
       if (!active) {
         return;
       }
-      streamingText = true;
       aborting = false;
       syncStatus();
     },
@@ -432,13 +409,11 @@ function createActivityStatusController(
       if (!active) {
         return;
       }
-      streamingText = false;
       aborting = false;
       spinner.refresh();
       syncStatus();
     },
-    noteReasoningPreview(preview) {
-      reasoningPreview = preview;
+    noteReasoningPreview(_preview) {
       if (!active) {
         return;
       }
@@ -971,6 +946,7 @@ async function handleSlashCommand(
         break;
       }
       const status = await setModel(config, provider, model);
+      await updateGlobalAuth({ provider: status.provider, model: status.model });
       context.setFooter(renderFooter(config, status, context.shareManager.current()));
       context.setModelSuggestions(await loadModelSuggestions());
       writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
@@ -1030,6 +1006,7 @@ async function handleSlashCommand(
         break;
       }
       const status = await setReasoning(config, mode);
+      await updateGlobalAuth({ reasoning: { mode } });
       context.setFooter(renderFooter(config, status, context.shareManager.current()));
       writeOutput(`${renderMuted(`thinking set to ${mode}`)}\n`);
       break;
@@ -1124,8 +1101,7 @@ async function renderSwitchedSession(
   if (options.skipEmptyTranscript && response.messages.length === 0) {
     return;
   }
-  const eventLog = await getEventLog(config);
-  renderSessionTranscript(response.messages, eventLog.events);
+  renderSessionTranscript(response.messages);
 }
 
 function renderFooter(

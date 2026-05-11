@@ -130,6 +130,7 @@ function createInteractivePromptReader(): {
   let lastCursorRowIndex = 0;
   let lastCursorColumn = 0;
   let lastFrameSignature = "";
+  let forceRedraw = false;
   let resizeDebounceTimer: NodeJS.Timeout | null = null;
 
   output.write("\x1b[?2004h");
@@ -196,7 +197,12 @@ function createInteractivePromptReader(): {
     const lines = value.split("\n");
     const target = cursorPosition(value, cursor);
     const slashMenu = getVisibleSlashMenu();
-    const statusLines = statusLine ? statusLine.split("\n") : [];
+    const inputIndent = " ";
+    const columns = terminalColumns();
+    const wrapWidth = terminalWrapWidth(columns);
+    const statusRow = statusLine
+      ? truncateAnsiLine(statusLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)
+      : "";
     const menuLines = renderSlashCommandMenu(
       slashMenu.items,
       slashMenu.selectedIndex,
@@ -212,13 +218,10 @@ function createInteractivePromptReader(): {
           renderQueueHint(),
         ]
       : [];
-    const inputIndent = " ";
-    const columns = terminalColumns();
-    const wrapWidth = terminalWrapWidth(columns);
     const footerRows = footerLine
-      ? wrapAnsiLine(footerLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)
+      ? [truncateAnsiLine(footerLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)]
       : [];
-    const frameWidth = Math.max(12, columns - 2);
+    const frameWidth = Math.max(12, columns - 1);
     const rule = renderInputRule(frameWidth);
     const promptLines = [
       rule,
@@ -226,18 +229,18 @@ function createInteractivePromptReader(): {
       rule,
     ];
     const promptFrameLines = [
-      ...statusLines,
       ...queueLines,
       ...(menuTopSpacerLines > 0 ? [""] : []),
       ...menuLines,
       "",
+      statusRow,
       ...promptLines,
     ];
     const cursorFrameLineIndex =
-      statusLines.length +
       queueLines.length +
       menuTopSpacerLines +
       menuLines.length +
+      1 +
       2 +
       target.line;
 
@@ -247,7 +250,7 @@ function createInteractivePromptReader(): {
       visibleLength(inputIndent) + target.column,
     );
     const promptRows = promptFrameLines.flatMap((line) => wrapAnsiLine(line, wrapWidth));
-    const renderedRows = [...promptRows, ...footerRows];
+    const renderedRows = [...promptRows, ...footerRows].map((row) => truncateAnsiLine(row, wrapWidth));
     const totalRows = Math.max(renderedRows.length, 1);
     const rowsUp = Math.max(0, totalRows - 1 - layout.cursorRow);
     const moveUpRows = physicalCursorOffsetFromFrameTop(columns);
@@ -268,13 +271,11 @@ function createInteractivePromptReader(): {
     lastCursorColumn = layout.cursorColumn;
     lastColumns = columns;
     const frame = `\r${moveUp}\x1b[J\x1b[?25l${rows.join("")}\x1b[?25h${moveToCursorRow}\r${moveToCursorColumn}`;
-    if (frame === lastFrameSignature) {
-      // Identical frame already on screen — skip the write to avoid the
-      // cursor-hide/show flicker the spinner's 190ms tick would otherwise
-      // cause every time it fires.
+    if (frame === lastFrameSignature && !forceRedraw) {
       return "";
     }
     lastFrameSignature = frame;
+    forceRedraw = false;
     return frame;
   }
 
@@ -309,6 +310,7 @@ function createInteractivePromptReader(): {
       }
       // Force-rerender: requestRedraw skips when nothing changed, but the
       // physical layout may have changed even if our state has not.
+      forceRedraw = true;
       redraw();
     }, 80);
   }
@@ -347,9 +349,6 @@ function createInteractivePromptReader(): {
       attachments = [];
       historyIndex = inputHistory.length;
       pendingResolve = null;
-      requestRedraw();
-    } else {
-      pendingResolve = null;
     }
 
     resolve(submission);
@@ -361,6 +360,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
+    forceRedraw = true;
     requestRedraw();
   }
 
@@ -425,6 +425,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
+    forceRedraw = true;
     requestRedraw();
   }
 
@@ -466,6 +467,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
+    forceRedraw = true;
     requestRedraw();
   }
 
@@ -489,6 +491,7 @@ function createInteractivePromptReader(): {
       return;
     }
     cursor = clampedCursor;
+    forceRedraw = true;
     requestRedraw();
   }
 
@@ -522,6 +525,7 @@ function createInteractivePromptReader(): {
     cursor = value.length;
     slashSelection = 0;
     syncSlashSelection();
+    forceRedraw = true;
     requestRedraw();
   }
 
@@ -592,6 +596,7 @@ function createInteractivePromptReader(): {
       return false;
     }
     slashSelection = (slashSelection + direction + state.suggestions.length) % state.suggestions.length;
+    forceRedraw = true;
     requestRedraw();
     return true;
   }
@@ -617,6 +622,7 @@ function createInteractivePromptReader(): {
     cursor = value.length;
     historyIndex = inputHistory.length;
     syncSlashSelection();
+    forceRedraw = true;
     requestRedraw();
     return true;
   }
@@ -871,6 +877,7 @@ function createInteractivePromptReader(): {
         slashSelection = 0;
         historyIndex = inputHistory.length;
         pendingResolve = resolve;
+        forceRedraw = true;
         setActiveDraft({ buildClear, buildRedraw });
         redraw();
       });
@@ -897,10 +904,12 @@ function createInteractivePromptReader(): {
     },
     popQueuedDisplay() {
       queuedDisplay.shift();
+      forceRedraw = true;
       requestRedraw();
     },
     setQueuedDisplay(submissions: PromptSubmission[]) {
       queuedDisplay = [...submissions];
+      forceRedraw = true;
       requestRedraw();
     },
     setQueuedLinePopHandler(handler: (() => void) | null) {
@@ -913,16 +922,19 @@ function createInteractivePromptReader(): {
     setSessionSuggestions(sessions: SessionSummary[]) {
       slashMenuContext = { ...slashMenuContext, sessions };
       syncSlashSelection();
+      forceRedraw = true;
       requestRedraw();
     },
     setModelSuggestions(models: SlashCommandMenuContext["models"]) {
       slashMenuContext = { ...slashMenuContext, models };
       syncSlashSelection();
+      forceRedraw = true;
       requestRedraw();
     },
     setSkillSuggestions(skills: SlashCommandMenuContext["skills"]) {
       slashMenuContext = { ...slashMenuContext, skills };
       syncSlashSelection();
+      forceRedraw = true;
       requestRedraw();
     },
     setStatus(status: string | null) {
@@ -930,6 +942,7 @@ function createInteractivePromptReader(): {
         return;
       }
       statusLine = status;
+      forceRedraw = true;
       requestRedraw();
     },
     setFooter(footer: string | null) {
@@ -937,6 +950,7 @@ function createInteractivePromptReader(): {
         return;
       }
       footerLine = footer;
+      forceRedraw = true;
       requestRedraw();
     },
   };
@@ -1093,6 +1107,46 @@ function wrapAnsiLine(value: string, width: number): string[] {
 
   rows.push(row);
   return rows;
+}
+
+function truncateAnsiLine(value: string, width: number): string {
+  const maxWidth = Math.max(1, width);
+  if (visibleLength(value) <= maxWidth) {
+    return value;
+  }
+
+  const marker = maxWidth <= 3 ? ".".repeat(maxWidth) : "...";
+  const targetWidth = Math.max(0, maxWidth - marker.length);
+  let row = "";
+  let visible = 0;
+  let index = 0;
+  let sawAnsi = false;
+
+  while (index < value.length && visible < targetWidth) {
+    const ansiMatch = /^\x1b\[[0-9;]*m/u.exec(value.slice(index));
+    if (ansiMatch) {
+      sawAnsi = true;
+      row += ansiMatch[0];
+      index += ansiMatch[0].length;
+      continue;
+    }
+
+    const char = Array.from(value.slice(index))[0] ?? "";
+    if (!char) {
+      break;
+    }
+
+    const charWidth = charDisplayWidth(char);
+    if (visible + charWidth > targetWidth) {
+      break;
+    }
+
+    row += char;
+    visible += charWidth;
+    index += char.length;
+  }
+
+  return `${row}${marker}${sawAnsi ? "\x1b[0m" : ""}`;
 }
 
 function visibleLength(value: string): number {
