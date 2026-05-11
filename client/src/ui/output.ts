@@ -62,6 +62,9 @@ function renderApproximateTranscript(
 
     if (message.role === "assistant" || message.role === "tool") {
       reasoningRenderer.flush();
+      if (message.role === "assistant" && toolRenderer.consumeActivity()) {
+        writeOutputLine();
+      }
       renderedMessages += renderAssistantContent(message.content, toolRenderer, reasoningRenderer);
       continue;
     }
@@ -180,6 +183,9 @@ function renderAssistantContent(
     const text = readTextPart(part);
     if (text !== null) {
       reasoningRenderer.flush();
+      if (toolRenderer.consumeActivity()) {
+        writeOutputLine();
+      }
       renderedParts += renderAssistantText(text);
       continue;
     }
