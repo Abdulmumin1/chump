@@ -221,7 +221,7 @@ function createInteractivePromptReader(): {
     const footerRows = footerLine
       ? [truncateAnsiLine(footerLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)]
       : [];
-    const frameWidth = Math.max(12, Math.min(columns - 2, 96));
+    const frameWidth = Math.max(12, columns);
     const rule = renderInputRule(frameWidth);
     const promptLines = [
       rule,
