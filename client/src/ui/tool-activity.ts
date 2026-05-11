@@ -4,6 +4,7 @@ import {
   renderFileEditDiff,
   renderToolDone,
   renderToolResult,
+  type FileEditDiff,
 } from "./render.ts";
 
 export class ToolActivityRenderer {
@@ -12,6 +13,7 @@ export class ToolActivityRenderer {
   private pendingTools: Array<{
     name: string;
     args: string;
+    preRendered?: boolean;
   }> = [];
 
   private activity = false;
@@ -41,6 +43,16 @@ export class ToolActivityRenderer {
       this.pendingTools.push({ name: toolName, args: renderedArgs });
       return;
     }
+    // For apply_patch and write_file/create_file, render the diff from args
+    // immediately (used during replay from stored messages where result metadata
+    // is not available).
+    const argsDiff = readArgsDiffs(toolName, payload.args ?? payload.payload);
+    if (argsDiff.length > 0) {
+      this.writeLine(`\n${argsDiff.map((diff) => renderFileEditDiff(diff)).join("\n")}`);
+      this.activity = true;
+      this.pendingTools.push({ name: toolName, args: renderedArgs, preRendered: true });
+      return;
+    }
     this.pendingTools.push({ name: toolName, args: renderedArgs });
   }
 
@@ -66,12 +78,19 @@ export class ToolActivityRenderer {
       (toolName === "write_file" || toolName === "replace_in_file" || toolName === "apply_patch")
     ) {
       this.takePendingTool(toolName);
+      // Structured metadata diffs are authoritative — always render them.
+      // (During live streaming, this replaces the args-based pre-render.)
       this.writeLine(`\n${diffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`);
       this.activity = true;
       return;
     }
 
     const pending = this.takePendingTool(toolName);
+    // If already pre-rendered from args (replay: no result metadata available), skip
+    if (pending?.preRendered) {
+      this.activity = true;
+      return;
+    }
     if (ok === "ok" && (toolName === "read_file" || toolName === "web_fetch" || toolName === "website")) {
       return;
     }
@@ -89,6 +108,7 @@ export class ToolActivityRenderer {
   private takePendingTool(name: string): {
     name: string;
     args: string;
+    preRendered?: boolean;
   } | null {
     const index = this.pendingTools.findIndex((tool) => tool.name === name);
     if (index === -1) {
@@ -265,6 +285,94 @@ function readFileEditDiffs(payload: Record<string, unknown>): FileEditDiffPayloa
 
   const diff = readFileEditDiff(value.diff);
   return diff ? [diff] : [];
+}
+
+/**
+ * Build FileEditDiff objects from tool call arguments, used during replay
+ * from stored messages when result metadata with structured diffs is absent.
+ *
+ * - apply_patch: parse patch_text as a unified diff, one entry per "*** Update/Add/Delete File:" section
+ * - write_file / create_file: synthesize an "add" diff from path + content
+ */
+function readArgsDiffs(toolName: string, args: unknown): FileEditDiff[] {
+  if (!args || typeof args !== "object") {
+    return [];
+  }
+  const a = args as Record<string, unknown>;
+
+  if (toolName === "apply_patch" && typeof a.patch_text === "string") {
+    return parsePatchTextDiffs(a.patch_text);
+  }
+
+  if (
+    (toolName === "write_file" || toolName === "create_file") &&
+    typeof a.path === "string" &&
+    typeof a.content === "string"
+  ) {
+    const lines = a.content.split("\n").map((l) => `+${l}`);
+    return [
+      {
+        path: a.path,
+        kind: "add",
+        added: lines.length,
+        removed: 0,
+        lines,
+        truncated: false,
+      },
+    ];
+  }
+
+  return [];
+}
+
+/**
+ * Parse a patch_text string into per-file FileEditDiff objects using the
+ * `lines` format (raw unified-diff lines starting with +/-/@@).
+ * Handles "*** Update File:", "*** Add File:", "*** Delete File:" sections.
+ */
+function parsePatchTextDiffs(patchText: string): FileEditDiff[] {
+  const diffs: FileEditDiff[] = [];
+  const sectionRe = /^\*{3}\s+(Update|Add|Delete)\s+File:\s*(.+)$/i;
+
+  let currentPath: string | null = null;
+  let currentKind: "add" | "update" | "delete" = "update";
+  let currentLines: string[] = [];
+
+  function flush() {
+    if (currentPath === null) return;
+    const addedCount = currentLines.filter((l) => l.startsWith("+")).length;
+    const removedCount = currentLines.filter((l) => l.startsWith("-")).length;
+    diffs.push({
+      path: currentPath,
+      kind: currentKind,
+      added: addedCount,
+      removed: removedCount,
+      lines: currentLines,
+      truncated: false,
+    });
+  }
+
+  for (const line of patchText.split("\n")) {
+    const sectionMatch = sectionRe.exec(line);
+    if (sectionMatch) {
+      flush();
+      currentKind =
+        sectionMatch[1]?.toLowerCase() === "add"
+          ? "add"
+          : sectionMatch[1]?.toLowerCase() === "delete"
+            ? "delete"
+            : "update";
+      currentPath = (sectionMatch[2] ?? "").trim();
+      currentLines = [];
+      continue;
+    }
+    if (currentPath !== null) {
+      currentLines.push(line);
+    }
+  }
+  flush();
+
+  return diffs;
 }
 
 function truncatePreview(value: string, limit: number): string {

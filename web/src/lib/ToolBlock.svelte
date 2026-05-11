@@ -13,6 +13,7 @@
     let diffHosts: HTMLElement[] = [];
     let diffInstances: FileDiff[] = [];
     let showFullDiff = $state(false);
+    let diffExpanded = $state(false);
 
     type StructuredDiffChange = {
         type: "add" | "remove";
@@ -358,6 +359,52 @@
         effectiveDiffPatch.trim().length > 0 || hasStructuredDiffs,
     );
 
+    let totalAdded = $derived.by(() => {
+        if (hasStructuredDiffs) {
+            return effectiveStructuredDiffs.reduce((s, d) => s + d.added, 0);
+        }
+        if (effectiveDiffPatch) {
+            const lines = effectiveDiffPatch.split("\n");
+            let count = 0;
+            for (const line of lines) {
+                if (line.startsWith("+") && !line.startsWith("+++")) count++;
+            }
+            return count;
+        }
+        return 0;
+    });
+
+    let totalRemoved = $derived.by(() => {
+        if (hasStructuredDiffs) {
+            return effectiveStructuredDiffs.reduce((s, d) => s + d.removed, 0);
+        }
+        if (effectiveDiffPatch) {
+            const lines = effectiveDiffPatch.split("\n");
+            let count = 0;
+            for (const line of lines) {
+                if (line.startsWith("-") && !line.startsWith("---")) count++;
+            }
+            return count;
+        }
+        return 0;
+    });
+
+    let diffFileNames = $derived.by(() => {
+        if (hasStructuredDiffs) {
+            return effectiveStructuredDiffs.map(d => d.path);
+        }
+        if (diffFiles.length > 0) {
+            return diffFiles.map(f => f.name);
+        }
+        return [];
+    });
+
+    let diffFileNamesDisplay = $derived.by(() => {
+        if (diffFileNames.length === 0) return "";
+        if (diffFileNames.length <= 2) return diffFileNames.join(", ");
+        return `${diffFileNames[0]}, ${diffFileNames[1]}, +${diffFileNames.length - 2} more`;
+    });
+
     let diffFiles = $derived.by(() => {
         if (!effectiveDiffPatch) {
             return [];
@@ -386,8 +433,8 @@
     });
 
     $effect(() => {
-        if (!browser || !shouldRenderDiff) {
-            return;
+        if (!browser || !shouldRenderDiff || !diffExpanded) {
+            return () => { cleanupDiffs(); };
         }
 
         const files = diffFiles;
@@ -427,139 +474,176 @@
 
 {#if shouldRenderDiff}
     <div class="my-4 space-y-3">
-        <div class="px-1 text-[12px] font-mono text-text-tertiary">
-            {block.originalToolName === "write_file" ||
-            block.originalToolName === "create_file"
-                ? "Write file"
-                : "Apply patch"}
-        </div>
+        <button
+            class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            onclick={() => { diffExpanded = !diffExpanded; }}
+        >
+            <div class="flex items-center gap-3 overflow-hidden">
+                <span
+                    class="font-mono text-[13px] font-semibold tracking-wide text-accent"
+                >{block.originalToolName === "write_file" ||
+                  block.originalToolName === "create_file"
+                    ? "Write file"
+                    : "Edited"}</span>
+                {#if diffFileNamesDisplay}
+                    <span class="max-w-[300px] truncate font-mono text-[12px] text-text-secondary opacity-80">
+                        {diffFileNamesDisplay}
+                    </span>
+                {/if}
+                {#if totalAdded > 0 || totalRemoved > 0}
+                    <span class="text-[12px] font-mono">
+                        <span class="text-text-success">+{totalAdded}</span>
+                        <span class="text-error"> -{totalRemoved}</span>
+                    </span>
+                {/if}
+            </div>
 
-        {#if hasStructuredDiffs}
-            {#each effectiveStructuredDiffs as diff (diff.path)}
-                <div
-                    class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
-                >
+            <div
+                class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
+            >
+                <span class="font-mono text-[11px]">{block.originalToolName || "tool"}</span>
+                <svg
+                    class="h-4 w-4 transition-transform duration-200 {diffExpanded ? 'rotate-180' : ''}"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                ><path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 9l-7 7-7-7"
+                    ></path></svg>
+            </div>
+        </button>
+
+        {#if diffExpanded}
+            {#if hasStructuredDiffs}
+                {#each effectiveStructuredDiffs as diff (diff.path)}
                     <div
-                        class="border-b border-border-default px-3 py-2 text-[12px] font-mono text-text-secondary"
+                        class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
                     >
-                        {#if diff.kind === "add"}
-                            Added
-                        {:else if diff.kind === "delete"}
-                            Deleted
-                        {:else if diff.kind === "move"}
-                            Moved
-                        {:else}
-                            Edited
-                        {/if}
-                        {diff.kind === "move" && diff.sourcePath
-                            ? `${diff.sourcePath} → ${diff.path}`
-                            : diff.path}
-                        <span class="ml-2 text-text-success"
-                            >(+{diff.added})</span
+                        <div
+                            class="border-b border-border-default px-3 py-2 text-[12px] font-mono text-text-secondary"
                         >
-                        <span class="ml-1 text-error"
-                            >(-{diff.removed})</span
-                        >
-                    </div>
-                    <div class="overflow-x-auto">
-                        {#each diff.changes ?? [] as change}
-                            <div
-                                class="flex text-[12px] font-mono leading-relaxed {change.type ===
-                                'add'
-                                    ? 'bg-bg-toast-ok'
-                                    : 'bg-bg-toast-err'}"
+                            {#if diff.kind === "add"}
+                                Added
+                            {:else if diff.kind === "delete"}
+                                Deleted
+                            {:else if diff.kind === "move"}
+                                Moved
+                            {:else}
+                                Edited
+                            {/if}
+                            {diff.kind === "move" && diff.sourcePath
+                                ? `${diff.sourcePath} → ${diff.path}`
+                                : diff.path}
+                            <span class="ml-2 text-text-success"
+                                >(+{diff.added})</span
                             >
-                                <span
-                                    class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-text-tertiary"
-                                    >{change.type === "add"
-                                        ? change.newLine ?? ""
-                                        : change.oldLine ?? ""}</span
-                                >
-                                <span
-                                    class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
+                            <span class="ml-1 text-error"
+                                >(-{diff.removed})</span
+                            >
+                        </div>
+                        <div class="overflow-x-auto">
+                            {#each diff.changes ?? [] as change}
+                                <div
+                                    class="flex text-[12px] font-mono leading-relaxed {change.type ===
                                     'add'
-                                        ? 'text-text-success'
-                                        : 'text-error'}"
-                                    >{change.type === "add"
-                                        ? "+"
-                                        : "-"}</span
+                                        ? 'bg-bg-toast-ok'
+                                        : 'bg-bg-toast-err'}"
                                 >
-                                <span
-                                    class="px-1 py-0.5 whitespace-pre text-text-main"
-                                    >{change.text}</span
+                                    <span
+                                        class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-text-tertiary"
+                                        >{change.type === "add"
+                                            ? change.newLine ?? ""
+                                            : change.oldLine ?? ""}</span
+                                    >
+                                    <span
+                                        class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
+                                        'add'
+                                            ? 'text-text-success'
+                                            : 'text-error'}"
+                                        >{change.type === "add"
+                                            ? "+"
+                                            : "-"}</span
+                                    >
+                                    <span
+                                        class="px-1 py-0.5 whitespace-pre text-text-main"
+                                        >{change.text}</span
+                                    >
+                                </div>
+                            {/each}
+                            {#if diff.truncated}
+                                <div
+                                    class="px-3 py-1 text-[12px] font-mono text-text-tertiary"
                                 >
-                            </div>
-                        {/each}
-                        {#if diff.truncated}
-                            <div
-                                class="px-3 py-1 text-[12px] font-mono text-text-tertiary"
-                            >
-                                ... diff truncated
-                                {#if typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"}
-                                    (showing {diff.shownChanges} of {diff.totalChanges}
-                                    changed lines)
-                                {/if}
-                            </div>
-                        {/if}
+                                    ... diff truncated
+                                    {#if typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"}
+                                        (showing {diff.shownChanges} of {diff.totalChanges}
+                                        changed lines)
+                                    {/if}
+                                </div>
+                            {/if}
+                        </div>
                     </div>
-                </div>
-            {/each}
-        {:else if diffFiles.length > 0}
-            {#each diffFiles as file, index (`${file.name}-${index}`)}
-                <div
-                    class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
+                {/each}
+            {:else if diffFiles.length > 0}
+                {#each diffFiles as file, index (`${file.name}-${index}`)}
+                    <div
+                        class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
+                        style:max-height={shouldClampDiff && !showFullDiff
+                            ? "2000px"
+                            : undefined}
+                    >
+                        <svelte:element
+                            this={DIFFS_TAG_NAME}
+                            bind:this={diffHosts[index]}
+                            class="block"
+                        />
+                    </div>
+                {/each}
+            {:else if effectiveDiffPatch}
+                <pre
+                    class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[12px] font-mono text-text-warning"
                     style:max-height={shouldClampDiff && !showFullDiff
                         ? "2000px"
-                        : undefined}
-                >
-                    <svelte:element
-                        this={DIFFS_TAG_NAME}
-                        bind:this={diffHosts[index]}
-                        class="block"
-                    />
+                        : undefined}>{effectiveDiffPatch}</pre>
+            {/if}
+
+            {#if shouldClampDiff && !showFullDiff}
+                <div class="px-1">
+                    <button
+                        class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
+                        onclick={() => {
+                            showFullDiff = true;
+                        }}
+                    >
+                        See more
+                    </button>
                 </div>
-            {/each}
-        {:else if effectiveDiffPatch}
-            <pre
-                class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[12px] font-mono text-text-warning"
-                style:max-height={shouldClampDiff && !showFullDiff
-                    ? "2000px"
-                    : undefined}>{effectiveDiffPatch}</pre>
-        {/if}
+            {:else if shouldClampDiff && showFullDiff}
+                <div class="px-1">
+                    <button
+                        class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
+                        onclick={() => {
+                            showFullDiff = false;
+                        }}
+                    >
+                        See less
+                    </button>
+                </div>
+            {/if}
 
-        {#if shouldClampDiff && !showFullDiff}
-            <div class="px-1">
-                <button
-                    class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
-                    onclick={() => {
-                        showFullDiff = true;
-                    }}
-                >
-                    See more
-                </button>
-            </div>
-        {:else if shouldClampDiff && showFullDiff}
-            <div class="px-1">
-                <button
-                    class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
-                    onclick={() => {
-                        showFullDiff = false;
-                    }}
-                >
-                    See less
-                </button>
-            </div>
-        {/if}
-
-        {#if block.hasResult}
-            <div class="px-1 text-[12px] font-mono text-text-tertiary">
-                Result
-                <span class="ml-2 text-text-secondary"
-                    >{typeof block.result === "string"
-                        ? block.result
-                        : stringifyValue(block.result)}</span
-                >
-            </div>
+            {#if block.hasResult}
+                <div class="px-1 text-[12px] font-mono text-text-tertiary">
+                    Result
+                    <span class="ml-2 text-text-secondary"
+                        >{typeof block.result === "string"
+                            ? block.result
+                            : stringifyValue(block.result)}</span
+                    >
+                </div>
+            {/if}
         {/if}
     </div>
 {:else}
