@@ -12,15 +12,21 @@ This project publishes two packages with different mechanisms:
 | `chump-agent` | npm      | Changesets (automatic on `main`) |
 | `chump-server` | PyPI   | Git tag + `pypa/gh-action-pypi-publish` |
 
+Both packages should be released from `main` only. Prep work happens on a `release/*` branch, then is merged to `main`.
+
 ---
 
-## npm Release (`chump-agent`)
+## Full Release (both packages)
 
-### Prerequisites
+### Step 1: On the release branch, prepare version bumps
 
-- On the `release/*` or feature branch that will merge into `main`.
+```bash
+git checkout release/<name>
+```
 
-### Step 1: Create a changeset
+#### Client (npm)
+
+Create a changeset:
 
 ```bash
 pnpm changeset
@@ -33,7 +39,7 @@ Follow the prompt:
 
 This creates a markdown file in `.changeset/`.
 
-### Step 2: Version packages
+Then version packages:
 
 ```bash
 pnpm version-packages
@@ -42,6 +48,83 @@ pnpm version-packages
 This runs `changeset version`, which:
 - Consumes changeset files into `client/CHANGELOG.md`
 - Bumps `version` in `client/package.json`
+
+#### Server (PyPI)
+
+Update `server/CHANGELOG.md` with the new version entry.
+
+### Step 2: Commit and push the release branch
+
+```bash
+git add -A
+git commit -m "chore(release): version packages"
+git push origin release/<name>
+```
+
+### Step 3: Merge to main
+
+Create a PR or merge directly.
+
+### Step 4: On main, tag the server
+
+After the merge, on `main`:
+
+```bash
+git fetch origin
+git checkout main
+git pull
+```
+
+Get the latest server tag:
+
+```bash
+git tag --list 'chump-server-v*' --sort=-v:refname | head -1
+```
+
+Create and push the next tag:
+
+```bash
+git tag chump-server-v<next-version>
+git push origin chump-server-v<next-version>
+```
+
+### Step 5: CI handles the rest
+
+The `release.yml` workflow runs on both triggers:
+
+**On push to `main`:**
+1. Builds the client
+2. Runs `changesets/action` which publishes to npm
+3. Builds binaries (`bun run build:bin` in `client/`)
+4. Uploads binaries to the GitHub release
+
+**On tag push matching `chump-server-v*`:**
+1. Builds the server package with `uv build`
+2. Validates the built wheel matches the tag version
+3. Publishes to PyPI via `pypa/gh-action-pypi-publish`
+4. Extracts release notes from `server/CHANGELOG.md` using `server/scripts/extract_release_notes.py`
+5. Creates a GitHub release with those notes
+
+---
+
+## npm-only Release (`chump-agent`)
+
+### Step 1: Create a changeset
+
+```bash
+pnpm changeset
+```
+
+Follow the prompt:
+- Select the packages that changed (usually `chump-agent`)
+- Choose bump type (`patch`, `minor`, `major`)
+- Write a summary of changes
+
+### Step 2: Version packages
+
+```bash
+pnpm version-packages
+```
 
 ### Step 3: Commit and push
 
@@ -53,49 +136,36 @@ git push
 
 ### Step 4: Merge to main
 
-Create a PR or merge directly. On push to `main`, the `release.yml` workflow:
-1. Builds the client
-2. Runs `changesets/action` which publishes to npm
-3. Builds binaries (`bun run build:bin` in `client/`)
-4. Uploads binaries to the GitHub release
+On push to `main`, the `release.yml` workflow handles the rest.
 
 ---
 
-## PyPI Release (`chump-server`)
+## PyPI-only Release (`chump-server`)
 
-### Prerequisites
+### Step 1: Update changelog
 
-- Changes to `server/` are ready
-- `server/CHANGELOG.md` is updated with the new version entry
+Update `server/CHANGELOG.md` with the new version entry.
 
-### Step 1: Get the latest server tag
+### Step 2: Commit, merge to main
 
 ```bash
-git fetch --tags origin
-git tag --list 'chump-server-v*' --sort=-v:refname | head -1
+git add -A
+git commit -m "chore(release): update server changelog"
+git push
+# create PR and merge to main
 ```
 
-This shows the most recent tag (e.g. `chump-server-v0.0.12`).
-
-### Step 2: Determine the next version
-
-Increment based on semver. The version is embedded in the tag — the Python package derives it from `hatch-vcs` using the `chump-server-v*` tag pattern (see `server/pyproject.toml`).
-
-### Step 3: Create and push the tag
+### Step 3: On main, tag and push
 
 ```bash
+git fetch origin
+git checkout main
+git pull
 git tag chump-server-v<next-version>
 git push origin chump-server-v<next-version>
 ```
 
-### Step 4: CI handles the rest
-
-On tag push matching `chump-server-v*`, `release.yml`:
-1. Builds the server package with `uv build`
-2. Validates the built wheel matches the tag version
-3. Publishes to PyPI via `pypa/gh-action-pypi-publish`
-4. Extracts release notes from `server/CHANGELOG.md` using `server/scripts/extract_release_notes.py`
-5. Creates a GitHub release with those notes
+CI publishes to PyPI and creates a GitHub release.
 
 ---
 
