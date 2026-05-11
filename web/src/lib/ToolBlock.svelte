@@ -329,11 +329,7 @@
             return makeSyntheticWritePatch(fileName, args.content);
         }
 
-        if (
-            toolName === "apply_patch" &&
-            typeof directPatch === "string" &&
-            directPatch.includes("*** Begin Patch")
-        ) {
+        if (toolName === "apply_patch" && typeof directPatch === "string" && directPatch) {
             return normalizeApplyPatch(directPatch);
         }
 
@@ -343,8 +339,7 @@
 
         if (
             toolName === "apply_patch" &&
-            typeof block.text === "string" &&
-            block.text.includes("*** Begin Patch")
+            typeof block.text === "string"
         ) {
             return normalizeApplyPatch(block.text);
         }

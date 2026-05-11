@@ -403,9 +403,7 @@ export function renderFileEditDiff(diff: FileEditDiff): string {
   const header = `${muted("•")} ${bold(fg(palette.editHeader, renderEditVerb(diff)))} ${foreground(renderEditTarget(diff))} ${success(`(+${diff.added}`)} ${danger(`-${diff.removed})`)}`;
   const lines = diff.changes
     ? diff.changes.map((change) => renderDiffChange(change))
-    : (diff.lines ?? [])
-      .filter((line) => line.startsWith("+") || line.startsWith("-"))
-      .map((line) => renderDiffLine(line));
+    : renderDiffLinesWithNumbers(diff.lines ?? []);
   if (diff.truncated) {
     const detail =
       typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"
@@ -452,20 +450,47 @@ function renderDiffChange(change: FileEditChange): string {
   );
 }
 
-function renderDiffLine(line: string): string {
-  const marker = line.slice(0, 1);
-  const content = line.slice(1);
-  const padded = content.length > 0 ? content : " ";
-  if (line.startsWith("@@")) {
-    return muted(`    ${line}`);
+/**
+ * Render raw unified-diff lines (the `lines` format used during replay) with
+ * line numbers inferred from `@@` hunk headers.
+ */
+function renderDiffLinesWithNumbers(lines: string[]): string[] {
+  const out: string[] = [];
+  // @@ -oldStart,oldCount +newStart,newCount @@
+  const hunkRe = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+  let oldLine = 1;
+  let newLine = 1;
+
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      const m = hunkRe.exec(line);
+      if (m) {
+        oldLine = Number.parseInt(m[1] ?? "1", 10);
+        newLine = Number.parseInt(m[2] ?? "1", 10);
+      }
+      continue; // skip rendering the @@ header itself
+    }
+    if (line.startsWith("+")) {
+      const content = line.slice(1) || " ";
+      const num = `${newLine}`.padStart(4, " ");
+      out.push(bg(palette.diffAddBg, `${muted(num)} ${success("+ ")}${fg(palette.successMuted, padDiffContent(content))}`));
+      newLine += 1;
+    } else if (line.startsWith("-")) {
+      const content = line.slice(1) || " ";
+      const num = `${oldLine}`.padStart(4, " ");
+      out.push(bg(palette.diffRemoveBg, `${muted(num)} ${danger("- ")}${fg(palette.dangerMuted, padDiffContent(content))}`));
+      oldLine += 1;
+    } else {
+      // context line (space-prefixed or bare)
+      const content = line.startsWith(" ") ? line.slice(1) : line;
+      oldLine += 1;
+      newLine += 1;
+      // don't render context lines — keep output compact
+      void content;
+    }
   }
-  if (line.startsWith("+")) {
-    return bg(palette.diffAddBg, `${success(" + ")}${fg(palette.successMuted, padDiffContent(padded))}`);
-  }
-  if (line.startsWith("-")) {
-    return bg(palette.diffRemoveBg, `${danger(" - ")}${fg(palette.dangerMuted, padDiffContent(padded))}`);
-  }
-  return muted(`   ${marker === " " ? " " : ""}${content}`);
+
+  return out;
 }
 
 function padDiffContent(value: string): string {

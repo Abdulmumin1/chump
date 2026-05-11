@@ -336,18 +336,19 @@ function parsePatchTextDiffs(patchText: string): FileEditDiff[] {
 
   let currentPath: string | null = null;
   let currentKind: "add" | "update" | "delete" = "update";
-  let currentLines: string[] = [];
+  let currentRawLines: string[] = [];
 
   function flush() {
     if (currentPath === null) return;
-    const addedCount = currentLines.filter((l) => l.startsWith("+")).length;
-    const removedCount = currentLines.filter((l) => l.startsWith("-")).length;
+    const normalized = normalizeHunkLines(currentRawLines);
+    const addedCount = normalized.filter((l) => l.startsWith("+")).length;
+    const removedCount = normalized.filter((l) => l.startsWith("-")).length;
     diffs.push({
       path: currentPath,
       kind: currentKind,
       added: addedCount,
       removed: removedCount,
-      lines: currentLines,
+      lines: normalized,
       truncated: false,
     });
   }
@@ -363,16 +364,60 @@ function parsePatchTextDiffs(patchText: string): FileEditDiff[] {
             ? "delete"
             : "update";
       currentPath = (sectionMatch[2] ?? "").trim();
-      currentLines = [];
+      currentRawLines = [];
       continue;
     }
     if (currentPath !== null) {
-      currentLines.push(line);
+      currentRawLines.push(line);
     }
   }
   flush();
 
   return diffs;
+}
+
+/**
+ * Normalize chump-style hunk lines into standard unified diff format.
+ * Chump uses bare `@@` markers; we compute proper `@@ -old,count +new,count @@`
+ * so that line numbers can be tracked during rendering.
+ * If the lines already have standard `@@ -N` markers they are passed through.
+ */
+function normalizeHunkLines(lines: string[]): string[] {
+  // Already standard unified diff — pass through
+  if (lines.some((l) => /^@@\s+-\d/.test(l))) {
+    return lines;
+  }
+
+  const out: string[] = [];
+  let currentHunk: string[] = [];
+  let oldStart = 1;
+  let newStart = 1;
+
+  function flushHunk() {
+    if (currentHunk.length === 0) return;
+    const oldCount = currentHunk.filter(
+      (l) => !l.startsWith("+") && !l.startsWith("\\"),
+    ).length;
+    const newCount = currentHunk.filter(
+      (l) => !l.startsWith("-") && !l.startsWith("\\"),
+    ).length;
+    out.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`);
+    out.push(...currentHunk);
+    oldStart += oldCount;
+    newStart += newCount;
+    currentHunk = [];
+  }
+
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      flushHunk();
+      continue;
+    }
+    currentHunk.push(line);
+  }
+  flushHunk();
+
+  return out;
 }
 
 function truncatePreview(value: string, limit: number): string {
