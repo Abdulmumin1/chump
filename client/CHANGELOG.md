@@ -1,5 +1,13 @@
 # chump-agent
 
+## 0.0.13
+
+### Patch Changes
+
+- Remove `/skill` slash command. Skills are now loaded automatically via AGENTS.md and skill bundles, so the manual command is no longer needed.
+
+  Refactor TUI into modular ui/ components and add transcript renderer for cleaner message display.
+
 ## 0.0.12
 
 ### Patch Changes

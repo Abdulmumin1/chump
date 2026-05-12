@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.14
+
+- Expose `active_connections` count in server status endpoint.
+- Lazy-load `ChumpAgent` for faster server startup.
+- Surface AGENTS.md files and skill bundles to the agent system prompt.
+
 ## 0.0.13
 
 - Add DeepSeek provider support with model normalization.

@@ -9,7 +9,6 @@ import {
   getMessages,
   getSessions,
   getStatus,
-  loadSkill,
   setModel,
   setReasoning,
   steerCurrentTurn,
@@ -994,22 +993,6 @@ async function handleSlashCommand(
       }
       writeOutput(`${renderMuted("usage: /share [status|stop]")}\n`);
       break;
-    }
-    case "skill": {
-      const [name, ...rest] = parsed.args;
-      if (!name) {
-        writeOutput(`${renderMuted("usage: /skill:<name> [args]")}\n`);
-        break;
-      }
-      const skill = await loadSkill(config, name, rest.join(" "));
-      return {
-        config,
-        closeEventStream,
-        submission: {
-          text: skill.prompt,
-          attachments: [],
-        },
-      };
     }
     case "thinking": {
       const mode = parsed.args[0];

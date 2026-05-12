@@ -967,13 +967,25 @@
             if (message.role === "tool" || message.role === "user") {
                 let allMerged = true;
                 for (const block of blocks) {
-                    if (block.kind === "tool-result" && block.toolCallId) {
+                    if (block.kind === "tool-result") {
                         let found = false;
                         for (const item of items) {
                             for (const parentBlock of item.blocks) {
-                                if (
+                                if (block.toolCallId) {
+                                    if (
+                                        parentBlock.kind === "tool-call" &&
+                                        parentBlock.toolCallId === block.toolCallId
+                                    ) {
+                                        parentBlock.result = block.result;
+                                        parentBlock.error = block.error;
+                                        parentBlock.hasResult = true;
+                                        found = true;
+                                        break;
+                                    }
+                                } else if (
                                     parentBlock.kind === "tool-call" &&
-                                    parentBlock.toolCallId === block.toolCallId
+                                    !parentBlock.hasResult &&
+                                    parentBlock.originalToolName === block.originalToolName
                                 ) {
                                     parentBlock.result = block.result;
                                     parentBlock.error = block.error;
@@ -1270,12 +1282,15 @@
             }
             if (kind === "tool_result") {
                 const toolResult = asRecord(candidate.tool_result);
+                const toolName = asString(toolResult?.tool_name) || "tool";
                 blocks.push({
                     kind: "tool-result",
                     toolCallId: asString(toolResult?.tool_call_id),
                     text: stringifyValue(toolResult?.result),
                     error: toolResult?.is_error === true,
                     result: toolResult?.result,
+                    toolName,
+                    originalToolName: toolName,
                 });
                 continue;
             }
@@ -1501,12 +1516,6 @@
                         ></path></svg
                     >
                 </button>
-                {#if isSending}
-                    <button
-                        class="px-2 md:px-4 py-1 bg-bg-neutral hover:bg-text-tertiary text-text-inverse rounded-[4px] transition-colors text-[11px] md:text-[12px]"
-                        onclick={() => void abortTurn()}>Abort</button
-                    >
-                {/if}
             </div>
         </div>
 
@@ -1537,6 +1546,7 @@
             onDeleteSteering={(index) => void deleteSteering(index)}
             onEditSteering={(index) => void editSteering(index)}
             onCommand={handleCommand}
+            onAbort={() => void abortTurn()}
         />
     </main>
 </div>

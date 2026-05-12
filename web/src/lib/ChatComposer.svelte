@@ -20,6 +20,7 @@
         onDeleteSteering,
         onEditSteering,
         onCommand,
+        onAbort,
     } = $props<{
         composerText: string;
         activeSessionId: string;
@@ -39,6 +40,7 @@
         onDeleteSteering: (index: number) => void;
         onEditSteering: (index: number) => void;
         onCommand: (command: string, args: string) => void | Promise<void>;
+        onAbort: () => void;
     }>();
 
     let textareaElement = $state<HTMLTextAreaElement | null>(null);
@@ -387,6 +389,15 @@
                     class="text-[11px] md:text-[12px] font-medium text-text-muted mr-1 md:mr-2 tracking-wide hidden sm:inline"
                     >⌘ Enter</span
                 >
+                {#if isSending}
+                    <button
+                        aria-label="Abort"
+                        class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-error/20 hover:bg-error/30 text-error rounded-[6px]"
+                        onclick={onAbort}
+                    >
+                        <span class="w-3 h-3 md:w-3.5 md:h-3.5 rounded-sm bg-error"></span>
+                    </button>
+                {:else}
                 <button
                     aria-label={isSending ? "Queue message" : "Send message"}
                     class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-bg-code text-text-tertiary hover:bg-bg-code hover:text-text-secondary rounded-[6px] disabled:opacity-50"
@@ -406,6 +417,7 @@
                         ></path></svg
                     >
                 </button>
+                {/if}
             </div>
         </div>
     </div>
