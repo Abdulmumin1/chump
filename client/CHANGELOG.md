@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.14
+
+### Patch Changes
+
+- Add Chump Cloud as the default trial provider so new users can run Chump without connecting their own API key.
+
 ## 0.0.13
 
 ### Patch Changes

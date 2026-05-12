@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.15
+
+- Add Chump Cloud as the default trial provider for zero-setup usage.
+- Route Chump Cloud through a hosted DeepSeek-compatible Worker with hourly KV rate limiting.
+- Preserve DeepSeek reasoning metadata across tool loops when using Chump Cloud.
+
 ## 0.0.14
 
 - Expose `active_connections` count in server status endpoint.
