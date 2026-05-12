@@ -112,6 +112,22 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
       },
     },
   },
+  chump_cloud: {
+    id: "chump_cloud",
+    name: "Chump Cloud",
+    models: {
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+      },
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        reasoning: true,
+      },
+    },
+  },
   anthropic: {
     id: "anthropic",
     name: "Anthropic",
@@ -389,6 +405,10 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.2-codex",
       "gpt-5.1",
       "gpt-5",
+    ],
+    chump_cloud: [
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
     ],
     codex: [
       "gpt-5.5",

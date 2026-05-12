@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chump-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-31",
+  "kv_namespaces": [
+    {
+      "binding": "CHUMP_CLOUD_RATE_LIMITS",
+      "id": "84eb6499cab24cab8ff91e112e1f76ae",
+    },
+  ],
+  "observability": {
+    "enabled": true,
+  },
+  "routes": [
+    {
+      "pattern": "chump-cloud.yaqeen.me",
+      "custom_domain": true,
+    },
+  ],
+}

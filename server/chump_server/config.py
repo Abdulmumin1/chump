@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+DEFAULT_PROVIDER = "chump_cloud"
+DEFAULT_CHUMP_CLOUD_BASE_URL = "https://chump-cloud.yaqeen.me/v1"
 DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
     "https://chump.yaqeen.me",
     # Local dev for the Svelte web client (Vite default port).
@@ -20,6 +22,7 @@ DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
 DEFAULT_MODELS = {
     "codex": "gpt-5.4",
     "openai": "gpt-5.4",
+    "chump_cloud": "deepseek-v4-flash",
     "google": "gemini-2.5-flash",
     "anthropic": "claude-sonnet-4-20250514",
     "workers_ai": "@cf/moonshotai/kimi-k2.5",
@@ -54,6 +57,10 @@ PROVIDER_MODELS = {
         "gpt-5-mini",
         "gpt-5-nano",
         "gpt-5-codex",
+    },
+    "chump_cloud": {
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
     },
     "google": {
         "gemini-3.1-pro-preview",
@@ -110,7 +117,7 @@ def load_config() -> ChumpConfig:
     provider = normalize_provider_name(
         os.environ.get("CHUMP_PROVIDER")
         or string_value(auth_config.get("provider"))
-        or "openai"
+        or DEFAULT_PROVIDER
     )
 
     env_model = os.environ.get("CHUMP_MODEL")
@@ -182,7 +189,7 @@ def apply_auth_environment(
 ) -> None:
     provider = provider_name or normalize_provider_name(
         string_value(auth_config.get("provider"))
-        or os.environ.get("CHUMP_PROVIDER", "openai")
+        or os.environ.get("CHUMP_PROVIDER", DEFAULT_PROVIDER)
     )
     credentials = auth_config.get("credentials")
     if not isinstance(credentials, dict):
@@ -239,7 +246,9 @@ def normalize_reasoning_config(
     mode = string_value(value.get("mode"))
     if mode == "none":
         return None
-    normalized_provider = normalize_provider_name(provider or "openai")
+    normalized_provider = normalize_provider_name(provider or DEFAULT_PROVIDER)
+    if normalized_provider == "chump_cloud":
+        return None
     if normalized_provider == "google":
         budget = value.get("budget")
         if isinstance(budget, int):
@@ -280,6 +289,8 @@ def normalize_provider_name(value: str) -> str:
         return "codex"
     if normalized in {"deepseek"}:
         return "deepseek"
+    if normalized in {"chumpcloud", "chump_cloud"}:
+        return "chump_cloud"
     if normalized not in DEFAULT_MODELS:
         valid = ", ".join(sorted(DEFAULT_MODELS))
         raise ValueError(f"invalid CHUMP_PROVIDER={value!r}; expected one of: {valid}")
