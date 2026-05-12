@@ -16,7 +16,6 @@ codebase, run commands, and edit files.
 
 ```bash
 npm install -g chump-agent
-chump connect   # one-time provider setup
 chump           # start coding
 ```
 
@@ -30,7 +29,8 @@ bunx chump-agent
 pnpm dlx chump-agent
 ```
 
-Then run `chump connect` to set up your provider, and `chump` to start.
+Run `chump connect` only if you want to use your own provider instead of the
+default Chump Cloud trial provider.
 
 ### Option 3: Prebuilt binary (no Node.js install needed)
 
@@ -87,8 +87,9 @@ cd ~/other-project && chump
 
 ## Environment
 
-- `CHUMP_PROVIDER` — model provider (`openai`, `google`, `anthropic`, `workers_ai`, `codex`)
+- `CHUMP_PROVIDER` — model provider (`chump_cloud`, `openai`, `google`, `anthropic`, `workers_ai`, `codex`)
 - `CHUMP_MODEL` — override default model
+- `CHUMP_CLOUD_BASE_URL` — OpenAI-compatible base URL for Chump Cloud
 - `CHUMP_MAX_STEPS` — max agent steps per turn (default: `64`)
 - `CHUMP_COMMAND_TIMEOUT` — shell command timeout in seconds (default: `120`)
 - `CHUMP_VERBOSE` — set to `0` to reduce output
@@ -100,6 +101,7 @@ cd ~/other-project && chump
 - `client/` — TypeScript CLI (`chump-agent` on npm)
 - `server/` — Python backend (`chump-server` on PyPI)
 - `web/` — SvelteKit web client
+- `chump-cloud/` — standalone Cloudflare Worker for Chump Cloud
 - `ai-query/` — agent framework (local editable dependency)
 - `onlocal/` — tunneling solution
 

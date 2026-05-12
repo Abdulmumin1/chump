@@ -13,6 +13,7 @@ client/dist/
 client/.turbo/
 client/.cache/
 node_modules/
+.wrangler/
 
 server/.venv/
 server/.pytest_cache/

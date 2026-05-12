@@ -36,7 +36,7 @@
             {#if item.role === "user"}
                 <div class="self-end max-w-[85%] md:max-w-[75%]">
                     <div
-                        class="bg-bg-elevated border border-border-default rounded-xl px-4 py-2.5 text-[14px] text-text-inverse leading-relaxed whitespace-pre-wrap break-words"
+                        class="user-bubble bg-bg-elevated px-3 py-1.5 text-[12px] text-text-inverse leading-relaxed whitespace-pre-wrap break-words"
                     >
                         {item.blocks
                             .map((b: { text: string }) => b.text)
@@ -151,14 +151,6 @@
                 </div>
             {/if}
         {/each}
-
-        {#if isSending}
-            <div
-                class="flex items-center gap-2 px-2 text-[13px] text-text-tertiary animate-pulse"
-            >
-                <span class="w-2 h-2 rounded-full bg-accent"></span> Chumping...
-            </div>
-        {/if}
     </div>
 </div>
 
@@ -174,5 +166,9 @@
     }
     :global(.reasoning-marked p) {
         word-break: break-word;
+    }
+
+    .user-bubble {
+        border-radius: 10px;
     }
 </style>

@@ -161,11 +161,12 @@ export function readToolName(payload: Record<string, unknown>): string {
 function displayToolName(name: string): string {
   if (name === "web_fetch") {
     return "fetch";
-  }
-  if (name === "website") {
+  } else if (name === "website") {
     return "web search";
   } else if (name === "read_file") {
     return "Read";
+  } else if (name === "load_skill") {
+    return "Skill";
   }
   return name;
 }
@@ -203,6 +204,11 @@ export function formatToolArgs(toolName: string, value: unknown): string {
 
   if (toolName === "website") {
     return typeof args.query === "string" ? args.query : "";
+  }
+
+  if (toolName === "load_skill") {
+    const name = typeof args.name === "string" ? args.name : "";
+    return name;
   }
 
   return compactJson(value);

@@ -22,6 +22,11 @@ const PROVIDERS = {
       { key: "OPENAI_ORGANIZATION", label: "Organization", optional: true },
     ],
   },
+  chump_cloud: {
+    label: "Chump Cloud",
+    defaultModel: "deepseek-v4-flash",
+    fields: [],
+  },
   anthropic: {
     label: "Anthropic",
     defaultModel: "claude-sonnet-4-20250514",
@@ -33,9 +38,7 @@ const PROVIDERS = {
   google: {
     label: "Google",
     defaultModel: "gemini-2.5-flash",
-    fields: [
-      { key: "GOOGLE_API_KEY", label: "Google API key", secret: true },
-    ],
+    fields: [{ key: "GOOGLE_API_KEY", label: "Google API key", secret: true }],
   },
   deepseek: {
     label: "DeepSeek",
@@ -49,7 +52,11 @@ const PROVIDERS = {
     defaultModel: "@cf/moonshotai/kimi-k2.5",
     fields: [
       { key: "CLOUDFLARE_ACCOUNT_ID", label: "Cloudflare account ID" },
-      { key: "CLOUDFLARE_API_TOKEN", label: "Cloudflare API token", secret: true },
+      {
+        key: "CLOUDFLARE_API_TOKEN",
+        label: "Cloudflare API token",
+        secret: true,
+      },
     ],
   },
 } as const;
@@ -74,9 +81,10 @@ export async function connectProvider(): Promise<void> {
   } else {
     for (const field of definition.fields) {
       const optional = "optional" in field && field.optional === true;
-      const value = "secret" in field && field.secret === true
-        ? await promptPassword(field.label, optional)
-        : await promptText(field.label, "", optional);
+      const value =
+        "secret" in field && field.secret === true
+          ? await promptPassword(field.label, optional)
+          : await promptText(field.label, "", optional);
       if (value) {
         credentials[field.key] = value;
       }
@@ -95,7 +103,9 @@ export async function connectProvider(): Promise<void> {
   };
 
   await mkdir(path.dirname(authPath), { recursive: true });
-  await writeFile(authPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(authPath, `${JSON.stringify(next, null, 2)}\n`, {
+    mode: 0o600,
+  });
   await chmod(authPath, 0o600);
   outro(`Connected ${definition.label} (${displayPath(authPath)})`);
 }
@@ -112,7 +122,10 @@ export function globalDataDir(): string {
     return path.join(os.homedir(), "Library", "Application Support", "chump");
   }
   if (process.platform === "win32") {
-    return path.join(process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming"), "chump");
+    return path.join(
+      process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming"),
+      "chump",
+    );
   }
   return path.join(os.homedir(), ".local", "share", "chump");
 }
@@ -129,7 +142,9 @@ export async function readGlobalAuth(): Promise<AuthFile> {
   return await readAuthFile(globalAuthFilePath());
 }
 
-export async function updateGlobalAuth(update: Partial<AuthFile>): Promise<AuthFile> {
+export async function updateGlobalAuth(
+  update: Partial<AuthFile>,
+): Promise<AuthFile> {
   const authPath = globalAuthFilePath();
   const existing = await readAuthFile(authPath);
   const next = {
@@ -141,7 +156,9 @@ export async function updateGlobalAuth(update: Partial<AuthFile>): Promise<AuthF
     },
   };
   await mkdir(path.dirname(authPath), { recursive: true });
-  await writeFile(authPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(authPath, `${JSON.stringify(next, null, 2)}\n`, {
+    mode: 0o600,
+  });
   await chmod(authPath, 0o600);
   return next;
 }
@@ -194,7 +211,10 @@ async function promptText(
   return String(value || placeholder).trim();
 }
 
-async function promptPassword(message: string, optional: boolean): Promise<string> {
+async function promptPassword(
+  message: string,
+  optional: boolean,
+): Promise<string> {
   const value = await password({
     message,
     validate: (input) => (!optional && !input ? "Required" : undefined),

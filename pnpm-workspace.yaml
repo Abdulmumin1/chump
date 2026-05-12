@@ -1,4 +1,10 @@
 packages:
   - client
 
+  - chump-cloud
+
   - web
+allowBuilds:
+  esbuild: true
+  sharp: false
+  workerd: true

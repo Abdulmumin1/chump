@@ -24,11 +24,12 @@
         setReasoning,
         steerCurrentTurn,
         streamChat,
-    } from "$lib/chump/api";
-    import type {
-        ChumpHealth,
-        ChumpState,
-        ChumpStatus,
+} from "$lib/chump/api";
+import type {
+    ChatAttachment,
+    ChumpHealth,
+    ChumpState,
+    ChumpStatus,
         MessagePart,
         SessionSummary,
         StoredMessage,
@@ -84,6 +85,7 @@
         Array<{ content: string; attachments?: Array<Record<string, unknown>> }>
     >([]);
     let composerText = $state("");
+    let composerAttachments = $state<ChatAttachment[]>([]);
     let isConnecting = $state(false);
     let isLoadingSession = $state(false);
     let isSending = $state(false);
@@ -160,7 +162,7 @@
     let transcript = $derived(buildTranscript(messages));
     let canConnect = $derived(serverUrl.trim().length > 0);
     let canSend = $derived(
-        Boolean(serverUrl && composerText.trim().length > 0),
+        Boolean(serverUrl && (composerText.trim().length > 0 || composerAttachments.length > 0)),
     );
 
     let availableModels = $state<ModelChoice[]>([]);
@@ -498,23 +500,26 @@
     }
 
     async function submitPrompt(): Promise<void> {
-        const text = composerText.trim();
-        if (!text || !serverUrl) {
+        const text = composerText.trim() || (composerAttachments.length > 0 ? " " : "");
+        if ((!text && composerAttachments.length === 0) || !serverUrl) {
             return;
         }
 
+        const attachments = composerAttachments;
         const sessionId = await ensureActiveSession();
         if (!sessionId) {
             return;
         }
 
         composerText = "";
+        composerAttachments = [];
         if (isSending) {
             try {
                 const result = await steerCurrentTurn(
                     serverUrl,
                     sessionId,
-                    text,
+                    text || "See attached image.",
+                    attachments,
                 );
                 actionNotice = result.status;
             } catch (error) {
@@ -532,7 +537,8 @@
             await streamChat(
                 serverUrl,
                 sessionId,
-                text,
+                text || "See attached image.",
+                attachments,
                 activeRequestController.signal,
             );
         } catch (error) {
@@ -1532,6 +1538,7 @@
 
         <ChatComposer
             bind:composerText
+            bind:composerAttachments
             {activeSessionId}
             {canSend}
             {isSending}

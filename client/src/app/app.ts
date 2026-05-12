@@ -1061,7 +1061,9 @@ async function handleSlashCommand(
 
 async function loadModelSuggestions(): Promise<Awaited<ReturnType<typeof listModelChoices>>> {
   const auth = await readGlobalAuth();
-  const providers = Object.keys(auth.credentials ?? {});
+  const providers = Array.from(
+    new Set(["chump_cloud", ...Object.keys(auth.credentials ?? {})]),
+  );
   return await listModelChoices(providers);
 }
 
