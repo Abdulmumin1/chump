@@ -15,7 +15,7 @@
         workspaceRoot = "",
         currentProvider = "",
         reasoningInfo = null,
-        steeringQueue = ["nice and seeet"],
+        steeringQueue = [],
         onSend,
         onDeleteSteering,
         onEditSteering,
@@ -46,6 +46,25 @@
     let textareaElement = $state<HTMLTextAreaElement | null>(null);
     let selectedIndex = $state(0);
     let menuOpen = $state(false);
+
+    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinnerFrame = $state(0);
+    let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+
+    $effect(() => {
+        if (isSending) {
+            spinnerFrame = 0;
+            spinnerTimer = setInterval(() => {
+                spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
+            }, 80);
+        } else {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+            spinnerTimer = null;
+        }
+        return () => {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+        };
+    });
 
     type Suggestion = {
         label: string;
@@ -142,8 +161,13 @@
         if (/^\/model(?:\s|$)/.test(trimmed)) {
             const query = trimmed.slice("/model".length).trim().toLowerCase();
             return models
-                .filter((m: ModelChoice) =>
-                    m.provider === currentProvider && (!query || m.label.toLowerCase().includes(query) || m.description.toLowerCase().includes(query)))
+                .filter(
+                    (m: ModelChoice) =>
+                        m.provider === currentProvider &&
+                        (!query ||
+                            m.label.toLowerCase().includes(query) ||
+                            m.description.toLowerCase().includes(query)),
+                )
                 .map((m: ModelChoice) => ({
                     label: m.label,
                     command: `/model ${m.label}`,
@@ -301,9 +325,11 @@
     let currentThinking = $derived(reasoningInfo?.effort ?? "");
 </script>
 
-<div class="w-full px-2 md:px-8 pb-4 md:pb-6 pt-2 bg-bg-surface relative">
+<div
+    class="w-full px-2 md:px-8 pb-4 md:pb-6 pt-2 bg-bg-surface relative first:rounded-t-lg overflow-hidden"
+>
     {#if steeringQueue.length > 0}
-        <div class="max-w-3xl mx-auto space-y-2 first:rounded-t-lg">
+        <div class="max-w-[90%] mx-auto space-y-2">
             {#each steeringQueue as item, index (`${index}-${item.content}`)}
                 <div
                     class="group flex items-center gap-2 border border-border-default bg-bg-code/95 px-3 py-2"
@@ -368,14 +394,23 @@
             placeholder="Message the agent..."
             onkeydown={handleKeydown}
             oninput={handleInput}
-            class="w-full bg-transparent border-none rounded-t-[8px] px-3 md:px-4 py-2.5 md:py-3 text-[14px] text-text-secondary focus:outline-none resize-none min-h-[52px] md:min-h-[60px] max-h-[200px] md:max-h-[300px] placeholder:text-text-muted"
+            class="w-full bg-transparent border-none rounded-t-[8px] px-3 md:px-4 py-2.5 md:py-3 text-base text-text-secondary focus:outline-none resize-none min-h-[52px] md:min-h-[60px] max-h-[200px] md:max-h-[300px] placeholder:text-text-muted"
         ></textarea>
 
         <div
             class="flex justify-between items-center px-2 md:px-3 py-1.5 md:py-2 border-t border-border-default rounded-b-[8px]"
         >
             <div class="flex items-center gap-2">
-                {#if !composerText.trim()}
+                {#if isSending}
+                    <span
+                        class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
+                    >
+                        <span class="text-accent font-mono text-[15px]"
+                            >{spinnerFrames[spinnerFrame]}</span
+                        >
+                        Working...
+                    </span>
+                {:else if !composerText.trim()}
                     <CommandMenu
                         {models}
                         {currentModel}
@@ -395,28 +430,32 @@
                         class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-error/20 hover:bg-error/30 text-error rounded-[6px]"
                         onclick={onAbort}
                     >
-                        <span class="w-3 h-3 md:w-3.5 md:h-3.5 rounded-sm bg-error"></span>
+                        <span
+                            class="w-3 h-3 md:w-3.5 md:h-3.5 rounded-sm bg-error"
+                        ></span>
                     </button>
                 {:else}
-                <button
-                    aria-label={isSending ? "Queue message" : "Send message"}
-                    class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-bg-code text-text-tertiary hover:bg-bg-code hover:text-text-secondary rounded-[6px] disabled:opacity-50"
-                    onclick={onSend}
-                    disabled={!canSend || isCommand}
-                >
-                    <svg
-                        class="w-3.5 h-3.5 md:w-4 md:h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        ><path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M14 5l7 7m0 0l-7 7m7-7H3"
-                        ></path></svg
+                    <button
+                        aria-label={isSending
+                            ? "Queue message"
+                            : "Send message"}
+                        class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-bg-code text-text-tertiary hover:bg-bg-code hover:text-text-secondary rounded-[6px] disabled:opacity-50"
+                        onclick={onSend}
+                        disabled={!canSend || isCommand}
                     >
-                </button>
+                        <svg
+                            class="w-3.5 h-3.5 md:w-4 md:h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            ><path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M14 5l7 7m0 0l-7 7m7-7H3"
+                            ></path></svg
+                        >
+                    </button>
                 {/if}
             </div>
         </div>
