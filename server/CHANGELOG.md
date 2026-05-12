@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.16
+
+- Expose `available_providers` in health endpoint so the web client shows models from exactly the connected providers.
+
 ## 0.0.15
 
 - Add Chump Cloud as the default trial provider for zero-setup usage.

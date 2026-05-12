@@ -131,6 +131,22 @@ export const FALLBACK_MODELS: Record<string, any> = {
       },
     },
   },
+  chump_cloud: {
+    id: "chump_cloud",
+    name: "Chump Cloud",
+    models: {
+      "deepseek-v4-pro": { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", reasoning: true },
+      "deepseek-v4-flash": { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", reasoning: true },
+    },
+  },
+  deepseek: {
+    id: "deepseek",
+    name: "DeepSeek",
+    models: {
+      "deepseek-v4-pro": { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", reasoning: true },
+      "deepseek-v4-flash": { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", reasoning: true },
+    },
+  },
 };
 
 const CODEX_MODELS = new Set([
@@ -218,6 +234,14 @@ function modelRank(provider: string, model: string): number {
       "@cf/nvidia/nemotron-3-120b-a12b",
       "@cf/openai/gpt-oss-120b",
       "@cf/qwen/qwen2.5-coder-32b-instruct",
+    ],
+    chump_cloud: [
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+    ],
+    deepseek: [
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
     ],
   };
   const index = priorities[provider]?.indexOf(model) ?? -1;
