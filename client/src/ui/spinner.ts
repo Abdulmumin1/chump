@@ -10,6 +10,7 @@ export function createSpinner(onFrame: (frame: string | null) => void): {
   let index = 0;
   let timer: NodeJS.Timeout | null = null;
   let active = false;
+  let startedAt = 0;
 
   return {
     start() {
@@ -17,10 +18,11 @@ export function createSpinner(onFrame: (frame: string | null) => void): {
         return;
       }
       active = true;
-      onFrame(renderFrame(frames[index] ?? "✶", label, index));
+      startedAt = Date.now();
+      onFrame(renderFrame(frames[index] ?? "✶", label, index, 0));
       timer = setInterval(() => {
         index = (index + 1) % frames.length;
-        onFrame(renderFrame(frames[index] ?? "✶", label, index));
+        onFrame(renderFrame(frames[index] ?? "✶", label, index, Date.now() - startedAt));
       }, 190);
     },
     refresh() {
@@ -28,7 +30,7 @@ export function createSpinner(onFrame: (frame: string | null) => void): {
         this.start();
         return;
       }
-      onFrame(renderFrame(frames[index] ?? "✶", label, index));
+      onFrame(renderFrame(frames[index] ?? "✶", label, index, Date.now() - startedAt));
     },
     stop() {
       if (!active) {
@@ -44,8 +46,18 @@ export function createSpinner(onFrame: (frame: string | null) => void): {
   };
 }
 
-function renderFrame(symbol: string, label: string, index: number): string {
-  return `${renderAccent(symbol)} ${renderShimmer(label, index)}`;
+function renderFrame(symbol: string, label: string, index: number, elapsedMs: number): string {
+  return `${renderAccent(symbol)} ${renderShimmer(label, index)} ${renderMuted(formatElapsed(elapsedMs))}`;
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
 }
 
 function renderShimmer(label: string, index: number): string {

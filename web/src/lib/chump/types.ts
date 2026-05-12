@@ -12,6 +12,7 @@ export type ChumpHealth = {
 	reasoning: Record<string, unknown> | null;
 	verbose: boolean;
 	active_sessions: number;
+	active_connections: number;
 	uptime_seconds: number;
 	instruction_files: string[];
 	skills: Array<{ name: string; description: string }>;

@@ -20,6 +20,7 @@ import {
 import { setActiveDraft } from "./terminal.ts";
 import {
   renderContinuationPrompt,
+  renderEscHint,
   renderInput,
   renderInputRule,
   renderPrompt,
@@ -121,6 +122,8 @@ function createInteractivePromptReader(): {
   let abortHandler: (() => void) | null = null;
   let popQueuedLine: (() => void) | null = null;
   let lastEscapeAt = 0;
+  let escHintActive = false;
+  let escHintTimer: NodeJS.Timeout | null = null;
   let pasteBuffer: string | null = null;
   let nextImageNumber = 1;
   let lastColumns = terminalColumns();
@@ -165,9 +168,6 @@ function createInteractivePromptReader(): {
   }
 
   function buildClear(): string {
-    // Whenever we wipe what's on screen, invalidate the signature so the next
-    // buildRedraw is forced to emit a frame even if its contents happen to
-    // match the previously displayed frame.
     lastFrameSignature = "";
     if (lastDrawnRowCount === 0 && lastRenderedRows.length === 0) {
       cursorLine = 0;
@@ -200,9 +200,12 @@ function createInteractivePromptReader(): {
     const inputIndent = " ";
     const columns = terminalColumns();
     const wrapWidth = terminalWrapWidth(columns);
-    const statusRow = statusLine
+    const statusBase = statusLine
       ? truncateAnsiLine(statusLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)
       : "";
+    const statusRow = escHintActive
+      ? (statusBase ? `${statusBase}  ${renderEscHint()}` : renderEscHint())
+      : statusBase;
     const menuLines = renderSlashCommandMenu(
       slashMenu.items,
       slashMenu.selectedIndex,
@@ -323,6 +326,33 @@ function createInteractivePromptReader(): {
     setImmediate(() => {
       redraw();
     });
+  }
+
+  function setEscHint(): void {
+    if (escHintTimer) {
+      clearTimeout(escHintTimer);
+    }
+    escHintActive = true;
+    forceRedraw = true;
+    requestRedraw();
+    escHintTimer = setTimeout(() => {
+      escHintTimer = null;
+      escHintActive = false;
+      forceRedraw = true;
+      requestRedraw();
+    }, 600);
+  }
+
+  function clearEscHint(): void {
+    if (escHintTimer) {
+      clearTimeout(escHintTimer);
+      escHintTimer = null;
+    }
+    if (escHintActive) {
+      escHintActive = false;
+      forceRedraw = true;
+      requestRedraw();
+    }
   }
 
   function finish(result: PromptSubmission | string | null): void {
@@ -717,14 +747,19 @@ function createInteractivePromptReader(): {
       const now = Date.now();
       if (abortHandler && now - lastEscapeAt <= 600) {
         lastEscapeAt = 0;
+        clearEscHint();
         logClientEvent("abortShortcut", "double escape");
         abortHandler();
         return;
       }
       lastEscapeAt = now;
+      if (abortHandler) {
+        setEscHint();
+      }
       return;
     }
 
+    clearEscHint();
     lastEscapeAt = 0;
 
     if (isPopQueuedSequence(sequence)) {
@@ -891,6 +926,10 @@ function createInteractivePromptReader(): {
         clearTimeout(resizeDebounceTimer);
         resizeDebounceTimer = null;
       }
+      if (escHintTimer) {
+        clearTimeout(escHintTimer);
+        escHintTimer = null;
+      }
       const resolve = pendingResolve;
       pendingResolve = null;
       clear();
@@ -918,6 +957,9 @@ function createInteractivePromptReader(): {
     setAbortHandler(handler: (() => void) | null) {
       abortHandler = handler;
       lastEscapeAt = 0;
+      if (!handler) {
+        clearEscHint();
+      }
     },
     setSessionSuggestions(sessions: SessionSummary[]) {
       slashMenuContext = { ...slashMenuContext, sessions };

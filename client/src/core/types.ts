@@ -62,6 +62,7 @@ export type ChumpHealth = {
   reasoning: Record<string, unknown> | null;
   verbose: boolean;
   active_sessions: number;
+  active_connections: number;
   uptime_seconds: number;
   instruction_files: string[];
   skills: SkillSummary[];
@@ -164,6 +165,18 @@ export type SseEvent = {
   data: string;
   id?: string;
 };
+
+export type TranscriptEvent =
+  | { type: "assistant_text"; content: string }
+  | { type: "user_message"; payload: Record<string, unknown> }
+  | { type: "tool_call"; payload: Record<string, unknown> }
+  | { type: "tool_result"; payload: Record<string, unknown> }
+  | { type: "reasoning"; payload: Record<string, unknown> }
+  | { type: "agent_status"; payload: Record<string, unknown> }
+  | { type: "steering_queue"; payload: Record<string, unknown> }
+  | { type: "turn_status"; payload: Record<string, unknown> }
+  | { type: "stream_end"; fallback?: string }
+  | { type: "stream_error"; message: string; aborted?: boolean };
 
 export type SlashCommandSuggestion = {
   label: string;

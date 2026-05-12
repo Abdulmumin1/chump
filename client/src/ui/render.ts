@@ -91,6 +91,13 @@ function muted(value: string): string {
   return ansi("\x1b[2m", value);
 }
 
+function faint(value: string): string {
+  if (isLightTerminal()) {
+    return ansi(`\x1b[2m\x1b[38;2;130;130;130m`, value);
+  }
+  return ansi(`\x1b[2m\x1b[38;2;80;80;80m`, value);
+}
+
 function danger(value: string): string {
   return fg(palette.danger, value);
 }
@@ -111,6 +118,9 @@ export function createMarkdownStream(): {
 
     if (line.trimStart().startsWith("```")) {
       inCodeBlock = !inCodeBlock;
+    }
+    if (rendered === null) {
+      return "";
     }
     return includeNewline ? `${rendered}\n` : rendered;
   }
@@ -153,10 +163,10 @@ export function renderMarkdownBlock(value: string): string {
     }
     return renderedLine;
   });
-  return rendered.join("\n");
+  return rendered.filter((line) => line !== null).join("\n");
 }
 
-function renderMarkdownLine(line: string, inCodeBlock: boolean): string {
+function renderMarkdownLine(line: string, inCodeBlock: boolean): string | null {
   const trimmedStart = line.trimStart();
   const indent = line.slice(0, line.length - trimmedStart.length);
 
@@ -169,10 +179,9 @@ function renderMarkdownLine(line: string, inCodeBlock: boolean): string {
     return `${indent}${accent(trimmedStart)}`;
   }
 
-  // Horizontal rules: --- / *** / ___ (3+ chars, optionally spaced)
+  // Horizontal rules: --- / *** / ___ (3+ chars, optionally spaced) — skip them
   if (/^(\*\s*){3,}$|^(-\s*){3,}$|^(_\s*){3,}$/.test(trimmedStart)) {
-    const cols = process.stdout.columns ?? 80;
-    return muted("─".repeat(Math.max(12, cols - 2)));
+    return null;
   }
 
   const heading = /^(#{1,6})\s+(.+)$/.exec(trimmedStart);
@@ -247,7 +256,12 @@ function renderInlineMarkdown(value: string): string {
     if (source.startsWith("**", index) && source[index + 2] !== " ") {
       const end = findClosingDelimiter(source, "**", index + 2);
       if (end !== -1) {
-        rendered += bold(fg(palette.foregroundStrong, renderInlineMarkdown(source.slice(index + 2, end))));
+        rendered += bold(
+          fg(
+            palette.foregroundStrong,
+            renderInlineMarkdown(source.slice(index + 2, end)),
+          ),
+        );
         index = end + 2;
         continue;
       }
@@ -256,7 +270,12 @@ function renderInlineMarkdown(value: string): string {
     if (source.startsWith("__", index) && source[index + 2] !== " ") {
       const end = findClosingDelimiter(source, "__", index + 2);
       if (end !== -1) {
-        rendered += bold(fg(palette.foregroundStrong, renderInlineMarkdown(source.slice(index + 2, end))));
+        rendered += bold(
+          fg(
+            palette.foregroundStrong,
+            renderInlineMarkdown(source.slice(index + 2, end)),
+          ),
+        );
         index = end + 2;
         continue;
       }
@@ -264,7 +283,11 @@ function renderInlineMarkdown(value: string): string {
 
     // ── italic (*text* or _text_) ─────────────────────────────────────────────
     // Only match single * or _ that are not part of ** / __
-    if (source[index] === "*" && source[index + 1] !== "*" && source[index + 1] !== " ") {
+    if (
+      source[index] === "*" &&
+      source[index + 1] !== "*" &&
+      source[index + 1] !== " "
+    ) {
       const end = findSingleDelimiter(source, "*", index + 1);
       if (end !== -1) {
         rendered += italic(renderInlineMarkdown(source.slice(index + 1, end)));
@@ -273,7 +296,11 @@ function renderInlineMarkdown(value: string): string {
       }
     }
 
-    if (source[index] === "_" && source[index + 1] !== "_" && source[index + 1] !== " ") {
+    if (
+      source[index] === "_" &&
+      source[index + 1] !== "_" &&
+      source[index + 1] !== " "
+    ) {
       const end = findSingleDelimiter(source, "_", index + 1);
       if (end !== -1) {
         rendered += italic(renderInlineMarkdown(source.slice(index + 1, end)));
@@ -308,7 +335,11 @@ function renderInlineMarkdown(value: string): string {
  * Find the next occurrence of a two-character closing delimiter (e.g. "**"),
  * ensuring it is not preceded by a space (so "** word **" doesn't close early).
  */
-function findClosingDelimiter(source: string, delimiter: string, fromIndex: number): number {
+function findClosingDelimiter(
+  source: string,
+  delimiter: string,
+  fromIndex: number,
+): number {
   let i = fromIndex;
   while (i <= source.length - delimiter.length) {
     const pos = source.indexOf(delimiter, i);
@@ -326,7 +357,11 @@ function findClosingDelimiter(source: string, delimiter: string, fromIndex: numb
  * Find the next single-character delimiter (e.g. "*" or "_") that is not
  * doubled (i.e. not followed by the same char) and not preceded by a space.
  */
-function findSingleDelimiter(source: string, delimiter: string, fromIndex: number): number {
+function findSingleDelimiter(
+  source: string,
+  delimiter: string,
+  fromIndex: number,
+): number {
   let i = fromIndex;
   while (i < source.length) {
     const pos = source.indexOf(delimiter, i);
@@ -406,7 +441,8 @@ export function renderFileEditDiff(diff: FileEditDiff): string {
     : renderDiffLinesWithNumbers(diff.lines ?? []);
   if (diff.truncated) {
     const detail =
-      typeof diff.shownChanges === "number" && typeof diff.totalChanges === "number"
+      typeof diff.shownChanges === "number" &&
+      typeof diff.totalChanges === "number"
         ? ` (showing ${diff.shownChanges} of ${diff.totalChanges} changed lines)`
         : "";
     lines.push(muted(`... diff truncated${detail}`));
@@ -473,12 +509,22 @@ function renderDiffLinesWithNumbers(lines: string[]): string[] {
     if (line.startsWith("+")) {
       const content = line.slice(1) || " ";
       const num = `${newLine}`.padStart(4, " ");
-      out.push(bg(palette.diffAddBg, `${muted(num)} ${success("+ ")}${fg(palette.successMuted, content)}`));
+      out.push(
+        bg(
+          palette.diffAddBg,
+          `${muted(num)} ${success("+ ")}${fg(palette.successMuted, content)}`,
+        ),
+      );
       newLine += 1;
     } else if (line.startsWith("-")) {
       const content = line.slice(1) || " ";
       const num = `${oldLine}`.padStart(4, " ");
-      out.push(bg(palette.diffRemoveBg, `${muted(num)} ${danger("- ")}${fg(palette.dangerMuted, content)}`));
+      out.push(
+        bg(
+          palette.diffRemoveBg,
+          `${muted(num)} ${danger("- ")}${fg(palette.dangerMuted, content)}`,
+        ),
+      );
       oldLine += 1;
     } else {
       // context line (space-prefixed or bare)
@@ -516,8 +562,10 @@ export function renderInput(value: string): string {
   return renderInlineAttachments(value);
 }
 
-export function renderInputRule(width: number = process.stdout.columns ?? 80): string {
-  return muted("─".repeat(Math.max(12, width)));
+export function renderInputRule(
+  width: number = process.stdout.columns ?? 80,
+): string {
+  return faint("─".repeat(Math.max(12, width)));
 }
 
 export function renderError(message: string): string {
@@ -528,12 +576,24 @@ export function renderMuted(message: string): string {
   return muted(message);
 }
 
+export function renderWorkedFor(elapsedMs: number): string {
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  return `\n${accent("✶")} ${muted(`worked for ${duration}`)}\n`;
+}
+
 export function renderAccent(message: string): string {
   return accent(message);
 }
 
 export function renderFooterStatus(parts: string[]): string {
   return muted(parts.filter(Boolean).join(" · "));
+}
+
+export function renderEscHint(): string {
+  return muted("esc again to interrupt");
 }
 
 export function renderQueuedMessage(message: string): string {
@@ -553,7 +613,6 @@ export function renderThinkingLabel(): string {
 export function renderThinkingText(message: string): string {
   return fg(palette.thinkingText, message);
 }
-
 
 function isLightTerminal(): boolean {
   const theme = process.env.CHUMP_THEME?.toLowerCase();
@@ -581,7 +640,10 @@ function isLightTerminal(): boolean {
 
     // Read response bytes synchronously. Open /dev/tty as a fresh fd so we can
     // use O_NONBLOCK without disturbing the process stdin fd.
-    const ttyFd = fs.openSync("/dev/tty", fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    const ttyFd = fs.openSync(
+      "/dev/tty",
+      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK,
+    );
     const buf = Buffer.alloc(64);
     let response = "";
     const deadline = Date.now() + 100;
@@ -607,14 +669,17 @@ function isLightTerminal(): boolean {
     process.stdin.setRawMode(wasRaw);
 
     // Parse rgb:RRRR/GGGG/BBBB (16-bit components)
-    const match = /rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/.exec(response);
+    const match = /rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/.exec(
+      response,
+    );
     if (match) {
       const r = Number.parseInt(match[1], 16);
       const g = Number.parseInt(match[2], 16);
       const b = Number.parseInt(match[3], 16);
       // Scale to 8-bit if needed (16-bit components are 4 hex digits)
       const scale = match[1].length > 2 ? 257 : 1;
-      const luminance = (0.299 * (r / scale) + 0.587 * (g / scale) + 0.114 * (b / scale)) / 255;
+      const luminance =
+        (0.299 * (r / scale) + 0.587 * (g / scale) + 0.114 * (b / scale)) / 255;
       return luminance > 0.5;
     }
   } catch {
@@ -635,7 +700,9 @@ export function renderThinkingBlock(
   const lines: string[] = [];
   const heading = title?.trim();
   if (heading) {
-    lines.push(`${renderThinkingLabel()} ${bold(fg(palette.thinkingTitle, heading))}`);
+    lines.push(
+      `${renderThinkingLabel()} ${bold(fg(palette.thinkingTitle, heading))}`,
+    );
   } else {
     lines.push(renderThinkingLabel());
   }
@@ -649,7 +716,9 @@ export function renderThinkingBlock(
     for (const plainLine of plainLines) {
       if (plainLine.length > wrapWidth) {
         const subWrapped = wrapPlainText(plainLine, wrapWidth);
-        lines.push(...subWrapped.map((l) => `${muted("│")} ${renderThinkingText(l)}`));
+        lines.push(
+          ...subWrapped.map((l) => `${muted("│")} ${renderThinkingText(l)}`),
+        );
       } else {
         lines.push(`${muted("│")} ${renderThinkingText(plainLine)}`);
       }
@@ -699,11 +768,19 @@ export function renderSlashCommandMenu(
     lines.push(muted(`  ${meta.hiddenAbove} more`));
   }
 
-  lines.push(...items.map((item, index) =>
-    item.columns
-      ? renderSessionMenuItem(item.columns, index === selectedIndex, width)
-      : renderSlashCommandMenuItem(item.label, item.description, index === selectedIndex, width, commandWidth)
-  ));
+  lines.push(
+    ...items.map((item, index) =>
+      item.columns
+        ? renderSessionMenuItem(item.columns, index === selectedIndex, width)
+        : renderSlashCommandMenuItem(
+            item.label,
+            item.description,
+            index === selectedIndex,
+            width,
+            commandWidth,
+          ),
+    ),
+  );
 
   if (meta.hiddenBelow > 0) {
     lines.push(muted(`  ${meta.hiddenBelow} more`));
@@ -714,7 +791,9 @@ export function renderSlashCommandMenu(
 
 function renderSessionMenuHeader(width: number): string {
   const raw = `${"Updated".padEnd(18, " ")}${"Created".padEnd(18, " ")}Conversation`;
-  return muted(raw.length > width ? raw.slice(0, width) : raw.padEnd(width, " "));
+  return muted(
+    raw.length > width ? raw.slice(0, width) : raw.padEnd(width, " "),
+  );
 }
 
 function renderSessionMenuItem(
@@ -729,12 +808,18 @@ function renderSessionMenuItem(
   const updated = session.updated.padEnd(18, " ");
   const created = session.created.padEnd(18, " ");
   const titleWidth = Math.max(12, width - 36);
-  const conversation = clipPlain(session.conversation, titleWidth).padEnd(titleWidth, " ");
+  const conversation = clipPlain(session.conversation, titleWidth).padEnd(
+    titleWidth,
+    " ",
+  );
   const raw = `${updated}${created}${conversation}`;
   if (!selected) {
     return `${muted(updated)}${muted(created)}${foreground(conversation)}`;
   }
-  return bg(palette.selectedBg, `${bold(accent(updated))}${bold(foreground(created))}${bold(foreground(raw.slice(36)))}`);
+  return bg(
+    palette.selectedBg,
+    `${bold(accent(updated))}${bold(foreground(created))}${bold(foreground(raw.slice(36)))}`,
+  );
 }
 
 function renderSlashCommandMenuItem(
@@ -745,9 +830,15 @@ function renderSlashCommandMenuItem(
   commandWidth: number,
 ): string {
   const gap = "    ";
-  const commandText = clipPlain(command, commandWidth).padEnd(commandWidth, " ");
+  const commandText = clipPlain(command, commandWidth).padEnd(
+    commandWidth,
+    " ",
+  );
   const descriptionWidth = Math.max(0, width - commandWidth - gap.length);
-  const descriptionText = clipPlain(description, descriptionWidth).padEnd(descriptionWidth, " ");
+  const descriptionText = clipPlain(description, descriptionWidth).padEnd(
+    descriptionWidth,
+    " ",
+  );
   const clipped = `${commandText}${gap}${descriptionText}`;
   if (!selected) {
     return `${foreground(commandText)}${muted(gap)}${muted(descriptionText)}`;
@@ -776,7 +867,9 @@ export function renderUserMessage(message: string): string {
   const lines = message.split("\n");
   const [firstLine = "", ...rest] = lines;
   const head = `${accent("※")} ${renderInlineAttachments(firstLine)}`;
-  const tail = rest.map((line) => `${muted("╎")} ${renderInlineAttachments(line)}`);
+  const tail = rest.map(
+    (line) => `${muted("╎")} ${renderInlineAttachments(line)}`,
+  );
   return ["", head, ...tail, ""].join("\n");
 }
 
@@ -784,7 +877,9 @@ export function renderSteeringMessage(message: string): string {
   const preview = message.replace(/\s+/g, " ").trim();
   const [firstLine = "", ...rest] = preview.split("\n");
   const head = `${muted("Steering:")} ${renderInlineAttachments(firstLine)}`;
-  const tail = rest.map((line) => `${muted("↳")} ${renderInlineAttachments(line)}`);
+  const tail = rest.map(
+    (line) => `${muted("↳")} ${renderInlineAttachments(line)}`,
+  );
   return ["", head, ...tail, ""].join("\n");
 }
 
@@ -822,7 +917,7 @@ function wrapPlainText(value: string, width: number): string[] {
         current = word;
         continue;
       }
-      if ((current.length + 1 + word.length) <= width) {
+      if (current.length + 1 + word.length <= width) {
         current = `${current} ${word}`;
         continue;
       }

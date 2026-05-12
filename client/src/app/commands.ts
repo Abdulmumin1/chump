@@ -2,7 +2,6 @@ import type {
   ChumpConfig,
   ModelSuggestion,
   SessionSummary,
-  SkillSummary,
   SlashCommand,
   SlashCommandMenuContext,
   SlashCommandSuggestion,
@@ -38,12 +37,6 @@ const ROOT_COMMANDS: Array<{
     label: "/share",
     command: "/share ",
     description: "start, inspect, or stop remote sharing",
-    action: "fill",
-  },
-  {
-    label: "/skill",
-    command: "/skill:",
-    description: "load a skill manually",
     action: "fill",
   },
   {
@@ -97,11 +90,6 @@ export function completeSlashCommand(
     return [modelSuggestions.map(toSuggestionView), line, modelSuggestions];
   }
 
-  const skillSuggestions = completeSkillCommand(line, context.skills);
-  if (skillSuggestions.length > 0) {
-    return [skillSuggestions.map(toSuggestionView), line, skillSuggestions];
-  }
-
   const shareSuggestions = completeShareCommand(line);
   if (shareSuggestions.length > 0) {
     return [shareSuggestions.map(toSuggestionView), line, shareSuggestions];
@@ -126,38 +114,6 @@ export function completeSlashCommand(
         ? ROOT_COMMANDS.map(toSuggestion)
         : [];
   return [suggestions.map(toSuggestionView), line, suggestions];
-}
-
-function completeSkillCommand(
-  line: string,
-  skills: SkillSummary[],
-): SlashCommandSuggestion[] {
-  if (
-    !(
-      line === "/skill" ||
-      line.startsWith("/skill:") ||
-      /^\/skill\s/.test(line)
-    )
-  ) {
-    return [];
-  }
-
-  const query =
-    line === "/skill"
-      ? ""
-      : line.startsWith("/skill:")
-        ? line.slice("/skill:".length).trim().toLowerCase()
-        : line.slice("/skill".length).trim().toLowerCase();
-
-  return skills
-    .filter((skill) => !query || skill.name.toLowerCase().includes(query))
-    .map((skill) => ({
-      label: skill.name,
-      command: `/skill:${skill.name}`,
-      description: skill.description,
-      kind: "skill" as const,
-      action: "fill" as const,
-    }));
 }
 
 function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
@@ -346,15 +302,6 @@ export function parseSlashCommand(input: string): {
     return { command: "session", args: ["new"] };
   }
 
-  if (input.startsWith("/skill:")) {
-    const payload = input.slice("/skill:".length).trim();
-    if (!payload) {
-      return { command: "skill", args: [] };
-    }
-    const [name, ...rest] = payload.split(/\s+/).filter(Boolean);
-    return { command: "skill", args: [name, ...rest] };
-  }
-
   if (!input.startsWith("/")) {
     return null;
   }
@@ -370,7 +317,6 @@ export function parseSlashCommand(input: string): {
     case "session":
     case "model":
     case "share":
-    case "skill":
     case "thinking":
     case "quit":
       return { command, args };
@@ -389,7 +335,6 @@ export function printHelp(): void {
     writeOutputLine("/session <id>");
     writeOutputLine("/agent <id>");
     writeOutputLine("/share [status|stop]");
-    writeOutputLine("/skill:<name> [args]");
     writeOutputLine("/thinking <none|low|high|xhigh>");
   });
 }

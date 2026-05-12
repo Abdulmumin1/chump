@@ -499,7 +499,7 @@
 {#if shouldRenderDiff}
     <div class="my-4 space-y-3">
         <button
-            class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={() => {
                 diffExpanded = !diffExpanded;
             }}
@@ -530,13 +530,10 @@
             <div
                 class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
             >
-                <span class="font-mono text-[11px]"
-                    >{block.originalToolName || "tool"}</span
-                >
                 <svg
                     class="h-4 w-4 transition-transform duration-200 {diffExpanded
                         ? 'rotate-180'
-                        : ''}"
+                        : '-rotate-90'}"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -683,7 +680,7 @@
 {:else}
     <div class="my-0.5">
         <button
-            class="group -mx-2 flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">

@@ -1,12 +1,6 @@
 export type DraftRenderer = {
   buildClear: () => string;
   buildRedraw: () => string;
-  /**
-   * Called synchronously inside flushBatch, just before writing the atomic
-   * clear→content→redraw sequence to stdout.  Use this to cancel any
-   * pending renders in the underlying TUI library so they don't overwrite
-   * the frame we are about to paint.
-   */
   beforeFlush?: () => void;
 };
 
@@ -24,10 +18,6 @@ const SYNC_END = "\x1b[?2026l";
 // cycle, dramatically reducing the compute overhead and keeping the input
 // box responsive.
 //
-// We use setImmediate (not setTimeout) so the batch fires as soon as the
-// current call stack drains, before pi-tui's process.nextTick render can
-// slip in and paint a stale/empty input frame between our clear and redraw.
-
 let batchBuffer = "";
 let batchScheduled = false;
 
@@ -46,9 +36,6 @@ function flushBatch(): void {
   const redraw = activeDraft.buildRedraw();
   let payload = batchBuffer;
   batchBuffer = "";
-  // Ensure payload ends with newline so the redraw doesn't overwrite the last line.
-  // The redraw starts with \r\x1b[2K which clears the current line, so if the
-  // payload doesn't end with \n, the last line of content would be cleared.
   if (payload && !payload.endsWith("\n")) {
     payload += "\n";
   }
@@ -84,7 +71,6 @@ export function clearTerminal(): void {
     process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
     return;
   }
-  // Flush any pending batched output first so it doesn't appear after the clear
   if (batchScheduled) {
     flushBatch();
   }
@@ -103,7 +89,6 @@ export function withDraftPaused(action: () => void): void {
     return;
   }
   const draft = activeDraft;
-  // Flush any pending batched output so it doesn't get lost
   if (batchScheduled) {
     flushBatch();
   }

@@ -1,12 +1,10 @@
 import {
   openEventStream,
 } from "../api/sse.ts";
-import { createMarkdownStream, renderError, renderUserMessage } from "./render.ts";
-import { writeOutputLine } from "./terminal.ts";
-import { ToolActivityRenderer } from "./tool-activity.ts";
+import { renderError } from "./render.ts";
+import { TranscriptRenderer, transcriptEventFromSse } from "./transcript.ts";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
 
-const toolActivityRenderer = new ToolActivityRenderer(writeOutputLine);
 let toolActivityHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringAcceptedHook: ((content: string) => void) | null = null;
@@ -15,7 +13,18 @@ let assistantTextHook: ((content: string) => boolean) | null = null;
 let agentStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringQueueHook: ((payload: Record<string, unknown>) => void) | null = null;
 let turnStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
-let assistantStream: ReturnType<typeof createMarkdownStream> | null = null;
+const transcriptRenderer = new TranscriptRenderer({
+  hooks: {
+    onToolActivity: () => toolActivityHook?.(),
+    onReasoningActivity: (payload) => reasoningActivityHook?.(payload),
+    onSteeringAccepted: (content) => steeringAcceptedHook?.(content),
+    onUserMessage: (payload) => userMessageHook?.(payload) ?? false,
+    onAssistantText: (content) => assistantTextHook?.(content) ?? false,
+    onAgentStatus: (payload) => agentStatusHook?.(payload),
+    onSteeringQueue: (payload) => steeringQueueHook?.(payload),
+    onTurnStatus: (payload) => turnStatusHook?.(payload),
+  },
+});
 
 export function setToolActivityHook(hook: (() => void) | null): void {
   toolActivityHook = hook;
@@ -75,91 +84,12 @@ export async function startEventStream(config: ChumpConfig): Promise<(() => void
 }
 
 function logEvent(event: SseEvent): void {
-  const payload = parseEventPayload(event.data);
-
-  if (event.event !== "assistant_text") {
-    flushAssistantStream();
-  }
-
-  if (event.event === "assistant_text" && payload) {
-    const content = typeof payload.content === "string" ? payload.content : "";
-    if (!content) {
-      return;
-    }
-    if (assistantTextHook?.(content)) {
-      return;
-    }
-    assistantStream ??= createMarkdownStream();
-    assistantStream.write(content);
-    return;
-  }
-
-  if (event.event === "tool_call" && payload) {
-    toolActivityHook?.();
-    toolActivityRenderer.renderToolCall(payload);
-    return;
-  }
-
-  if (event.event === "tool_result" && payload) {
-    toolActivityRenderer.renderToolResult(payload);
-    return;
-  }
-
-  if (event.event === "reasoning" && payload) {
-    reasoningActivityHook?.(payload);
-    return;
-  }
-
-  if (event.event === "agent_status" && payload) {
-    agentStatusHook?.(payload);
-    return;
-  }
-
-  if (event.event === "steering_queue" && payload) {
-    steeringQueueHook?.(payload);
-    return;
-  }
-
-  if (event.event === "turn_status" && payload) {
-    turnStatusHook?.(payload);
-    return;
-  }
-
-  if (event.event === "user_message" && payload && payload.steered === true) {
-    const content = typeof payload.content === "string" ? payload.content : "";
-    if (content.trim()) {
-      steeringAcceptedHook?.(content);
-    }
-  }
-
-  if (event.event === "user_message" && payload) {
-    if (userMessageHook?.(payload)) {
-      return;
-    }
-    const content = typeof payload.content === "string" ? payload.content : "";
-    if (content.trim()) {
-      writeOutputLine(renderUserMessage(content));
-    }
+  const transcriptEvent = transcriptEventFromSse(event);
+  if (transcriptEvent) {
+    transcriptRenderer.render(transcriptEvent);
   }
 }
 
 export function consumeToolActivity(): boolean {
-  return toolActivityRenderer.consumeActivity();
-}
-
-function parseEventPayload(value: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (parsed && typeof parsed === "object") {
-      return parsed as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function flushAssistantStream(): void {
-  assistantStream?.end();
-  assistantStream = null;
+  return transcriptRenderer.consumeToolActivity();
 }
