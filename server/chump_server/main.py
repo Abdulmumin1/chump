@@ -69,6 +69,7 @@ class ChumpServer(AgentServer):
                     {"name": item.name, "description": item.description}
                     for item in self.resources.skills
                 ],
+                "available_providers": list(self.chump_config.available_providers),
             }
         )
 

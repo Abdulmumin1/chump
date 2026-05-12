@@ -112,6 +112,7 @@ import type {
     let toastId = 0;
     let modelSearchQuery = $state("");
 
+    let availableModels = $state<ModelChoice[]>([]);
     let currentProvider = $derived(
         status ? status.provider : ""
     );
@@ -165,15 +166,6 @@ import type {
         Boolean(serverUrl && (composerText.trim().length > 0 || composerAttachments.length > 0)),
     );
 
-    let availableModels = $state<ModelChoice[]>([]);
-    
-    onMount(() => {
-        listModelChoices(["openai", "google", "anthropic", "workers_ai", "codex", "deepseek", "groq", "xai", "bedrock", "openrouter", "llama"])
-            .then((choices) => {
-                availableModels = choices;
-            })
-            .catch(console.error);
-    });
 
     let filteredModels = $derived(
         availableModels.filter((m) =>
@@ -271,6 +263,13 @@ import type {
 
             health = nextHealth;
             sessions = nextSessionsResponse.sessions;
+            if (nextHealth.available_providers?.length) {
+                listModelChoices(nextHealth.available_providers)
+                    .then((choices) => { availableModels = choices; })
+                    .catch(console.error);
+            } else {
+                availableModels = [];
+            }
 
             const preferredSessionId =
                 activeSessionId.trim() ||

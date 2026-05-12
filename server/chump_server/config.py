@@ -100,6 +100,7 @@ class ChumpConfig:
     reasoning: dict[str, Any] | None
     verbose: bool
     allowed_origins: tuple[str, ...]
+    available_providers: tuple[str, ...]
 
 
 def load_config() -> ChumpConfig:
@@ -144,7 +145,16 @@ def load_config() -> ChumpConfig:
         verbose=os.environ.get("CHUMP_VERBOSE", "1").lower()
         not in {"0", "false", "no"},
         allowed_origins=load_allowed_origins(),
+        available_providers=load_available_providers(auth_config),
     )
+
+
+def load_available_providers(auth_config: dict[str, Any]) -> tuple[str, ...]:
+    credentials = auth_config.get("credentials")
+    if not isinstance(credentials, dict):
+        return ("chump_cloud",)
+    providers = {"chump_cloud"} | set(credentials.keys())
+    return tuple(sorted(providers))
 
 
 def load_allowed_origins() -> tuple[str, ...]:

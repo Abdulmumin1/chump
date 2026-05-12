@@ -1,4 +1,4 @@
-export type ChumpHealth = {
+export type ChumpHealth = {	
 	status: string;
 	version: string;
 	ai_query_version: string;
@@ -17,6 +17,7 @@ export type ChumpHealth = {
 	instruction_files: string[];
 	skills: Array<{ name: string; description: string }>;
 	models?: string[];
+	available_providers?: string[];
 };
 
 export type SessionSummary = {
