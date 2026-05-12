@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.15
+
+### Patch Changes
+
+- Print QR codes for share connect URLs and support QR scanning in the web connect modal.
+
 ## 0.0.14
 
 ### Patch Changes

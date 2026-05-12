@@ -66,6 +66,19 @@ import type {
         tone: "default" | "error" | "muted";
     };
 
+    type BarcodeDetectorResult = {
+        rawValue: string;
+    };
+
+    type BarcodeDetectorInstance = {
+        detect(source: HTMLVideoElement): Promise<BarcodeDetectorResult[]>;
+    };
+
+    type BarcodeDetectorConstructor = {
+        new (options?: { formats?: string[] }): BarcodeDetectorInstance;
+        getSupportedFormats?: () => Promise<string[]>;
+    };
+
     import { listModelChoices, type ModelChoice } from "$lib/models";
 
     let { data }: { data: any } = $props();
@@ -101,6 +114,11 @@ import type {
     let expandedReasoning = $state<Record<string, boolean>>({});
     let sidebarOpen = $state(false);
     let connectModalOpen = $state(false);
+    let qrScannerOpen = $state(false);
+    let qrScannerError = $state("");
+    let qrVideoElement = $state<HTMLVideoElement | null>(null);
+    let qrScannerStream: MediaStream | null = null;
+    let qrScannerFrame = 0;
     let modelPickerOpen = $state(false);
     let toasts = $state<
         Array<{
@@ -147,6 +165,7 @@ import type {
     }
     function closeConnectModal() {
         connectModalOpen = false;
+        stopQrScanner();
     }
     function openModelPicker() {
         modelPickerOpen = true;
@@ -238,9 +257,114 @@ import type {
         return () => {
             stopEvents?.();
             stopEvents = null;
+            stopQrScanner();
             activeRequestController?.abort();
         };
     });
+
+    function readBarcodeDetector(): BarcodeDetectorConstructor | null {
+        if (!browser || !("BarcodeDetector" in window)) {
+            return null;
+        }
+
+        return (window as Window & {
+            BarcodeDetector?: BarcodeDetectorConstructor;
+        }).BarcodeDetector ?? null;
+    }
+
+    function applyScannedConnectValue(value: string): void {
+        const trimmed = value.trim();
+        if (!trimmed) return;
+
+        try {
+            const url = new URL(trimmed);
+            const scannedServer = url.searchParams.get("server");
+            const scannedSession = url.searchParams.get("session");
+            if (scannedServer) {
+                serverUrl = scannedServer;
+                if (scannedSession) {
+                    sessionInput = scannedSession;
+                    activeSessionId = scannedSession;
+                }
+                return;
+            }
+        } catch {
+            // Not a URL with connection params; treat it as a raw server URL.
+        }
+
+        serverUrl = trimmed;
+    }
+
+    async function startQrScanner(): Promise<void> {
+        const Detector = readBarcodeDetector();
+        if (!Detector) {
+            qrScannerError = "QR scanning is not supported in this browser.";
+            return;
+        }
+        if (!navigator.mediaDevices?.getUserMedia) {
+            qrScannerError = "Camera access is not available in this browser.";
+            return;
+        }
+
+        qrScannerOpen = true;
+        qrScannerError = "";
+        await tick();
+
+        if (!qrVideoElement) {
+            qrScannerError = "Scanner video is not ready.";
+            qrScannerOpen = false;
+            return;
+        }
+
+        try {
+            qrScannerStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment" },
+                audio: false,
+            });
+            qrVideoElement.srcObject = qrScannerStream;
+            await qrVideoElement.play();
+
+            const detector = new Detector({ formats: ["qr_code"] });
+            scanQrFrame(detector);
+        } catch (error) {
+            stopQrScanner();
+            qrScannerError = toErrorMessage(error);
+        }
+    }
+
+    function stopQrScanner(): void {
+        qrScannerOpen = false;
+        qrScannerError = "";
+        if (qrScannerFrame) {
+            cancelAnimationFrame(qrScannerFrame);
+            qrScannerFrame = 0;
+        }
+        qrScannerStream?.getTracks().forEach((track) => track.stop());
+        qrScannerStream = null;
+        if (qrVideoElement) {
+            qrVideoElement.srcObject = null;
+        }
+    }
+
+    function scanQrFrame(detector: BarcodeDetectorInstance): void {
+        qrScannerFrame = requestAnimationFrame(async () => {
+            if (!qrScannerOpen || !qrVideoElement) return;
+
+            try {
+                const results = await detector.detect(qrVideoElement);
+                const value = results[0]?.rawValue;
+                if (value) {
+                    applyScannedConnectValue(value);
+                    stopQrScanner();
+                    return;
+                }
+            } catch (error) {
+                qrScannerError = toErrorMessage(error);
+            }
+
+            scanQrFrame(detector);
+        });
+    }
 
     async function connectToServer(
         options: { selectFirstSession?: boolean } = {},
@@ -1592,6 +1716,26 @@ import type {
                             autofocus
                         />
                     </div>
+                    <button
+                        type="button"
+                        onclick={() => void startQrScanner()}
+                        class="mt-2 w-full rounded-lg border border-border-default bg-bg-elevated px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:border-accent hover:text-accent"
+                    >
+                        Scan QR Code
+                    </button>
+                    {#if qrScannerOpen}
+                        <div class="mt-3 overflow-hidden rounded-lg border border-border-default bg-black">
+                            <video
+                                bind:this={qrVideoElement}
+                                class="aspect-square w-full object-cover"
+                                playsinline
+                                muted
+                            ></video>
+                        </div>
+                    {/if}
+                    {#if qrScannerError}
+                        <div class="text-[12px] text-error mt-2 px-1">{qrScannerError}</div>
+                    {/if}
                     {#if connectionError}
                         <div class="text-[12px] text-error mt-2 px-1">{connectionError}</div>
                     {/if}

@@ -326,7 +326,9 @@
     }
 
     function removeAttachment(index: number) {
-        composerAttachments = composerAttachments.filter((_, i) => i !== index);
+        composerAttachments = composerAttachments.filter(
+            (_attachment: ChatAttachment, i: number) => i !== index,
+        );
     }
 
     function openFilePicker() {

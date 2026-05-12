@@ -23,6 +23,7 @@ import { connectProvider, readGlobalAuth, updateGlobalAuth } from "./auth.ts";
 import { logClientEvent } from "./diagnostics.ts";
 import { listModelChoices } from "./models.ts";
 import { ShareManager } from "./share.ts";
+import { renderTerminalQr } from "./terminal-qr.ts";
 import {
   createSessionId,
   loadConfig,
@@ -1123,6 +1124,7 @@ function renderShareStatus(share: ShareStatus, label: string): void {
   writeOutput(`${renderAccent(`${share.publicUrl}\n`)}`);
   if (share.connectUrl) {
     writeOutput(`${renderMuted("web: ")}${renderAccent(`${share.connectUrl}\n`)}`);
+    writeOutput(`${renderMuted("scan:\n")}${renderTerminalQr(share.connectUrl)}\n`);
   }
   writeOutput(`${renderMuted(`provider: ${share.provider}\n`)}`);
   writeOutput(`${renderMuted(`target: ${share.localUrl}\n`)}`);
