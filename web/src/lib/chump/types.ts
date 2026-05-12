@@ -153,3 +153,11 @@ export type SseEvent = {
 	data: string;
 	id?: string;
 };
+
+export type ChatAttachment = {
+	type: "image";
+	label: string;
+	filename: string;
+	mime: string;
+	data: string;
+};
