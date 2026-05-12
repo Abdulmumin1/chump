@@ -171,8 +171,48 @@
 
         return [
             `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`,
-            ...lines,
+            ...lines.map(normalizeUnifiedHunkLine),
         ];
+    }
+
+    function normalizeUnifiedHunkLine(line: string): string {
+        if (
+            line.startsWith("+") ||
+            line.startsWith("-") ||
+            line.startsWith(" ") ||
+            line.startsWith("\\")
+        ) {
+            return line;
+        }
+
+        return ` ${line}`;
+    }
+
+    function normalizeUnifiedPatchForRenderer(patchText: string): string {
+        let inHunk = false;
+        const compactPatchText = patchText.replace(/\n{2,}(?=--- )/g, "\n");
+
+        return compactPatchText
+            .split("\n")
+            .map((line) => {
+                if (line.startsWith("@@")) {
+                    inHunk = true;
+                    return line;
+                }
+
+                if (
+                    line.startsWith("--- ") ||
+                    line.startsWith("+++ ") ||
+                    line.startsWith("diff ") ||
+                    line.startsWith("index ")
+                ) {
+                    inHunk = false;
+                    return line;
+                }
+
+                return inHunk ? normalizeUnifiedHunkLine(line) : line;
+            })
+            .join("\n");
     }
 
     function normalizeApplyPatchBody(lines: string[]): string[] {
@@ -350,7 +390,9 @@
             const fileName = String(
                 args?.file_path ?? args?.path ?? block.toolName ?? "file",
             );
-            return makeSyntheticWritePatch(fileName, args.content);
+            return normalizeUnifiedPatchForRenderer(
+                makeSyntheticWritePatch(fileName, args.content),
+            );
         }
 
         if (
@@ -358,15 +400,19 @@
             typeof directPatch === "string" &&
             directPatch
         ) {
-            return normalizeApplyPatch(directPatch);
+            return normalizeUnifiedPatchForRenderer(
+                normalizeApplyPatch(directPatch),
+            );
         }
 
         if (typeof directPatch === "string" && directPatch) {
-            return directPatch;
+            return normalizeUnifiedPatchForRenderer(directPatch);
         }
 
         if (toolName === "apply_patch" && typeof block.text === "string") {
-            return normalizeApplyPatch(block.text);
+            return normalizeUnifiedPatchForRenderer(
+                normalizeApplyPatch(block.text),
+            );
         }
 
         return "";
@@ -576,7 +622,7 @@
                             >
                         </div>
                         <div class="overflow-x-auto">
-                            {#each diff.changes ?? [] as change}
+                            {#each diff.changes ?? [] as change (`${change.type}-${change.oldLine ?? ""}-${change.newLine ?? ""}-${change.text}`)}
                                 <div
                                     class="flex text-[12px] font-mono leading-relaxed {change.type ===
                                     'add'
