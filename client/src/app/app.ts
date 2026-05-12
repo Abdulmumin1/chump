@@ -49,15 +49,15 @@ import {
   renderSessions,
 } from "../ui/output.ts";
 import {
-  createMarkdownStream,
   renderAccent,
   renderError,
   renderFooterStatus,
   renderMuted,
   renderUserMessage,
+  renderWorkedFor,
 } from "../ui/render.ts";
-import { LiveReasoningStream } from "../ui/reasoning.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
+import { TranscriptRenderer } from "../ui/transcript.ts";
 import {
   ensureServerTarget,
   parseCliArgs,
@@ -124,6 +124,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let closeEventStream: (() => void) | null = null;
   let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
   let resumeSessionId: string | null = null;
+  let connectionCountAtQuit: number | null = null;
   const [health, status, sessions] = await Promise.all([
     getHealth(config),
     getStatus(config),
@@ -146,7 +147,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     }, shareManager.current()));
   });
   setSteeringQueueHook((payload) => {
-    promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
+    // Don't update the queued display during a local turn — runChatTurn manages it
+    if (!liveSync.hasLocalTurn()) {
+      promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
+    }
   });
   const sharedTurnSync = createSharedTurnSync({
     config: () => config,
@@ -297,6 +301,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       sharedTurnSync.install();
     }
   } finally {
+    if (config.serverSource === "managed") {
+      try {
+        const preQuitHealth = await getHealth(config);
+        connectionCountAtQuit = preQuitHealth.active_connections;
+      } catch {
+        // ignore
+      }
+    }
     promptReader.close();
     closeEventStream?.();
     await shareManager.dispose();
@@ -309,6 +321,23 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   if (resumeSessionId) {
     writeOutput(`${renderMuted(`resume this session with: ${formatResumeCommand(resumeSessionId)}`)}\n`);
+  }
+
+  if (config.serverSource === "managed" && connectionCountAtQuit !== null) {
+    // Subtract 1 for ourselves — the snapshot was taken while we were still connected
+    const remaining = Math.max(0, connectionCountAtQuit - 1);
+    const idleTimeout = health.managed_idle_timeout;
+    const parts: string[] = [];
+    if (remaining === 0) {
+      parts.push(`server: no clients connected`);
+      if (idleTimeout !== null) {
+        parts.push(`shutting down in ${idleTimeout}s`);
+      }
+    } else {
+      parts.push(`server: ${remaining} client${remaining === 1 ? "" : "s"} still connected`);
+    }
+    parts.push(`force stop: chump stop`);
+    writeOutput(`${renderMuted(parts.join(" · "))}\n`);
   }
 }
 
@@ -437,7 +466,6 @@ async function runChatTurn(
   const streamAbortController = new AbortController();
   liveSync.noteLocalChat(formatSubmissionForDisplay(submission));
   liveSync.beginLocalTurn();
-  let markdownStream: ReturnType<typeof createMarkdownStream> | null = null;
   let aborting = false;
   const activityStatus = createActivityStatusController(setStatus);
   const abortTurn = (): void => {
@@ -448,15 +476,7 @@ async function runChatTurn(
     void abortCurrentTurn(config).catch(() => {});
     activityStatus.showAborting();
   };
-  const flushAssistantTranscript = (): void => {
-    markdownStream?.end();
-    markdownStream = null;
-  };
-  const reasoningStream = new LiveReasoningStream({
-    onPreview: (preview) => {
-      activityStatus.noteReasoningPreview(preview);
-    },
-  });
+  const localTranscript = new TranscriptRenderer();
   const pendingSteeringSubmissions: PromptSubmission[] = [];
   const popPendingSteeringSubmission = (): void => {
     const pending = pendingSteeringSubmissions.pop() ?? null;
@@ -484,14 +504,16 @@ async function runChatTurn(
     pendingSteeringSubmissions.push(nextSubmission);
     return true;
   });
+  const turnStartedAt = Date.now();
+  let toolCallCount = 0;
   activityStatus.start();
   setToolActivityHook(() => {
-    flushAssistantTranscript();
-    reasoningStream.finish();
+    toolCallCount += 1;
+    localTranscript.finish();
     activityStatus.noteToolActivity();
   });
   setReasoningActivityHook((payload) => {
-    reasoningStream.render(payload);
+    activityStatus.noteReasoningPreview(null);
   });
   let receivedChunk = false;
   let receivedEnd = false;
@@ -503,36 +525,33 @@ async function runChatTurn(
     );
     await streamChat(config, submission.text, submission.attachments, {
       onChunk: (chunk) => {
-        reasoningStream.finish();
+        localTranscript.beginAssistantText();
         activityStatus.beginTextStreaming();
         receivedChunk = true;
         if (consumeToolActivity()) {
           writeOutput("\n");
         }
-        markdownStream ??= createMarkdownStream();
-        markdownStream.write(chunk);
+        localTranscript.render({ type: "assistant_text", content: chunk });
       },
       onEnd: () => {
         receivedEnd = true;
-        reasoningStream.finish();
         if (aborting && !receivedChunk) {
-          writeOutput(`${renderMuted("(aborted)")}\n`);
+          localTranscript.render({ type: "stream_error", message: "aborted", aborted: true });
           return;
         }
         if (!receivedChunk) {
-          writeOutput(`${renderMuted("(no response)")}\n`);
+          localTranscript.render({ type: "stream_end", fallback: "(no response)" });
           return;
         }
-        flushAssistantTranscript();
+        localTranscript.render({ type: "stream_end" });
       },
       onError: (message) => {
         receivedEnd = true;
-        reasoningStream.finish();
         if (aborting || /aborted/i.test(message)) {
-          writeOutput(`${renderMuted("(aborted)")}\n`);
+          localTranscript.render({ type: "stream_error", message, aborted: true });
           return;
         }
-        writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
+        localTranscript.render({ type: "stream_error", message });
       },
     }, streamAbortController.signal);
     if (!receivedEnd && !aborting) {
@@ -540,22 +559,24 @@ async function runChatTurn(
       throw new Error("chat stream ended before the server sent an end event");
     }
   } catch (error) {
-    reasoningStream.finish();
-    flushAssistantTranscript();
+    localTranscript.finish();
     if (!receivedEnd && !aborting) {
       await abortCurrentTurn(config).catch(() => {});
     }
     const message = errorMessage(error);
     if (aborting || /aborted/i.test(message)) {
-      writeOutput(`${renderMuted("(aborted)")}\n`);
+      localTranscript.render({ type: "stream_error", message, aborted: true });
       return;
     }
-    writeOutput(`\n${renderError(`[chat] ${message}`)}\n`);
+    localTranscript.render({ type: "stream_error", message });
   } finally {
     streamAbortController.abort();
     liveSync.endLocalTurn();
-    reasoningStream.finish();
+    localTranscript.finish();
     activityStatus.stop();
+    if (toolCallCount > 1 && !aborting) {
+      writeOutput(renderWorkedFor(Date.now() - turnStartedAt));
+    }
     setAbortHandler(null);
     setSteerHandler(null);
     setQueuedLinePopHandler(null);
@@ -692,11 +713,6 @@ function createSharedTurnSync(options: {
     }
     options.promptReader.setStatus(status);
   });
-  const remoteReasoningStream = new LiveReasoningStream({
-    onPreview: (preview) => {
-      activityStatus.noteReasoningPreview(preview);
-    },
-  });
   const remoteSteerHandler = async (submission: PromptSubmission): Promise<boolean> => {
     const result = await steerCurrentTurn(
       options.config(),
@@ -712,7 +728,7 @@ function createSharedTurnSync(options: {
 
   const applyTurnStatus = (payload: Record<string, unknown>): void => {
     remoteTurnRunning = payload.running === true;
-    if (Array.isArray(payload.steering_queue)) {
+    if (Array.isArray(payload.steering_queue) && !options.getLocalTurnActive()) {
       options.promptReader.setQueuedDisplay(
         steeringQueueSubmissions({ items: payload.steering_queue }),
       );
@@ -737,7 +753,6 @@ function createSharedTurnSync(options: {
     }
 
     activityStatus.stop();
-    remoteReasoningStream.finish();
     if (!options.getLocalTurnActive()) {
       options.promptReader.setAbortHandler(null);
       options.setActiveSteerHandler(null);
@@ -753,20 +768,18 @@ function createSharedTurnSync(options: {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
-      remoteReasoningStream.render(payload);
+      activityStatus.noteReasoningPreview(null);
     });
     setToolActivityHook(() => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
-      remoteReasoningStream.finish();
       activityStatus.noteToolActivity();
     });
   };
 
   const dispose = (): void => {
     activityStatus.stop();
-    remoteReasoningStream.finish();
     setTurnStatusHook(null);
     setReasoningActivityHook(null);
     setToolActivityHook(null);
@@ -777,7 +790,6 @@ function createSharedTurnSync(options: {
       return;
     }
     activityStatus.beginTextStreaming();
-    remoteReasoningStream.finish();
   }
 
   return { install, dispose, applyTurnStatus, beforeAssistantText };

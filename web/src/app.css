@@ -31,9 +31,9 @@
     --text-code: #4a453d;
     --text-warning: #a07860;
 
-    --border-default: #dedad5;
-    --border-subtle: #dcd8d3;
-    --border-hover: #d5d1cc;
+    --border-default: #e6e2dd;
+    --border-subtle: #e8e5e0;
+    --border-hover: #e0dcd7;
 
     --accent: #7b8a3f;
     --accent-hover: #8a9a4a;
@@ -77,9 +77,9 @@
     --text-code: #e4e4e7;
     --text-warning: #ce9178;
 
-    --border-default: #313133;
-    --border-subtle: #2b2b2d;
-    --border-hover: #4d4d4d;
+    --border-default: #28282a;
+    --border-subtle: #242426;
+    --border-hover: #38383a;
 
     --accent: #b8dd35;
     --accent-hover: #c4e63f;

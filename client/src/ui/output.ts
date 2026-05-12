@@ -1,11 +1,12 @@
 import {
-  renderMarkdownBlock,
   renderMuted,
-  renderUserMessage,
 } from "./render.ts";
-import { ReasoningRenderer } from "./reasoning.ts";
-import { writeOutput, writeOutputLine, withDraftPaused } from "./terminal.ts";
-import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
+import { writeOutputLine, withDraftPaused } from "./terminal.ts";
+import {
+  renderStoredMessageFallback,
+  TranscriptRenderer,
+  transcriptEventsFromStoredMessages,
+} from "./transcript.ts";
 import type {
   ChumpHealth,
   ChumpStatus,
@@ -27,7 +28,7 @@ export function renderStoredMessages(
 
     for (const [index, message] of messages.entries()) {
       writeOutputLine(`[${index + 1}] ${message.role}`);
-      writeOutputLine(formatStoredContent(message.content));
+      writeOutputLine(renderStoredMessageFallback(message.content));
     }
   });
 }
@@ -50,36 +51,17 @@ function renderApproximateTranscript(
     return;
   }
 
-  const toolRenderer = new ToolActivityRenderer(writeOutputLine);
-  const reasoningRenderer = new ReasoningRenderer();
-  let renderedMessages = 0;
-
-  for (const message of messages) {
-    if (message.role === "user" && renderUserContent(message.content)) {
-      renderedMessages += 1;
-      continue;
+  const renderer = new TranscriptRenderer({ liveReasoning: false });
+  const events = transcriptEventsFromStoredMessages(messages);
+  for (const event of events) {
+    if (event.type === "assistant_text" && renderer.consumeToolActivity()) {
+      writeOutputLine();
     }
-
-    if (message.role === "assistant" || message.role === "tool") {
-      reasoningRenderer.flush();
-      if (message.role === "assistant" && toolRenderer.consumeActivity()) {
-        writeOutputLine();
-      }
-      renderedMessages += renderAssistantContent(message.content, toolRenderer, reasoningRenderer);
-      continue;
-    }
-
-    const text = extractTextContent(message.content).trim();
-    if (text.length > 0) {
-      reasoningRenderer.flush();
-      writeOutputLine(renderMuted(`[${message.role}] ${text}`));
-      renderedMessages += 1;
-    }
+    renderer.render(event);
   }
+  renderer.finish();
 
-  reasoningRenderer.flush();
-
-  if (renderedMessages === 0) {
+  if (events.length === 0) {
     writeOutputLine(renderMuted("(no renderable messages in session)"));
   }
 }
@@ -147,216 +129,6 @@ export function renderServerStatus(
       agent: status,
     }, null, 2));
   });
-}
-
-function renderUserContent(content: unknown): boolean {
-  const text = extractTextContent(content).trim();
-  if (text.length === 0) {
-    return false;
-  }
-  writeOutput(`${renderUserMessage(text)}\n`);
-  return true;
-}
-
-function renderAssistantContent(
-  content: unknown,
-  toolRenderer: ToolActivityRenderer,
-  reasoningRenderer: ReasoningRenderer,
-): number {
-  if (typeof content === "string") {
-    return renderAssistantText(content);
-  }
-
-  if (!Array.isArray(content)) {
-    return 0;
-  }
-
-  let renderedParts = 0;
-  for (const part of content) {
-    const reasoning = readReasoningPart(part);
-    if (reasoning !== null) {
-      reasoningRenderer.render({ text: reasoning, kind: "delta", provider: "" });
-      renderedParts += 1;
-      continue;
-    }
-
-    const text = readTextPart(part);
-    if (text !== null) {
-      reasoningRenderer.flush();
-      if (toolRenderer.consumeActivity()) {
-        writeOutputLine();
-      }
-      renderedParts += renderAssistantText(text);
-      continue;
-    }
-
-    const toolCall = readToolCallPart(part);
-    if (toolCall) {
-      reasoningRenderer.flush();
-      toolRenderer.renderToolCall({ name: toolCall.name, args: toolCall.arguments });
-      renderedParts += 1;
-      continue;
-    }
-
-    const toolResult = readToolResultPart(part);
-    if (toolResult) {
-      reasoningRenderer.flush();
-      toolRenderer.renderToolResult({
-        name: toolResult.toolName,
-        ok: !toolResult.isError,
-        status: toolResult.isError ? "error" : "ok",
-        preview: toolResult.result,
-      });
-      renderedParts += 1;
-    }
-  }
-
-  return renderedParts;
-}
-
-function readReasoningPart(part: unknown): string | null {
-  if (!part || typeof part !== "object") {
-    return null;
-  }
-  const value = part as Record<string, unknown>;
-  if (value.type === "reasoning" && typeof value.text === "string") {
-    return value.text;
-  }
-  return null;
-}
-
-function renderAssistantText(text: string): number {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) {
-    return 0;
-  }
-  writeOutput(`${renderMarkdownBlock(trimmed)}\n`);
-  return 1;
-}
-
-function extractTextContent(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => extractTextPart(part))
-      .filter(Boolean)
-      .join("\n");
-  }
-
-  return "";
-}
-
-function extractTextPart(part: unknown): string {
-  return readTextPart(part) ?? "";
-}
-
-function readTextPart(part: unknown): string | null {
-  if (!part || typeof part !== "object") {
-    return typeof part === "string" ? part : null;
-  }
-
-  const value = part as Record<string, unknown>;
-  if (value.type === "text" && typeof value.text === "string") {
-    return value.text;
-  }
-
-  return null;
-}
-
-function readToolCallPart(part: unknown): {
-  name: string;
-  arguments: Record<string, unknown>;
-} | null {
-  if (!part || typeof part !== "object") {
-    return null;
-  }
-  const value = part as Record<string, unknown>;
-  if (value.type !== "tool_call" || !value.tool_call || typeof value.tool_call !== "object") {
-    return null;
-  }
-  const call = value.tool_call as Record<string, unknown>;
-  if (typeof call.name !== "string") {
-    return null;
-  }
-  return {
-    name: call.name,
-    arguments: (
-      call.arguments && typeof call.arguments === "object"
-        ? call.arguments
-        : {}
-    ) as Record<string, unknown>,
-  };
-}
-
-function readToolResultPart(part: unknown): {
-  toolName: string;
-  result: string;
-  isError: boolean;
-} | null {
-  if (!part || typeof part !== "object") {
-    return null;
-  }
-  const value = part as Record<string, unknown>;
-  if (
-    value.type !== "tool_result" ||
-    !value.tool_result ||
-    typeof value.tool_result !== "object"
-  ) {
-    return null;
-  }
-  const result = value.tool_result as Record<string, unknown>;
-  if (typeof result.tool_name !== "string") {
-    return null;
-  }
-  return {
-    toolName: result.tool_name,
-    result: typeof result.result === "string" ? result.result : compactJson(result.result),
-    isError: result.is_error === true,
-  };
-}
-
-function formatStoredContent(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (Array.isArray(content)) {
-    const formatted = content
-      .map((part) => formatStoredPart(part))
-      .filter(Boolean)
-      .join("\n");
-    return formatted || JSON.stringify(content, null, 2);
-  }
-
-  if (content && typeof content === "object") {
-    return JSON.stringify(content, null, 2);
-  }
-
-  return String(content);
-}
-
-function formatStoredPart(part: unknown): string {
-  if (!part || typeof part !== "object") {
-    return String(part);
-  }
-
-  const value = part as Record<string, unknown>;
-  if (value.type === "text" && typeof value.text === "string") {
-    return value.text;
-  }
-  if (value.type === "tool_call" && value.tool_call && typeof value.tool_call === "object") {
-    const call = value.tool_call as Record<string, unknown>;
-    return `[tool_call] ${String(call.name ?? "unknown")} ${compactJson(call.arguments)}`;
-  }
-  if (value.type === "tool_result" && value.tool_result && typeof value.tool_result === "object") {
-    const result = value.tool_result as Record<string, unknown>;
-    return `[tool_result] ${String(result.tool_name ?? "unknown")} ${compactJson(result.result)}`;
-  }
-
-  return JSON.stringify(value, null, 2);
 }
 
 function formatSessionTime(value: number): string {

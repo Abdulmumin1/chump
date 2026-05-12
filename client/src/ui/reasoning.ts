@@ -30,6 +30,10 @@ export class ReasoningRenderer {
     writeOutput(`\n${block.join("\n")}\n\n`);
     this.buffer = "";
   }
+
+  finish(): void {
+    this.flush();
+  }
 }
 
 export class LiveReasoningStream {

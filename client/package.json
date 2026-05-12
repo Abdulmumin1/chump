@@ -56,7 +56,6 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
-    "@earendil-works/pi-tui": "^0.74.0",
     "onlocal": "^0.5.9"
   }
 }

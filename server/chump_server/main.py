@@ -60,6 +60,7 @@ class ChumpServer(AgentServer):
                 "reasoning": self.chump_config.reasoning,
                 "verbose": self.chump_config.verbose,
                 "active_sessions": len(self._agents),
+                "active_connections": self._active_connection_count(),
                 "uptime_seconds": round(time.time() - self.started_at, 3),
                 "instruction_files": [
                     str(item.path) for item in self.resources.system_instructions
