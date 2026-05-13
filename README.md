@@ -3,7 +3,7 @@
 coding agent with first class support for collaborative coding. with web/cli and mobile clients..
 
 
-[chump cli and web ](https://mac-file.yaqeen.me/5CE35DDF-b127847a9978f074f3760f4428c4fc8814df8e7c1ff52452c614a03616435d84.png)
+![chump cli and web ](https://mac-file.yaqeen.me/5CE35DDF-b127847a9978f074f3760f4428c4fc8814df8e7c1ff52452c614a03616435d84.png)
 
 
 ### you need
