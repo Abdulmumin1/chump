@@ -36,6 +36,9 @@ export class ToolActivityRenderer {
       payload.args ?? payload.payload,
     );
     if (toolName === "bash") {
+      // Bash output follows directly in renderToolResult — no trailing blank
+      // here so the command and its output stay visually grouped. The
+      // trailing blank is added after the result.
       this.writeLine(`\n${renderCommand(renderedArgs)}`);
       this.activity = true;
       return;
@@ -45,19 +48,27 @@ export class ToolActivityRenderer {
       toolName === "web_fetch" ||
       toolName === "website"
     ) {
+      // For these tools the result early-returns on success, so the call
+      // render IS the final visible piece — add a trailing blank so the
+      // next content (assistant text, next tool, etc.) doesn't butt up
+      // against it.
       this.writeLine(`\n${renderToolDone(label, renderedArgs)}`);
+      this.writeLine("");
       this.activity = true;
       this.pendingTools.push({ name: toolName, args: renderedArgs });
       return;
     }
     // For apply_patch and write_file/create_file, render the diff from args
     // immediately (used during replay from stored messages where result metadata
-    // is not available).
+    // is not available). The matching result render will skip via the
+    // preRendered marker, so this is the final visible piece — trailing
+    // blank added.
     const argsDiff = readArgsDiffs(toolName, payload.args ?? payload.payload);
     if (argsDiff.length > 0) {
       this.writeLine(
         `\n${argsDiff.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
       );
+      this.writeLine("");
       this.activity = true;
       this.pendingTools.push({
         name: toolName,
@@ -84,6 +95,7 @@ export class ToolActivityRenderer {
         : compactJson(payload);
     if (toolName === "bash") {
       this.writeLine(renderCommandOutput(ok, truncatePreview(preview, 500)));
+      this.writeLine("");
       this.activity = true;
       return;
     }
@@ -102,12 +114,14 @@ export class ToolActivityRenderer {
       this.writeLine(
         `\n${diffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
       );
+      this.writeLine("");
       this.activity = true;
       return;
     }
 
     const pending = this.takePendingTool(toolName);
-    // If already pre-rendered from args (replay: no result metadata available), skip
+    // If already pre-rendered from args (replay: no result metadata available),
+    // skip — the call path already emitted the diff AND its trailing blank.
     if (pending?.preRendered) {
       this.activity = true;
       return;
@@ -118,16 +132,19 @@ export class ToolActivityRenderer {
         toolName === "web_fetch" ||
         toolName === "website")
     ) {
+      // Call already rendered its "done" line AND a trailing blank.
       return;
     }
 
     if (ok === "ok" && pending) {
       this.writeLine(`\n${renderToolDone(label, pending.args)}`);
+      this.writeLine("");
       this.activity = true;
       return;
     }
 
     this.writeLine(`\n${renderToolResult(ok, label, preview)}`);
+    this.writeLine("");
     this.activity = true;
   }
 

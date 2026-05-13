@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.17
+
+### Patch Changes
+
+- fix(cli): add spacing after tool activity output for cleaner transcript rendering
+
 ## 0.0.16
 
 ### Patch Changes
