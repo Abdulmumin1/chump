@@ -17,6 +17,7 @@
 
 	let open = $state(false);
 	let buttonRef = $state<HTMLButtonElement | null>(null);
+	let modelSearchInput = $state<HTMLInputElement | null>(null);
 	let menuStyle = $state('');
 	let searchQuery = $state('');
 
@@ -86,6 +87,13 @@
 	function shortenModel(name: string): string {
 		return name.replace(/^workers_ai\/@cf\//, '');
 	}
+
+	async function openModelsView() {
+		view = 'models';
+		searchQuery = '';
+		await tick();
+		modelSearchInput?.focus();
+	}
 </script>
 
 <button
@@ -103,7 +111,7 @@
 		<div class="bg-bg-code border border-border-default rounded-[12px] overflow-hidden">
 			{#if view === 'main'}
 				<div class="py-1">
-					<button class="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-bg-elevated transition-colors" onclick={() => view = 'models'} type="button">
+					<button class="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-bg-elevated transition-colors" onclick={() => void openModelsView()} type="button">
 						<svg class="w-4 h-4 text-text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
 						<div class="flex flex-col min-w-0 flex-1">
 							<span class="text-[13px] text-text-secondary">Switch Model</span>
@@ -131,16 +139,16 @@
 			{:else if view === 'models'}
 				<div class="py-1">
 					<div class="px-3 py-2 flex items-center gap-2 border-b border-border-default">
-						<button class="text-text-tertiary hover:bg-bg-elevated rounded p-1 transition-colors flex-shrink-0" onclick={() => view = 'main'} type="button">
+						<button class="text-text-tertiary hover:bg-bg-elevated rounded p-1 transition-colors flex-shrink-0" onclick={() => view = 'main'} type="button" aria-label="Back to main menu">
 							<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
 						</button>
 						<input
+							bind:this={modelSearchInput}
 							type="text"
 							bind:value={searchQuery}
 							placeholder="Search models..."
 							class="w-full bg-transparent border-none text-[13px] text-text-secondary placeholder:text-text-tertiary focus:outline-none"
 							autocomplete="off"
-							autofocus
 						/>
 					</div>
 					<div class="max-h-[200px] overflow-y-auto mt-1">

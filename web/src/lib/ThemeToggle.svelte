@@ -11,6 +11,14 @@
 
     let theme = $state<"dark" | "light">(getInitialTheme());
 
+    function setThemeMeta(t: "dark" | "light") {
+        if (!browser) return;
+        const meta = document.getElementById(
+            "theme-color-meta",
+        ) as HTMLMetaElement | null;
+        if (meta) meta.content = t === "dark" ? "#0a0a0a" : "#f7f4f0";
+    }
+
     function toggle() {
         theme = theme === "light" ? "dark" : "light";
         if (browser) {
@@ -20,6 +28,7 @@
             } else {
                 document.documentElement.classList.remove("dark");
             }
+            setThemeMeta(theme);
         }
     }
 </script>
