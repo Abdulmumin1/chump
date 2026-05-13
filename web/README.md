@@ -1,42 +1,56 @@
-# sv
+# chump web
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Browser client for Chump sessions.
 
-## Creating a project
+It connects to an existing Chump server, streams agent events over SSE, and lets
+multiple tabs or devices watch and steer the same session in realtime.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Features
 
-```sh
-# create a new project
-npx sv create my-app
+- Connect to a local or shared Chump server
+- Resume a specific session with `server` and `session` query params
+- Live transcript updates while the agent is working
+- Shared session state across multiple browser clients
+- Session sidebar for browsing and reopening sessions
+- Composer support for slash commands, steering, and image attachments
+- QR-based connect flow for shared links
+
+## Connect flow
+
+Start a Chump session in the CLI, then share it:
+
+```bash
+chump
+chump share
 ```
 
-To recreate this project with the same configuration:
+Open the generated web URL, or visit the app with query params:
 
-```sh
-# recreate this project
-npx sv@0.15.2 create --template minimal --types ts --add sveltekit-adapter="adapter:auto" --no-install web
+```text
+/?server=http://127.0.0.1:8000&session=<session-id>
 ```
 
-## Developing
+## Development
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+From `web/`:
 
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+```bash
+pnpm dev
 ```
 
-## Building
+Or from the repo root:
 
-To create a production version of your app:
-
-```sh
-npm run build
+```bash
+pnpm --filter web dev
 ```
 
-You can preview the production build with `npm run preview`.
+## Checks
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+```bash
+pnpm check
+pnpm build
+```
+
+## Demo
+
+https://mac-file.yaqeen.me/393FBDFC-chump-lil-demo.mp4

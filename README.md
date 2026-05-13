@@ -1,38 +1,30 @@
 # chump
 
-> A local coding assistant for your terminal.
+coding agent with first class support for collaborative coding. with web/cli and mobile clients..
 
-`chump` pairs a fast TypeScript CLI with a Python backend to chat with your
-codebase, run commands, and edit files.
 
-## Quick start
+[chump cli and web ](https://mac-file.yaqeen.me/5CE35DDF-b127847a9978f074f3760f4428c4fc8814df8e7c1ff52452c614a03616435d84.png)
 
-### Requirements
+
+### you need
 
 - Node.js `>=22`
 - `uv` on your `PATH`
 
-### Option 1: npm (recommended)
-
-```bash
-npm install -g chump-agent
-chump           # start coding
-```
-
-### Option 2: npx / bunx / pnpm dlx
+### npx / bunx / pnpm dlx
 
 ```bash
 npx chump-agent
 # or
 bunx chump-agent
 # or
-pnpm dlx chump-agent
+pnpx chump-agent
 ```
 
 Run `chump connect` only if you want to use your own provider instead of the
 default Chump Cloud trial provider.
 
-### Option 3: Prebuilt binary (no Node.js install needed)
+### Prebuilt binary (no Node.js install needed)
 
 ```bash
 curl -fsSL https://chump.yaqeen.me/install.sh | bash
@@ -80,30 +72,9 @@ cd ~/other-project && chump
 - `/sessions` — saved sessions
 - `/session <id>` — resume
 - `/model` — change provider or model
-- `/agent <id>` — switch session
-- `/clear` — clear messages
 - `/new` — new session
+- `/share` - create a shareable session link
 - `/quit`
-
-## Environment
-
-- `CHUMP_PROVIDER` — model provider (`chump_cloud`, `openai`, `google`, `anthropic`, `workers_ai`, `codex`)
-- `CHUMP_MODEL` — override default model
-- `CHUMP_CLOUD_BASE_URL` — OpenAI-compatible base URL for Chump Cloud
-- `CHUMP_MAX_STEPS` — max agent steps per turn (default: `64`)
-- `CHUMP_COMMAND_TIMEOUT` — shell command timeout in seconds (default: `120`)
-- `CHUMP_VERBOSE` — set to `0` to reduce output
-- `CHUMP_WORKSPACE_ROOT` — override workspace root
-- `CHUMP_DATA_DIR` — where `.chump/` data lives
-
-## Repo layout
-
-- `client/` — TypeScript CLI (`chump-agent` on npm)
-- `server/` — Python backend (`chump-server` on PyPI)
-- `web/` — SvelteKit web client
-- `chump-cloud/` — standalone Cloudflare Worker for Chump Cloud
-- `ai-query/` — agent framework (local editable dependency)
-- `onlocal/` — tunneling solution
 
 ## License
 
