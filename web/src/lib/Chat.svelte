@@ -1566,7 +1566,7 @@ import type {
 </svelte:head>
 
 <div
-    class="safe-screen flex bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
+    class="flex h-[100dvh] bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
 >
     <!-- Sidebar overlay -->
     {#if sidebarOpen}
