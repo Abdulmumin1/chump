@@ -147,10 +147,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     }, shareManager.current()));
   });
   setSteeringQueueHook((payload) => {
-    // Don't update the queued display during a local turn — runChatTurn manages it
-    if (!liveSync.hasLocalTurn()) {
-      promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
-    }
+    // Server is the source of truth for the steering queue. Apply its
+    // updates unconditionally — previously this was gated to "not during
+    // local turn" to avoid conflicting with a local-side push, which no
+    // longer exists.
+    promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
   });
   const sharedTurnSync = createSharedTurnSync({
     config: () => config,
@@ -198,7 +199,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader,
     lineQueue,
     () => activeSteerHandler,
-    () => promptReader.popQueuedDisplay(),
   );
 
   try {
@@ -208,7 +208,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         resumeSessionId = config.agentId;
         break;
       }
-      promptReader.popQueuedDisplay();
 
       const line = nextLine.text;
       if (!line.trim() && nextLine.attachments.length === 0) {
@@ -728,7 +727,7 @@ function createSharedTurnSync(options: {
 
   const applyTurnStatus = (payload: Record<string, unknown>): void => {
     remoteTurnRunning = payload.running === true;
-    if (Array.isArray(payload.steering_queue) && !options.getLocalTurnActive()) {
+    if (Array.isArray(payload.steering_queue)) {
       options.promptReader.setQueuedDisplay(
         steeringQueueSubmissions({ items: payload.steering_queue }),
       );
@@ -799,7 +798,6 @@ async function readInputLoop(
   promptReader: ReturnType<typeof createPromptReader>,
   lineQueue: AsyncLineQueue,
   getSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null,
-  popQueuedDisplay: () => void,
 ): Promise<void> {
   try {
     while (true) {
@@ -810,13 +808,17 @@ async function readInputLoop(
       }
       const steerHandler = getSteerHandler();
       if (steerHandler && shouldSteer(line)) {
+        // Server is the source of truth for the steering queue. We do NOT
+        // push locally here — the server broadcasts a steering_queue event
+        // on acceptance which updates the display via setQueuedDisplay.
+        // Pushing locally AND letting the server echo produced a visible
+        // "queue item rendered twice" effect.
         const steered = await steerHandler(line).catch(() => false);
         if (steered) {
           continue;
         }
       }
       if (steerHandler && isBlockedActiveSlashCommand(line.text)) {
-        popQueuedDisplay();
         writeOutput(`${renderError("[slash] command is unavailable while the agent is working; use Esc Esc to abort first")}\n`);
         continue;
       }

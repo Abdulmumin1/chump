@@ -17,7 +17,8 @@ import {
   readClipboardText,
   readImageAttachment,
 } from "./attachments.ts";
-import { setActiveDraft } from "./terminal.ts";
+import { hasPendingBatch, setActiveDraft } from "./terminal.ts";
+import { StdinBuffer } from "./stdin-buffer.ts";
 import {
   renderContinuationPrompt,
   renderEscHint,
@@ -35,6 +36,17 @@ const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const LARGE_PASTE_CHARS = 8000;
 const LARGE_PASTE_LINES = 3;
+
+// Synchronized output mode (CSI ? 2026 h / l). Tells cooperating terminals
+// (VS Code/xterm.js, Kitty, WezTerm, iTerm2, modern gnome-terminal, etc.)
+// to buffer display updates between the BEGIN and END markers and render
+// them atomically. On non-supporting terminals it's a harmless no-op.
+// Wrapping every multi-byte write in these markers is the cheapest way to
+// eliminate the visible "cursor walks across the frame" flicker and to
+// reduce redundant re-rasterization on slow renderers — without changing
+// what we actually write.
+const SYNC_BEGIN = "\x1b[?2026h";
+const SYNC_END = "\x1b[?2026l";
 
 export async function readPrompt(fallbackRl: Interface | null): Promise<string | null> {
   if (!input.isTTY) {
@@ -124,7 +136,6 @@ function createInteractivePromptReader(): {
   let lastEscapeAt = 0;
   let escHintActive = false;
   let escHintTimer: NodeJS.Timeout | null = null;
-  let pasteBuffer: string | null = null;
   let nextImageNumber = 1;
   let lastColumns = terminalColumns();
   let redrawScheduled = false;
@@ -135,6 +146,16 @@ function createInteractivePromptReader(): {
   let lastFrameSignature = "";
   let forceRedraw = false;
   let resizeDebounceTimer: NodeJS.Timeout | null = null;
+  let softRedrawTimer: NodeJS.Timeout | null = null;
+  // Offset — in physical terminal rows — from the cursor row UP to the status
+  // row, as of the last full repaint. Enables in-place spinner updates that
+  // don't repaint the entire input frame. `null` means we have no valid
+  // cached frame to patch against.
+  let statusRowPhysicalOffset: number | null = null;
+  let lastRenderedStatusRow = "";
+  // Index of the status row within `lastRenderedRows`. Keeps the differential
+  // renderer's view of the screen in sync after an in-place status patch.
+  let statusIndexInRendered: number | null = null;
 
   output.write("\x1b[?2004h");
 
@@ -171,6 +192,9 @@ function createInteractivePromptReader(): {
     lastFrameSignature = "";
     if (lastDrawnRowCount === 0 && lastRenderedRows.length === 0) {
       cursorLine = 0;
+      statusRowPhysicalOffset = null;
+      lastRenderedStatusRow = "";
+      statusIndexInRendered = null;
       return "\r\x1b[2K";
     }
     const moveUpRows = physicalCursorOffsetFromFrameTop(terminalColumns());
@@ -180,11 +204,15 @@ function createInteractivePromptReader(): {
     lastRenderedRows = [];
     lastCursorRowIndex = 0;
     lastCursorColumn = 0;
+    statusRowPhysicalOffset = null;
+    lastRenderedStatusRow = "";
+    statusIndexInRendered = null;
     return `\r${moveUp}\x1b[J`;
   }
 
   function clear(): void {
-    output.write(buildClear());
+    const payload = buildClear();
+    if (payload) output.write(`${SYNC_BEGIN}${payload}${SYNC_END}`);
   }
 
   function buildRedraw(): string {
@@ -193,6 +221,9 @@ function createInteractivePromptReader(): {
     }
 
     redrawScheduled = false;
+    // We're about to paint the authoritative frame, so any queued soft redraw
+    // is now stale. Avoids a redundant paint shortly after this one.
+    cancelSoftRedraw();
 
     const lines = value.split("\n");
     const target = cursorPosition(value, cursor);
@@ -255,16 +286,62 @@ function createInteractivePromptReader(): {
     const promptRows = promptFrameLines.flatMap((line) => wrapAnsiLine(line, wrapWidth));
     const renderedRows = [...promptRows, ...footerRows].map((row) => truncateAnsiLine(row, wrapWidth));
     const totalRows = Math.max(renderedRows.length, 1);
-    const rowsUp = Math.max(0, totalRows - 1 - layout.cursorRow);
-    const moveUpRows = physicalCursorOffsetFromFrameTop(columns);
-    const moveUp = moveUpRows > 0 ? `\x1b[${moveUpRows}A` : "";
-    const moveToCursorRow = rowsUp > 0 ? `\x1b[${rowsUp}A` : "";
-    const moveToCursorColumn = layout.cursorColumn > 0 ? `\x1b[${layout.cursorColumn}C` : "";
-    const rows: string[] = [];
 
-    for (let index = 0; index < totalRows; index += 1) {
-      const nextRow = renderedRows[index] ?? "";
-      rows.push(`${index === 0 ? "" : "\n"}\r\x1b[2K${nextRow}`);
+    // Decide whether to emit a differential frame (only write rows that
+    // changed) or a full frame repaint. Differential is safe when the frame
+    // shape is unchanged — same row count, same terminal width — and we have
+    // a cached previous paint to diff against. This is the single biggest
+    // optimization for slow terminals: a keystroke typically changes ONE row
+    // out of ~10, so diff output is ~100 bytes vs ~900 for a full repaint.
+    //
+    // Ink (Claude Code), Bubble Tea (OpenCode), and similar CLI frameworks
+    // all use this technique; without it, rapid state updates saturate
+    // slow emulators like VS Code's integrated terminal and cause dropped
+    // keystrokes because the emulator can't keep up with the output flood.
+    //
+    // Note: `forceRedraw` does NOT disqualify the diff path — it only means
+    // "don't skip the write via the lastFrameSignature shortcut". The diff
+    // itself already produces minimal output and is always correct when the
+    // frame shape matches.
+    const canDiff =
+      lastRenderedRows.length > 0 &&
+      lastRenderedRows.length === renderedRows.length &&
+      lastColumns === columns;
+
+    // Pre-compute the status row's index in the flat renderedRows array so
+    // both the full-paint and patch paths can reference it.
+    const statusPromptFrameIndex =
+      queueLines.length + menuTopSpacerLines + menuLines.length + 1;
+    let statusIndexInRenderedLocal = 0;
+    for (let i = 0; i < statusPromptFrameIndex; i += 1) {
+      statusIndexInRenderedLocal += wrapAnsiLine(promptFrameLines[i] ?? "", wrapWidth).length;
+    }
+
+    let frame: string;
+    if (canDiff) {
+      frame = buildDifferentialFrame(
+        renderedRows,
+        lastRenderedRows,
+        lastCursorRowIndex,
+        layout.cursorRow,
+        layout.cursorColumn,
+      );
+    } else {
+      const rowsUp = Math.max(0, totalRows - 1 - layout.cursorRow);
+      const moveUpRows = physicalCursorOffsetFromFrameTop(columns);
+      const moveUp = moveUpRows > 0 ? `\x1b[${moveUpRows}A` : "";
+      const moveToCursorRow = rowsUp > 0 ? `\x1b[${rowsUp}A` : "";
+      const moveToCursorColumn =
+        layout.cursorColumn > 0 ? `\x1b[${layout.cursorColumn}C` : "";
+      const rows: string[] = [];
+      for (let index = 0; index < totalRows; index += 1) {
+        const nextRow = renderedRows[index] ?? "";
+        rows.push(`${index === 0 ? "" : "\n"}\r\x1b[2K${nextRow}`);
+      }
+      // Hide/show cursor around the full repaint so it doesn't visibly walk
+      // across the frame while we write. The diff path skips this since it
+      // writes too few bytes to flicker.
+      frame = `\r${moveUp}\x1b[J\x1b[?25l${rows.join("")}\x1b[?25h${moveToCursorRow}\r${moveToCursorColumn}`;
     }
 
     cursorLine = layout.cursorRow;
@@ -273,7 +350,22 @@ function createInteractivePromptReader(): {
     lastCursorRowIndex = layout.cursorRow;
     lastCursorColumn = layout.cursorColumn;
     lastColumns = columns;
-    const frame = `\r${moveUp}\x1b[J\x1b[?25l${rows.join("")}\x1b[?25h${moveToCursorRow}\r${moveToCursorColumn}`;
+
+    // Cache the status row location for in-place spinner patches. Every entry
+    // in `renderedRows` is truncated to `wrapWidth`, so each occupies exactly
+    // one physical row at the current terminal width. Multi-row status (ESC
+    // hint overflow) can't be patched safely; invalidate in that case.
+    const statusWrapped = wrapAnsiLine(statusRow, wrapWidth);
+    if (statusWrapped.length === 1) {
+      statusRowPhysicalOffset = layout.cursorRow - statusIndexInRenderedLocal;
+      lastRenderedStatusRow = truncateAnsiLine(statusWrapped[0] ?? "", wrapWidth);
+      statusIndexInRendered = statusIndexInRenderedLocal;
+    } else {
+      statusRowPhysicalOffset = null;
+      lastRenderedStatusRow = "";
+      statusIndexInRendered = null;
+    }
+
     if (frame === lastFrameSignature && !forceRedraw) {
       return "";
     }
@@ -282,10 +374,80 @@ function createInteractivePromptReader(): {
     return frame;
   }
 
+  // Produce a frame that only overwrites the rows that differ from the
+  // previous paint. Assumes the cursor is currently at (oldCursorRow, col=?)
+  // within the cached frame; we CR at the start so the column is normalized.
+  //
+  // Output structure:
+  //   \r               — normalize column
+  //   ESC[NA           — move up to frame row 0
+  //   for each row i:
+  //     \n             — advance to next row (i > 0 only)
+  //     \r ESC[2K row  — rewrite (only if changed)
+  //   ESC[MA \r ESC[KC — position to new cursor
+  //
+  // For a ~10-row frame where only 1 row changed this emits ~100 bytes vs
+  // ~900 bytes for a full repaint. No cursor hide/show toggle either — the
+  // transient cursor motion is imperceptible in microseconds and the toggle
+  // itself causes flicker on slow terminals.
+  function buildDifferentialFrame(
+    newRows: string[],
+    oldRows: string[],
+    oldCursorRow: number,
+    newCursorRow: number,
+    newCursorColumn: number,
+  ): string {
+    const parts: string[] = [];
+    parts.push("\r");
+    if (oldCursorRow > 0) {
+      parts.push(`\x1b[${oldCursorRow}A`);
+    }
+
+    const maxRows = Math.max(newRows.length, oldRows.length);
+    for (let i = 0; i < maxRows; i += 1) {
+      if (i > 0) {
+        parts.push("\n");
+      }
+      const newContent = newRows[i] ?? "";
+      const oldContent = oldRows[i] ?? "";
+      if (newContent !== oldContent) {
+        // \x1b[0m guards against any color bleed from the previous row in
+        // case a rendered row didn't close its SGR state cleanly.
+        parts.push(`\r\x1b[2K\x1b[0m${newContent}`);
+      }
+    }
+
+    // Cursor is now on row (maxRows - 1). Move up to newCursorRow, then to
+    // column. Note we always CR + move right rather than relying on where
+    // the last write left us, because unchanged rows didn't advance the
+    // cursor within the row (we only did \n), but changed rows left it at
+    // end-of-content. CR normalizes either way.
+    const finalRowIndex = Math.max(0, maxRows - 1);
+    const rowsUp = finalRowIndex - newCursorRow;
+    if (rowsUp > 0) {
+      parts.push(`\x1b[${rowsUp}A`);
+    } else if (rowsUp < 0) {
+      parts.push(`\x1b[${-rowsUp}B`);
+    }
+    parts.push("\r");
+    if (newCursorColumn > 0) {
+      parts.push(`\x1b[${newCursorColumn}C`);
+    }
+
+    return parts.join("");
+  }
+
   function redraw(): void {
+    // When a batched output flush is pending, skip the direct write — the
+    // flush cycle calls buildRedraw() and includes our latest state.  This
+    // avoids redundant stdout writes that overwhelm slow terminal emulators.
+    if (hasPendingBatch()) {
+      redrawScheduled = false;
+      return;
+    }
     const frame = buildRedraw();
     if (frame) {
-      output.write(frame);
+      output.write(`${SYNC_BEGIN}${frame}${SYNC_END}`);
     }
   }
 
@@ -322,10 +484,145 @@ function createInteractivePromptReader(): {
     if (closed || !pendingResolve || redrawScheduled) {
       return;
     }
+    // An urgent redraw supersedes any pending soft redraw: the soft redraw's
+    // state is a subset of the frame we're about to paint anyway.
+    cancelSoftRedraw();
     redrawScheduled = true;
     setImmediate(() => {
       redraw();
     });
+  }
+
+  // Non-urgent redraws (spinner frame changes, status/footer updates). On slow
+  // terminal emulators like embedded editor terminals, the synchronous TTY
+  // writes issued by requestRedraw() can saturate the terminal and starve
+  // keyboard input handling. Coalescing these into a single repaint every
+  // ~250ms keeps the animation visibly smooth while leaving enough slack in
+  // the event loop to drain stdin between writes.
+  //
+  // If the user types (or any urgent change happens), requestRedraw() fires
+  // synchronously via setImmediate and cancels any pending soft timer so the
+  // keystroke is reflected without delay.
+  const SOFT_REDRAW_INTERVAL_MS = 250;
+  function softRequestRedraw(): void {
+    if (closed || !pendingResolve) {
+      return;
+    }
+    if (redrawScheduled || softRedrawTimer) {
+      return;
+    }
+    softRedrawTimer = setTimeout(() => {
+      softRedrawTimer = null;
+      redraw();
+    }, SOFT_REDRAW_INTERVAL_MS);
+  }
+
+  function cancelSoftRedraw(): void {
+    if (softRedrawTimer) {
+      clearTimeout(softRedrawTimer);
+      softRedrawTimer = null;
+    }
+  }
+
+  // Timestamp of the last keypress we processed. While the user is actively
+  // typing, any non-essential output (spinner frames, status/footer updates)
+  // is suppressed so the terminal can stay focused on echoing their input.
+  // On slow terminals (VS Code, JetBrains, etc.) this is the single biggest
+  // win: it removes output contention from the hot path of keystroke echo.
+  //
+  // Urgent paths — user input redraw, explicit status clears (turn ending),
+  // queue/menu changes — are NOT gated by this; they always paint.
+  let lastKeystrokeAt = 0;
+  const KEYSTROKE_QUIET_MS = 600;
+  function userIsTyping(): boolean {
+    return Date.now() - lastKeystrokeAt < KEYSTROKE_QUIET_MS;
+  }
+
+  // Build an in-place patch that rewrites only the status row, leaving the
+  // rest of the input frame untouched. Returns null when we can't safely
+  // patch — in which case the caller should fall back to a full redraw.
+  //
+  // Patch shape (~30-60 bytes):
+  //   DECSC (save cursor) → cursor up N → CR → clear line
+  //   → new status content → DECRC (restore cursor)
+  //
+  // Why this matters: the spinner ticks every 190ms. Without this, each tick
+  // repaints the ENTIRE frame (500-2000B of escape sequences). On a slow
+  // terminal like VS Code's, that flood saturates the emulator and keystrokes
+  // fall behind. Patching just the status row cuts write volume by ~10-40x
+  // and avoids the expensive `\x1b[J` clear-to-end that can confuse slow
+  // terminals when issued rapidly.
+  function buildStatusPatch(): string | null {
+    if (closed || !pendingResolve) {
+      return null;
+    }
+    if (statusRowPhysicalOffset === null) {
+      // No valid cached frame yet, or last paint had multi-row status.
+      // Caller must do a full redraw.
+      return null;
+    }
+    if (statusRowPhysicalOffset <= 0) {
+      // Unexpected: status row should always be above the cursor. Bail out.
+      return null;
+    }
+    // A full redraw is already scheduled — let it paint the latest state
+    // rather than racing it with a partial patch.
+    if (redrawScheduled) {
+      return null;
+    }
+    // Batch flush already repaints the full frame; don't interleave a patch.
+    if (hasPendingBatch()) {
+      return null;
+    }
+
+    const columns = terminalColumns();
+    if (columns !== lastColumns) {
+      // Terminal resized since last paint — cached offset may be stale.
+      return null;
+    }
+    const wrapWidth = terminalWrapWidth(columns);
+    const statusBase = statusLine
+      ? truncateAnsiLine(statusLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)
+      : "";
+    const statusRow = escHintActive
+      ? (statusBase ? `${statusBase}  ${renderEscHint()}` : renderEscHint())
+      : statusBase;
+    // If the new status would wrap, the patch's single-row overwrite would
+    // leave stale geometry. Fall back to a full redraw.
+    if (visibleLength(statusRow) > wrapWidth) {
+      return null;
+    }
+    const statusRowTruncated = truncateAnsiLine(statusRow, wrapWidth);
+    if (statusRowTruncated === lastRenderedStatusRow) {
+      return null;
+    }
+
+    const rowsUp = statusRowPhysicalOffset;
+    const moveUp = `\x1b[${rowsUp}A`;
+
+    // Keep cache consistent so the next full redraw doesn't no-op against a
+    // stale signature, and the differential renderer's screen model stays
+    // accurate (otherwise the next diff would spuriously rewrite this row).
+    lastRenderedStatusRow = statusRowTruncated;
+    if (statusIndexInRendered !== null && statusIndexInRendered < lastRenderedRows.length) {
+      lastRenderedRows[statusIndexInRendered] = statusRowTruncated;
+    }
+    lastFrameSignature = "";
+    // DECSC/DECRC (save/restore cursor) is universally supported and lets us
+    // avoid computing cursor-down + column offsets manually. Skipping the
+    // \x1b[?25l / \x1b[?25h toggle too — the patch executes in microseconds
+    // and the embedded cursor motion is imperceptible. On slow terminals the
+    // hide/show toggle was itself a source of flicker.
+    return `\x1b7${moveUp}\r\x1b[2K${statusRowTruncated}\x1b8`;
+  }
+
+  function repaintStatusInPlace(): boolean {
+    const patch = buildStatusPatch();
+    if (!patch) {
+      return false;
+    }
+    output.write(`${SYNC_BEGIN}${patch}${SYNC_END}`);
+    return true;
   }
 
   function setEscHint(): void {
@@ -373,7 +670,12 @@ function createInteractivePromptReader(): {
     }
 
     if (submission !== null) {
-      queuedDisplay.push(submission);
+      // The server is the source of truth for the steering queue: accepted
+      // submissions come back via the steering_queue event and drive the
+      // display through setQueuedDisplay. We intentionally do not push here
+      // — doing so previously produced a brief "Steering: ..." flash on
+      // every submit (for normal turns) and a double-render when a steered
+      // message was both pushed locally and echoed by the server.
       value = "";
       cursor = 0;
       attachments = [];
@@ -684,47 +986,45 @@ function createInteractivePromptReader(): {
     requestRedraw();
   }
 
+  // StdinBuffer owns the raw chunk → complete-sequence parsing. It holds
+  // incomplete escape sequences across stdin 'data' events (with a 10ms
+  // flush timeout) so that a split like ["\x1b", "[D"] doesn't get
+  // mis-interpreted as bare-ESC + literal "[D". It also detects bracketed
+  // paste and emits the content as a single 'paste' event.
+  const stdinBuffer = new StdinBuffer({ timeout: 10 });
+  stdinBuffer.on("data", (sequence: string) => {
+    if (!pendingResolve) return;
+    // Stamp the keystroke time up front so any concurrent spinner timer
+    // that fires while we're mid-dispatch is already treated as "typing
+    // active" and skips its paint. This is essential on slow terminals:
+    // every byte we don't write during typing is a byte the emulator can
+    // spend echoing the keystroke.
+    lastKeystrokeAt = Date.now();
+    dispatchKey(sequence);
+  });
+  stdinBuffer.on("paste", (content: string) => {
+    if (!pendingResolve) return;
+    lastKeystrokeAt = Date.now();
+    void insertPaste(content);
+  });
+
   function onData(chunk: Buffer): void {
-    if (!pendingResolve) {
-      return;
-    }
-
+    if (!pendingResolve) return;
+    // Raw multi-line content arriving WITHOUT bracketed-paste markers (e.g.
+    // when the terminal doesn't support them) should still be treated as a
+    // paste rather than being parsed byte-by-byte — otherwise embedded "\r"
+    // would submit mid-content. Detect before handing to the buffer.
     const sequence = chunk.toString("utf8");
-
-    if (pasteBuffer !== null) {
-      const end = sequence.indexOf(BRACKETED_PASTE_END);
-      if (end === -1) {
-        pasteBuffer += sequence;
-        return;
-      }
-      const pasted = pasteBuffer + sequence.slice(0, end);
-      pasteBuffer = null;
-      void insertPaste(pasted);
-      const rest = sequence.slice(end + BRACKETED_PASTE_END.length);
-      if (rest) {
-        onData(Buffer.from(rest, "utf8"));
-      }
+    if (!sequence.includes(BRACKETED_PASTE_START) && isLikelyRawPaste(sequence)) {
+      lastKeystrokeAt = Date.now();
+      void insertPaste(sequence);
       return;
     }
+    stdinBuffer.process(chunk);
+  }
 
-    const pasteStart = sequence.indexOf(BRACKETED_PASTE_START);
-    if (pasteStart !== -1) {
-      const before = sequence.slice(0, pasteStart);
-      const afterStart = sequence.slice(pasteStart + BRACKETED_PASTE_START.length);
-      if (before) {
-        onData(Buffer.from(before, "utf8"));
-      }
-      const pasteEnd = afterStart.indexOf(BRACKETED_PASTE_END);
-      if (pasteEnd === -1) {
-        pasteBuffer = afterStart;
-        return;
-      }
-      const pasted = afterStart.slice(0, pasteEnd);
-      const after = afterStart.slice(pasteEnd + BRACKETED_PASTE_END.length);
-      void insertPaste(pasted);
-      if (after) {
-        onData(Buffer.from(after, "utf8"));
-      }
+  function dispatchKey(sequence: string): void {
+    if (!pendingResolve) {
       return;
     }
 
@@ -740,6 +1040,18 @@ function createInteractivePromptReader(): {
 
     if (sequence === "\u0016") {
       void insertClipboard();
+      return;
+    }
+
+    // A rapid multi-ESC burst is coalesced by StdinBuffer into "\x1b\x1b"
+    // or longer (since the incomplete-sequence flush timer ships them as a
+    // run). Dispatch each ESC individually so the double-escape abort
+    // shortcut fires on the second press. Alt+ESC as a user shortcut is
+    // extremely rare; treating these as bare ESCs is the correct trade-off.
+    if (sequence.length > 1 && /^\x1b+$/.test(sequence)) {
+      for (let i = 0; i < sequence.length; i += 1) {
+        dispatchKey("\x1b");
+      }
       return;
     }
 
@@ -884,12 +1196,12 @@ function createInteractivePromptReader(): {
       return;
     }
 
+    // Unknown escape sequence (some CSI/SS3 we don't recognize) or lone
+    // control byte. Swallow rather than inserting it as text so we don't
+    // pollute the draft with garbage. StdinBuffer guarantees this is a
+    // single complete sequence, not a coalesced burst that happened to
+    // start with \x1b.
     if (sequence.startsWith("\x1b") || sequence < " ") {
-      return;
-    }
-
-    if (isLikelyRawPaste(sequence)) {
-      void insertPaste(sequence);
       return;
     }
 
@@ -930,6 +1242,8 @@ function createInteractivePromptReader(): {
         clearTimeout(escHintTimer);
         escHintTimer = null;
       }
+      cancelSoftRedraw();
+      stdinBuffer.destroy();
       const resolve = pendingResolve;
       pendingResolve = null;
       clear();
@@ -985,7 +1299,29 @@ function createInteractivePromptReader(): {
       }
       statusLine = status;
       forceRedraw = true;
-      requestRedraw();
+      // While the user is actively typing, absolutely do not write anything
+      // for a spinner tick — it contends with keystroke echo on slow
+      // terminals. Clearing the status (null) is treated as urgent though:
+      // the turn just ended and the user needs to see a clean prompt.
+      if (status !== null && userIsTyping()) {
+        return;
+      }
+      // Fast path: if the frame layout hasn't changed since our last paint,
+      // rewrite just the status row in place. This is ~10-40x less terminal
+      // output than a full frame repaint, which is critical on slow terminals
+      // (e.g. VS Code) where repeated full repaints at spinner rate saturate
+      // the emulator and cause dropped keystrokes.
+      if (repaintStatusInPlace()) {
+        return;
+      }
+      // Fallback: full repaint. Keep the soft/urgent split so that clearing
+      // the status (null, turn ended) is reflected immediately while ongoing
+      // spinner activity stays throttled.
+      if (status === null) {
+        requestRedraw();
+      } else {
+        softRequestRedraw();
+      }
     },
     setFooter(footer: string | null) {
       if (footerLine === footer) {
@@ -993,7 +1329,12 @@ function createInteractivePromptReader(): {
       }
       footerLine = footer;
       forceRedraw = true;
-      requestRedraw();
+      // Footer changes are also non-urgent; never let them contend with the
+      // user's keystrokes. They'll be picked up on the next paint.
+      if (userIsTyping()) {
+        return;
+      }
+      softRequestRedraw();
     },
   };
 }
@@ -1064,9 +1405,16 @@ function isLargePaste(value: string): boolean {
 function isLikelyRawPaste(value: string): boolean {
   const normalized = normalizePastedText(value);
   const trimmed = normalized.trim();
-  if (normalized.includes("\n")) {
+  // Multi-line WITH actual content is a paste. A bare "\r" / "\n" / "\r\n"
+  // is Enter (submit) or Ctrl+J (insert newline) — NOT a paste. The
+  // trimmed-length guard is what distinguishes them; without it, pressing
+  // Enter would route through insertPaste because normalize turns "\r" into
+  // "\n" and the old heuristic would match on that alone.
+  if (trimmed.length > 0 && normalized.includes("\n")) {
     return true;
   }
+  // Single-line content that ends with a known image extension — a likely
+  // drag-and-drop path paste even without newlines.
   return /\.(?:png|jpe?g|webp|gif)(?:["']?\s*)$/iu.test(trimmed);
 }
 

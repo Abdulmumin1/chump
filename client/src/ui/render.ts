@@ -18,6 +18,14 @@ const darkPalette = {
   selectedBg: "#494d54",
   diffAddBg: "#26330f",
   diffRemoveBg: "#3a1f1c",
+  codeKeyword: "#c79b67",
+  codeString: "#a8cf4f",
+  codeNumber: "#8eb0ff",
+  codeComment: "#737373",
+  codeFunction: "#d8d8d8",
+  codeVariable: "#d4c26a",
+  codeProperty: "#94c7b8",
+  codeDiffMeta: "#8a8a8a",
 };
 
 const lightPalette = {
@@ -35,9 +43,140 @@ const lightPalette = {
   selectedBg: "#c8d4a8",
   diffAddBg: "#d6f0b2",
   diffRemoveBg: "#fad4d0",
+  codeKeyword: "#8a5400",
+  codeString: "#5d7800",
+  codeNumber: "#355fb8",
+  codeComment: "#7a7a7a",
+  codeFunction: "#2f2f2f",
+  codeVariable: "#7c6310",
+  codeProperty: "#2b6d63",
+  codeDiffMeta: "#787878",
 };
 
 const palette = isLightTerminal() ? lightPalette : darkPalette;
+
+type MarkdownRenderState = {
+  inCodeBlock: boolean;
+  codeLanguage: CodeLanguage | null;
+};
+
+type CodeLanguage =
+  | "bash"
+  | "diff"
+  | "javascript"
+  | "json"
+  | "python"
+  | "yaml";
+
+const JAVASCRIPT_KEYWORDS = new Set([
+  "as",
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "export",
+  "extends",
+  "finally",
+  "for",
+  "from",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "let",
+  "new",
+  "of",
+  "return",
+  "static",
+  "super",
+  "switch",
+  "throw",
+  "try",
+  "type",
+  "typeof",
+  "var",
+  "void",
+  "while",
+]);
+
+const JAVASCRIPT_LITERALS = new Set([
+  "false",
+  "Infinity",
+  "NaN",
+  "null",
+  "true",
+  "undefined",
+]);
+
+const PYTHON_KEYWORDS = new Set([
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "try",
+  "while",
+  "with",
+  "yield",
+]);
+
+const PYTHON_LITERALS = new Set(["False", "None", "True"]);
+
+const BASH_KEYWORDS = new Set([
+  "case",
+  "coproc",
+  "do",
+  "done",
+  "elif",
+  "else",
+  "esac",
+  "export",
+  "fi",
+  "for",
+  "function",
+  "if",
+  "in",
+  "local",
+  "select",
+  "then",
+  "time",
+  "until",
+  "while",
+]);
 
 function ansi(code: string, value: string): string {
   if (process.env.NO_COLOR) {
@@ -111,14 +250,10 @@ export function createMarkdownStream(): {
   end: () => void;
 } {
   let buffer = "";
-  let inCodeBlock = false;
+  const state = createMarkdownRenderState();
 
   function renderStreamLine(line: string, includeNewline: boolean): string {
-    const rendered = renderMarkdownLine(line, inCodeBlock);
-
-    if (line.trimStart().startsWith("```")) {
-      inCodeBlock = !inCodeBlock;
-    }
+    const rendered = renderMarkdownLine(line, state);
     if (rendered === null) {
       return "";
     }
@@ -155,28 +290,41 @@ export function createMarkdownStream(): {
 }
 
 export function renderMarkdownBlock(value: string): string {
-  let inCodeBlock = false;
+  const state = createMarkdownRenderState();
   const rendered = value.split("\n").map((line) => {
-    const renderedLine = renderMarkdownLine(line, inCodeBlock);
-    if (line.trimStart().startsWith("```")) {
-      inCodeBlock = !inCodeBlock;
-    }
-    return renderedLine;
+    return renderMarkdownLine(line, state);
   });
   return rendered.filter((line) => line !== null).join("\n");
 }
 
-function renderMarkdownLine(line: string, inCodeBlock: boolean): string | null {
+function createMarkdownRenderState(): MarkdownRenderState {
+  return {
+    inCodeBlock: false,
+    codeLanguage: null,
+  };
+}
+
+function renderMarkdownLine(
+  line: string,
+  state: MarkdownRenderState,
+): string | null {
   const trimmedStart = line.trimStart();
   const indent = line.slice(0, line.length - trimmedStart.length);
 
   if (trimmedStart.startsWith("```")) {
     const language = trimmedStart.slice(3).trim();
+    if (state.inCodeBlock) {
+      state.inCodeBlock = false;
+      state.codeLanguage = null;
+      return "";
+    }
+    state.inCodeBlock = true;
+    state.codeLanguage = normalizeCodeLanguage(language);
     return language ? `${indent}${muted(language)}` : "";
   }
 
-  if (inCodeBlock) {
-    return `${indent}${accent(trimmedStart)}`;
+  if (state.inCodeBlock) {
+    return `${indent}${renderCodeLine(trimmedStart, state.codeLanguage)}`;
   }
 
   // Horizontal rules: --- / *** / ___ (3+ chars, optionally spaced) — skip them
@@ -329,6 +477,275 @@ function renderInlineMarkdown(value: string): string {
   }
 
   return rendered;
+}
+
+function normalizeCodeLanguage(value: string): CodeLanguage | null {
+  const normalized = value.toLowerCase().split(/\s+/)[0] ?? "";
+  if (!normalized) {
+    return null;
+  }
+  if (["bash", "sh", "shell", "zsh"].includes(normalized)) {
+    return "bash";
+  }
+  if (["diff", "patch"].includes(normalized)) {
+    return "diff";
+  }
+  if (["js", "jsx", "ts", "tsx", "typescript", "javascript"].includes(normalized)) {
+    return "javascript";
+  }
+  if (["json", "jsonc"].includes(normalized)) {
+    return "json";
+  }
+  if (["py", "python"].includes(normalized)) {
+    return "python";
+  }
+  if (["yaml", "yml", "toml"].includes(normalized)) {
+    return "yaml";
+  }
+  return null;
+}
+
+function renderCodeLine(line: string, language: CodeLanguage | null): string {
+  if (!line) {
+    return "";
+  }
+  if (language === "diff") {
+    return renderDiffCodeLine(line);
+  }
+  if (language === "json" || language === "yaml") {
+    return renderDataCodeLine(line, language);
+  }
+  if (language === "bash") {
+    return renderScriptCodeLine(line, "bash");
+  }
+  if (language === "python") {
+    return renderScriptCodeLine(line, "python");
+  }
+  return renderScriptCodeLine(line, "javascript");
+}
+
+function renderDiffCodeLine(line: string): string {
+  if (line.startsWith("+++ ") || line.startsWith("--- ")) {
+    return `${fg(palette.codeDiffMeta, line.slice(0, 4))}${fg(palette.codeProperty, line.slice(4))}`;
+  }
+  if (
+    line.startsWith("@@") ||
+    line.startsWith("diff ") ||
+    line.startsWith("index ") ||
+    line.startsWith("new file") ||
+    line.startsWith("deleted file")
+  ) {
+    return fg(palette.codeDiffMeta, line);
+  }
+  if (line.startsWith("+")) {
+    return `${success("+")}${fg(palette.successMuted, line.slice(1) || " ")}`;
+  }
+  if (line.startsWith("-")) {
+    return `${danger("-")}${fg(palette.dangerMuted, line.slice(1) || " ")}`;
+  }
+  return fg(palette.codeFunction, line);
+}
+
+function renderDataCodeLine(line: string, language: "json" | "yaml"): string {
+  const keyMatch = language === "json"
+    ? /^(\s*)"([^"]+)"(\s*:)(.*)$/.exec(line)
+    : /^(\s*)([^:#][^:]*?)(\s*:)(.*)$/.exec(line);
+  if (keyMatch) {
+    const [, indent, key, separator, rest] = keyMatch;
+    const renderedKey = language === "json"
+      ? `${fg(palette.codeString, "\"")}${fg(palette.codeProperty, key)}${fg(palette.codeString, "\"")}`
+      : fg(palette.codeProperty, key.trimEnd());
+    return `${indent}${renderedKey}${fg(palette.codeDiffMeta, separator)}${renderDataValue(rest ?? "")}`;
+  }
+  return renderDataValue(line);
+}
+
+function renderDataValue(value: string): string {
+  let rendered = "";
+  let index = 0;
+  while (index < value.length) {
+    const char = value[index] ?? "";
+    if (char === '"' || char === "'") {
+      const end = findStringEnd(value, index, char);
+      rendered += fg(palette.codeString, value.slice(index, end));
+      index = end;
+      continue;
+    }
+    const numberMatch = /^(?:-?0x[0-9a-fA-F_]+|-?\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(
+      value.slice(index),
+    );
+    if (numberMatch) {
+      rendered += fg(palette.codeNumber, numberMatch[0]);
+      index += numberMatch[0].length;
+      continue;
+    }
+    const wordMatch = /^(true|false|null|yes|no|on|off)\b/i.exec(value.slice(index));
+    if (wordMatch) {
+      rendered += fg(palette.codeKeyword, wordMatch[0]);
+      index += wordMatch[0].length;
+      continue;
+    }
+    rendered += char;
+    index += 1;
+  }
+  return rendered;
+}
+
+function renderScriptCodeLine(
+  line: string,
+  language: "bash" | "javascript" | "python",
+): string {
+  let rendered = "";
+  let index = 0;
+  while (index < line.length) {
+    const commentLength = commentStartLength(line, index, language);
+    if (commentLength > 0) {
+      rendered += fg(palette.codeComment, line.slice(index));
+      break;
+    }
+
+    const variableLength = variableTokenLength(line, index, language);
+    if (variableLength > 0) {
+      rendered += fg(palette.codeVariable, line.slice(index, index + variableLength));
+      index += variableLength;
+      continue;
+    }
+
+    const char = line[index] ?? "";
+    if (char === '"' || char === "'" || char === "`") {
+      const end = findStringEnd(line, index, char);
+      rendered += fg(palette.codeString, line.slice(index, end));
+      index = end;
+      continue;
+    }
+
+    const numberMatch = /^(?:-?0x[0-9a-fA-F_]+|-?\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(
+      line.slice(index),
+    );
+    if (numberMatch) {
+      rendered += fg(palette.codeNumber, numberMatch[0]);
+      index += numberMatch[0].length;
+      continue;
+    }
+
+    const wordMatch = /^[A-Za-z_][\w-]*/.exec(line.slice(index));
+    if (wordMatch) {
+      rendered += renderScriptWord(
+        wordMatch[0],
+        line,
+        index,
+        language,
+      );
+      index += wordMatch[0].length;
+      continue;
+    }
+
+    const flagMatch = /^(--?[A-Za-z0-9][\w-]*)/.exec(line.slice(index));
+    if (flagMatch) {
+      rendered += fg(palette.codeVariable, flagMatch[0]);
+      index += flagMatch[0].length;
+      continue;
+    }
+
+    rendered += char;
+    index += 1;
+  }
+  return rendered;
+}
+
+function renderScriptWord(
+  word: string,
+  line: string,
+  index: number,
+  language: "bash" | "javascript" | "python",
+): string {
+  if (language === "bash") {
+    if (BASH_KEYWORDS.has(word)) {
+      return fg(palette.codeKeyword, word);
+    }
+    if (isCommandPosition(line, index)) {
+      return fg(palette.codeFunction, word);
+    }
+    return fg(palette.codeProperty, word);
+  }
+  if (language === "python") {
+    if (PYTHON_KEYWORDS.has(word) || PYTHON_LITERALS.has(word)) {
+      return fg(palette.codeKeyword, word);
+    }
+    if (isFunctionCall(line, index + word.length)) {
+      return fg(palette.codeFunction, word);
+    }
+    return fg(palette.codeProperty, word);
+  }
+  if (JAVASCRIPT_KEYWORDS.has(word) || JAVASCRIPT_LITERALS.has(word)) {
+    return fg(palette.codeKeyword, word);
+  }
+  if (isFunctionCall(line, index + word.length)) {
+    return fg(palette.codeFunction, word);
+  }
+  return fg(palette.codeProperty, word);
+}
+
+function commentStartLength(
+  line: string,
+  index: number,
+  language: "bash" | "javascript" | "python",
+): number {
+  const slice = line.slice(index);
+  if ((language === "bash" || language === "python") && slice.startsWith("#")) {
+    return 1;
+  }
+  if (language === "javascript" && slice.startsWith("//")) {
+    return 2;
+  }
+  return 0;
+}
+
+function variableTokenLength(
+  line: string,
+  index: number,
+  language: "bash" | "javascript" | "python",
+): number {
+  if (language === "bash") {
+    const match = /^(\$[A-Za-z_][\w]*|\$\{[^}]+\})/.exec(line.slice(index));
+    return match?.[0].length ?? 0;
+  }
+  if (language === "python") {
+    return 0;
+  }
+  const match = /^(this\b|[A-Z_][A-Z0-9_]*\b)/.exec(line.slice(index));
+  return match?.[0].length ?? 0;
+}
+
+function findStringEnd(value: string, start: number, quote: string): number {
+  let index = start + 1;
+  while (index < value.length) {
+    if (value[index] === "\\") {
+      index += 2;
+      continue;
+    }
+    if (value[index] === quote) {
+      return index + 1;
+    }
+    index += 1;
+  }
+  return value.length;
+}
+
+function isFunctionCall(line: string, fromIndex: number): boolean {
+  let index = fromIndex;
+  while (index < line.length && /\s/.test(line[index] ?? "")) {
+    index += 1;
+  }
+  return line[index] === "(";
+}
+
+function isCommandPosition(line: string, index: number): boolean {
+  const before = line.slice(0, index).trimEnd();
+  if (!before) {
+    return true;
+  }
+  return ["&&", "||", "|", ";", "(", "{"].some((token) => before.endsWith(token));
 }
 
 /**
