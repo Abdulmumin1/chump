@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.17
+
+- Configurable retry policy for provider calls via `CHUMP_RETRY_*` environment variables.
+
 ## 0.0.16
 
 - Expose `available_providers` in health endpoint so the web client shows models from exactly the connected providers.

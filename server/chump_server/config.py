@@ -95,6 +95,11 @@ class ChumpConfig:
     provider: str
     model: str
     max_steps: int
+    retry_max_attempts: int
+    retry_initial_delay: float
+    retry_max_delay: float
+    retry_backoff: float
+    retry_jitter: bool
     command_timeout: int
     managed_idle_timeout: int | None
     reasoning: dict[str, Any] | None
@@ -137,6 +142,11 @@ def load_config() -> ChumpConfig:
         provider=provider,
         model=model,
         max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
+        retry_max_attempts=int(os.environ.get("CHUMP_RETRY_MAX_ATTEMPTS", "3")),
+        retry_initial_delay=float(os.environ.get("CHUMP_RETRY_INITIAL_DELAY", "0.5")),
+        retry_max_delay=float(os.environ.get("CHUMP_RETRY_MAX_DELAY", "8")),
+        retry_backoff=float(os.environ.get("CHUMP_RETRY_BACKOFF", "2")),
+        retry_jitter=bool_value(os.environ.get("CHUMP_RETRY_JITTER"), default=True),
         command_timeout=int(os.environ.get("CHUMP_COMMAND_TIMEOUT", "120")),
         managed_idle_timeout=int_value(
             os.environ.get("CHUMP_MANAGED_SERVER_IDLE_TIMEOUT")
@@ -221,6 +231,12 @@ def int_value(value: str | None) -> int | None:
         return None
     parsed = int(value)
     return parsed if parsed > 0 else None
+
+
+def bool_value(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.lower() not in {"0", "false", "no"}
 
 
 def load_reasoning_config(

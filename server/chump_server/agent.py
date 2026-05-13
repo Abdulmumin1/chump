@@ -8,7 +8,7 @@ import traceback
 from dataclasses import replace
 from typing import Any, AsyncIterator
 
-from ai_query import step_count_is
+from ai_query import RetryPolicy, step_count_is
 from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
 from ai_query.providers import anthropic, google, openai, workers_ai, deepseek
 from ai_query.model import LanguageModel
@@ -246,6 +246,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "provider": self._config.provider,
             "model": self._config.model,
             "max_steps": self._config.max_steps,
+            "retry": self._retry_status(),
             "command_timeout": self._config.command_timeout,
             "managed_idle_timeout": self._config.managed_idle_timeout,
             "reasoning": self._config.reasoning,
@@ -483,12 +484,33 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
         options = TurnOptions(
             provider_options=self._turn_provider_options(),
+            retry=self._retry_policy(),
             signal=signal,
         )
         turn = self.turn(content, options=options)
         self._current_turn = turn
         await self._emit_turn_status(True)
         return turn
+
+    def _retry_policy(self) -> RetryPolicy | None:
+        if self._config.retry_max_attempts <= 1:
+            return None
+        return RetryPolicy(
+            max_attempts=self._config.retry_max_attempts,
+            initial_delay=self._config.retry_initial_delay,
+            max_delay=self._config.retry_max_delay,
+            backoff=self._config.retry_backoff,
+            jitter=self._config.retry_jitter,
+        )
+
+    def _retry_status(self) -> dict[str, Any]:
+        return {
+            "max_attempts": self._config.retry_max_attempts,
+            "initial_delay": self._config.retry_initial_delay,
+            "max_delay": self._config.retry_max_delay,
+            "backoff": self._config.retry_backoff,
+            "jitter": self._config.retry_jitter,
+        }
 
     async def handle_request_stream(
         self, request: dict[str, Any]

@@ -47,7 +47,8 @@ export function createSpinner(onFrame: (frame: string | null) => void): {
 }
 
 function renderFrame(symbol: string, label: string, index: number, elapsedMs: number): string {
-  return `${renderAccent(symbol)} ${renderShimmer(label, index)} ${renderMuted(formatElapsed(elapsedMs))}`;
+  void index;
+  return `${renderAccent(symbol)} ${renderMuted(label)} ${renderMuted(formatElapsed(elapsedMs))}`;
 }
 
 function formatElapsed(ms: number): string {
@@ -58,17 +59,4 @@ function formatElapsed(ms: number): string {
     return `${minutes}m ${seconds}s`;
   }
   return `${seconds}s`;
-}
-
-function renderShimmer(label: string, index: number): string {
-  const activeIndex = index % label.length;
-  return Array.from(label).map((char, charIndex) => {
-    if (charIndex === activeIndex) {
-      return renderAccent(char);
-    }
-    if (charIndex === activeIndex - 1 || charIndex === activeIndex + 1) {
-      return renderMuted(char);
-    }
-    return renderMuted(char);
-  }).join("");
 }

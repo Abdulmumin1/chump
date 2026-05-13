@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.16
+
+### Patch Changes
+
+- Terminal resilience improvements: StdinBuffer for reliable escape sequence parsing, synchronized output mode, differential frame rendering, flush throttling, and soft redraw coalescing. Syntax highlighting for code blocks. Steering queue display now defers to server as source of truth. Paste detection fix.
+
 ## 0.0.15
 
 ### Patch Changes

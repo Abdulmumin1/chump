@@ -13,16 +13,31 @@ const SYNC_END = "\x1b[?2026l";
 // ---- write batching ----
 // During model streaming, writeOutput is called many times per second (once
 // per token / line).  Each call recomputes the entire input frame via
-// buildClear + buildRedraw, which is expensive.  Batching coalesces all
-// writes within the same event-loop tick into a single clear→content→redraw
-// cycle, dramatically reducing the compute overhead and keeping the input
-// box responsive.
+// buildClear + buildRedraw, which is expensive.  Batching coalesces writes
+// into a single clear→content→redraw cycle.
 //
+// To avoid overwhelming slow terminal emulators (e.g. embedded editor
+// terminals like VS Code) — which can drop keystrokes when flooded with
+// escape sequences — we enforce a minimum interval between successive
+// flushes.  The first flush after a quiet period fires immediately (via
+// setImmediate, which runs after I/O so pending stdin events are processed
+// first).  Subsequent flushes within the throttle window are delayed,
+// coalescing multiple tokens into fewer screen updates.
+//
+const MIN_FLUSH_INTERVAL_MS = 33; // ~30 fps
+
 let batchBuffer = "";
 let batchScheduled = false;
+let lastFlushAt = 0;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 function flushBatch(): void {
   batchScheduled = false;
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  lastFlushAt = Date.now();
   if (!batchBuffer) {
     return;
   }
@@ -43,10 +58,27 @@ function flushBatch(): void {
 }
 
 function scheduleFlush(): void {
-  if (!batchScheduled) {
-    batchScheduled = true;
-    setImmediate(flushBatch);
+  if (batchScheduled) {
+    return;
   }
+  batchScheduled = true;
+  const elapsed = Date.now() - lastFlushAt;
+  if (elapsed >= MIN_FLUSH_INTERVAL_MS) {
+    // Enough time since last flush — go on the next event-loop pass.
+    // setImmediate runs after I/O, so pending stdin events are drained first.
+    setImmediate(flushBatch);
+  } else {
+    // Throttle: wait for the remaining interval, then use setImmediate so
+    // stdin data events are processed before we write output.
+    flushTimer = setTimeout(
+      () => setImmediate(flushBatch),
+      MIN_FLUSH_INTERVAL_MS - elapsed,
+    );
+  }
+}
+
+export function hasPendingBatch(): boolean {
+  return batchScheduled;
 }
 
 export function setActiveDraft(renderer: DraftRenderer | null): void {
