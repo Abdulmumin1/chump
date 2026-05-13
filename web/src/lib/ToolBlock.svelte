@@ -10,6 +10,41 @@
         onToggle: () => void;
     }>();
 
+    let isMobile = $state(false);
+    let isTablet = $state(false);
+
+    $effect(() => {
+        if (!browser) return;
+        const mqMobile = window.matchMedia("(max-width: 767px)");
+        const mqTablet = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
+        isMobile = mqMobile.matches;
+        isTablet = mqTablet.matches;
+        const handler = () => {
+            isMobile = mqMobile.matches;
+            isTablet = mqTablet.matches;
+        };
+        mqMobile.addEventListener("change", handler);
+        mqTablet.addEventListener("change", handler);
+        return () => {
+            mqMobile.removeEventListener("change", handler);
+            mqTablet.removeEventListener("change", handler);
+        };
+    });
+
+    function truncatePath(path: string): string {
+        if (!path) return path;
+        if (isMobile) {
+            const parts = path.split("/");
+            return parts[parts.length - 1] ?? path;
+        }
+        if (isTablet) {
+            const parts = path.split("/");
+            if (parts.length <= 2) return path;
+            return "\u2026/" + parts.slice(-2).join("/");
+        }
+        return path;
+    }
+
     let diffHosts: HTMLElement[] = [];
     let diffInstances: FileDiff[] = [];
     let showFullDiff = $state(false);
@@ -469,8 +504,9 @@
 
     let diffFileNamesDisplay = $derived.by(() => {
         if (diffFileNames.length === 0) return "";
-        if (diffFileNames.length <= 2) return diffFileNames.join(", ");
-        return `${diffFileNames[0]}, ${diffFileNames[1]}, +${diffFileNames.length - 2} more`;
+        const truncated = diffFileNames.map((n) => truncatePath(n));
+        if (truncated.length <= 2) return truncated.join(", ");
+        return `${truncated[0]}, ${truncated[1]}, +${truncated.length - 2} more`;
     });
 
     let diffFiles = $derived.by(() => {
@@ -599,24 +635,23 @@
                     <div
                         class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
                     >
-                        <div
-                            class="border-b border-border-default px-3 py-2 text-[12px] font-mono text-text-secondary"
+                    <div
+                        class="border-b border-border-default px-3 py-2 text-[12px] font-mono text-text-secondary"
+                    >
+                        {#if diff.kind === "add"}
+                            Added {truncatePath(diff.path)}
+                        {:else if diff.kind === "move" && diff.sourcePath}
+                            Moved {truncatePath(diff.sourcePath)} → {truncatePath(diff.path)}
+                        {:else if diff.kind === "delete"}
+                            Deleted {truncatePath(diff.path)}
+                        {:else if diff.kind === "move"}
+                            Moved {truncatePath(diff.path)}
+                        {:else}
+                            Edited {truncatePath(diff.path)}
+                        {/if}
+                        <span class="ml-2 text-text-success"
+                            >(+{diff.added})</span
                         >
-                            {#if diff.kind === "add"}
-                                Added
-                            {:else if diff.kind === "delete"}
-                                Deleted
-                            {:else if diff.kind === "move"}
-                                Moved
-                            {:else}
-                                Edited
-                            {/if}
-                            {diff.kind === "move" && diff.sourcePath
-                                ? `${diff.sourcePath} → ${diff.path}`
-                                : diff.path}
-                            <span class="ml-2 text-text-success"
-                                >(+{diff.added})</span
-                            >
                             <span class="ml-1 text-error"
                                 >(-{diff.removed})</span
                             >
@@ -747,7 +782,7 @@
                     <span
                         class="truncate font-mono text-[10px] text-text-secondary opacity-90"
                         >{block.toolName !== block.originalToolName
-                            ? block.toolName
+                            ? truncatePath(block.toolName)
                             : ""}</span
                     >
                     {#if readFileRange}
@@ -803,14 +838,14 @@
                             : 'text-text-warning'}">{block.kind === "tool-call"
                             ? block.originalToolName === "read_file" ||
                               block.originalToolName === "view_file"
-                                ? [
-                                      block.args?.file_path ??
+                                ? (() => {
+                                    const fp = block.args?.file_path ??
                                           block.args?.path ??
-                                          "",
-                                      readFileRange,
-                                  ]
-                                      .filter(Boolean)
-                                      .join(" ")
+                                          "";
+                                    return [truncatePath(fp), readFileRange]
+                                        .filter(Boolean)
+                                        .join(" ");
+                                })()
                                 : stringifyValue(block.args)
                             : block.text}</pre>
                 </div>

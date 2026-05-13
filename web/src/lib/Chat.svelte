@@ -105,6 +105,8 @@ import type {
     let connectionError = $state("");
     let actionNotice = $state("");
     let transcriptElement = $state<HTMLDivElement | null>(null);
+    let connectUrlInput = $state<HTMLInputElement | null>(null);
+    let modelSearchInput = $state<HTMLInputElement | null>(null);
     let stopEvents: (() => void) | null = null;
     let lastEventId = 0;
     let loadToken = 0;
@@ -159,17 +161,21 @@ import type {
     function closeSidebar() {
         sidebarOpen = false;
     }
-    function openConnectModal() {
+    async function openConnectModal() {
         connectModalOpen = true;
         closeSidebar();
+        await tick();
+        connectUrlInput?.focus();
     }
     function closeConnectModal() {
         connectModalOpen = false;
         stopQrScanner();
     }
-    function openModelPicker() {
+    async function openModelPicker() {
         modelPickerOpen = true;
         modelSearchQuery = "";
+        await tick();
+        modelSearchInput?.focus();
     }
     function closeModelPicker() {
         modelPickerOpen = false;
@@ -1560,7 +1566,7 @@ import type {
 </svelte:head>
 
 <div
-    class="flex h-[100dvh] bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
+    class="safe-screen flex bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
 >
     <!-- Sidebar overlay -->
     {#if sidebarOpen}
@@ -1703,6 +1709,7 @@ import type {
                 <div class="p-3">
                     <div class="bg-bg-elevated border border-transparent focus-within:border-accent rounded-lg flex items-center px-3 py-2 transition-colors">
                         <input
+                            bind:this={connectUrlInput}
                             id="connect-url"
                             bind:value={serverUrl}
                             placeholder="http://127.0.0.1:8080"
@@ -1713,7 +1720,6 @@ import type {
                                 (void connectToServer(), closeConnectModal())}
                             class="w-full bg-transparent border-none text-[13px] text-text-secondary placeholder:text-text-tertiary focus:outline-none"
                             autocomplete="off"
-                            autofocus
                         />
                     </div>
                     <button
@@ -1792,12 +1798,12 @@ import type {
             </div>
             <div class="px-4 py-2 border-b border-border-default">
                 <input
+                    bind:this={modelSearchInput}
                     type="text"
                     bind:value={modelSearchQuery}
                     placeholder="Search models..."
                     class="w-full bg-bg-elevated border border-transparent focus:border-accent focus:outline-none rounded-lg px-3 py-2 text-[13px] text-text-secondary placeholder:text-text-tertiary transition-colors"
                     autocomplete="off"
-                    autofocus
                 />
             </div>
             <div class="overflow-y-auto py-1">
