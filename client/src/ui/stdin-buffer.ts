@@ -297,6 +297,10 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
     this.pasteBuffer = "";
   }
 
+  isInPasteMode(): boolean {
+    return this.pasteMode;
+  }
+
   destroy(): void {
     this.clear();
     this.removeAllListeners();
