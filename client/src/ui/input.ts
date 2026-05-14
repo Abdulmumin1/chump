@@ -1010,12 +1010,28 @@ function createInteractivePromptReader(): {
 
   function onData(chunk: Buffer): void {
     if (!pendingResolve) return;
+    const sequence = chunk.toString("utf8");
+
+    // If we're already inside a bracketed paste, or this chunk contains
+    // either the start or end marker, it MUST go through StdinBuffer.
+    // Otherwise a continuation chunk like "...content...\x1b[201~" could be
+    // mistaken for an unbracketed raw paste, bypass the buffer, and leave
+    // StdinBuffer stuck in pasteMode forever — which then swallows every
+    // later keypress (including Ctrl+C) into the unfinished paste buffer.
+    if (
+      stdinBuffer.isInPasteMode() ||
+      sequence.includes(BRACKETED_PASTE_START) ||
+      sequence.includes(BRACKETED_PASTE_END)
+    ) {
+      stdinBuffer.process(chunk);
+      return;
+    }
+
     // Raw multi-line content arriving WITHOUT bracketed-paste markers (e.g.
     // when the terminal doesn't support them) should still be treated as a
     // paste rather than being parsed byte-by-byte — otherwise embedded "\r"
     // would submit mid-content. Detect before handing to the buffer.
-    const sequence = chunk.toString("utf8");
-    if (!sequence.includes(BRACKETED_PASTE_START) && isLikelyRawPaste(sequence)) {
+    if (isLikelyRawPaste(sequence)) {
       lastKeystrokeAt = Date.now();
       void insertPaste(sequence);
       return;
