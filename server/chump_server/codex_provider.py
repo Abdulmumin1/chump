@@ -175,7 +175,7 @@ class CodexProvider(OpenAIProvider):
                 if event_type == "response.failed":
                     response = event.get("response")
                     error = response.get("error") if isinstance(response, dict) else None
-                    raise Exception(json.dumps(error or event))
+                    raise RuntimeError(format_response_failed_error(error, event))
 
         yield StreamChunk(
             is_final=True,
@@ -219,6 +219,29 @@ def parse_responses_usage(value: Any) -> Usage | None:
         cached_tokens=input_details.get("cached_tokens", 0),
         total_tokens=value.get("total_tokens", 0),
     )
+
+
+def format_response_failed_error(error: Any, event: dict[str, Any]) -> str:
+    if not isinstance(error, dict):
+        return f"response.failed: {json.dumps(event, ensure_ascii=True)}"
+
+    message = string_value(error.get("message")) or string_value(error.get("error"))
+    code = string_value(error.get("code"))
+    error_type = string_value(error.get("type"))
+    parts = ["response.failed"]
+    if code:
+        parts.append(f"code={code}")
+    if error_type:
+        parts.append(f"type={error_type}")
+    if message:
+        parts.append(f"message={message}")
+
+    known_keys = {"message", "error", "code", "type"}
+    extra = {key: value for key, value in error.items() if key not in known_keys}
+    if extra:
+        parts.append(f"details={json.dumps(extra, ensure_ascii=True)}")
+
+    return ": ".join(parts)
 
 
 def with_reasoning_summary(options: dict[str, Any]) -> dict[str, Any]:

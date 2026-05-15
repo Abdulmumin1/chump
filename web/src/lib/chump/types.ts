@@ -3,6 +3,7 @@ export type ChumpHealth = {
 	version: string;
 	ai_query_version: string;
 	workspace_root: string;
+	git_branch?: string;
 	data_dir: string;
 	provider: string;
 	model: string;
@@ -115,6 +116,7 @@ export type AgentStateResponse = {
 export type ChumpStatus = {
 	agent_id: string;
 	workspace_root: string;
+	git_branch?: string;
 	provider: string;
 	model: string;
 	max_steps: number;

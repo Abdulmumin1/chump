@@ -56,7 +56,7 @@ export async function streamChat(
         break;
       }
       case "error":
-        callbacks.onError?.(safeParseString(event.data));
+        callbacks.onError?.(safeParseError(event.data));
         break;
     }
   });
@@ -209,12 +209,28 @@ function buildAgentUrl(config: ChumpConfig): string {
   return `${config.serverUrl}/agent/${config.agentId}`;
 }
 
-function safeParseString(value: string): string {
+function safeParseError(value: string): string {
   try {
-    return JSON.parse(value) as string;
+    const parsed = JSON.parse(value) as unknown;
+    if (typeof parsed === "string") {
+      return parsed;
+    }
+    if (isErrorPayload(parsed)) {
+      return parsed.error;
+    }
   } catch {
-    return value;
+    // Fall through to raw SSE data.
   }
+  return value;
+}
+
+function isErrorPayload(value: unknown): value is { error: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    typeof value.error === "string"
+  );
 }
 
 async function readErrorResponse(response: Response): Promise<string> {

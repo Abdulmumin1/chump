@@ -1,6 +1,7 @@
 <script lang="ts">
     import { browser } from "$app/environment";
     import { onMount, tick } from "svelte";
+    import { fade, fly } from "svelte/transition";
     import SessionsSidebar from "$lib/SessionsSidebar.svelte";
     import TranscriptPane from "$lib/TranscriptPane.svelte";
     import ChatComposer from "$lib/ChatComposer.svelte";
@@ -11,6 +12,7 @@
         cancelSteering,
         clearMessages,
         createSessionId,
+        getEventLog,
         getHealth,
         getMessages,
         getSessions,
@@ -194,9 +196,8 @@ import type {
 
     let filteredModels = $derived(
         availableModels.filter((m) =>
-            (!currentProvider || m.provider === currentProvider) &&
-            (m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-             m.description.toLowerCase().includes(modelSearchQuery.toLowerCase()))
+            m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+            m.description.toLowerCase().includes(modelSearchQuery.toLowerCase())
         )
     );
 
@@ -209,6 +210,9 @@ import type {
             status?.workspace_root ?? health?.workspace_root ?? "",
         ),
     );
+    let currentGitBranch = $derived(
+        status?.git_branch ?? health?.git_branch ?? "",
+    );
     let reasoningInfo = $derived.by(() => {
         const r = status?.reasoning ?? health?.reasoning;
         if (!r || typeof r !== "object") return null;
@@ -220,15 +224,8 @@ import type {
 
     function shortenWorkspacePath(path: string): string {
         if (!path) return "";
-        // Try to detect home directory prefix patterns
-        const homePatterns = [/^\/Users\/[^/]+/, /^\/home\/[^/]+/, /^~/];
-        for (const pattern of homePatterns) {
-            const match = path.match(pattern);
-            if (match) {
-                return "~" + path.slice(match[0].length);
-            }
-        }
-        return path;
+        const parts = path.split(/[/\\]/).filter(Boolean);
+        return parts.length > 0 ? parts[parts.length - 1] : path;
     }
 
     function shortenModel(name: string): string {
@@ -493,6 +490,24 @@ import type {
             });
             sessionState = nextState.state;
             messages = nextMessages.messages;
+            activity = [];
+            lastEventId = 0;
+
+            if (nextStatus.turn_running === true) {
+                try {
+                    const eventLog = await getEventLog(serverUrl, sessionId);
+                    if (currentToken !== loadToken || activeSessionId !== sessionId) {
+                        return;
+                    }
+                    if (eventLog.events.length > 0) {
+                        messages = buildMessagesFromEventLog(eventLog.events);
+                        activity = buildActivityFromEventLog(eventLog.events);
+                        lastEventId = eventLog.events.at(-1)?.id ?? 0;
+                    }
+                } catch {
+                    // Fall back to the stored message snapshot if event-log hydration fails.
+                }
+            }
 
             await scrollTranscriptToEnd();
         } catch (error) {
@@ -905,34 +920,33 @@ import type {
             );
     }
 
-    function getLiveAssistantMessage(): StoredMessage & { live: true } {
-        const last = messages.at(-1) as any;
-        if (last?.live && last?.role === "assistant") {
-            return last;
-        }
-        const msg = { role: "assistant", content: [] as MessagePart[], live: true as const };
-        messages = [...messages, msg];
-        return msg;
-    }
-
     function applyLiveEvent(
         type: string,
         data: Record<string, unknown> | null,
     ): void {
-        if (!data) return;
+        messages = applyLiveEventToMessages(messages, type, data);
+    }
+
+    function applyLiveEventToMessages(
+        source: StoredMessage[],
+        type: string,
+        data: Record<string, unknown> | null,
+    ): StoredMessage[] {
+        if (!data) return source;
+        const next = [...source];
 
         if (type === "user_message") {
             const text = asString(data.content);
             if (text) {
-                messages = [...messages, { role: "user", content: text }];
+                next.push({ role: "user", content: text });
             }
-            return;
+            return next;
         }
 
         if (type === "reasoning") {
             const fragment = asString(data.text);
-            if (!fragment) return;
-            const msg = getLiveAssistantMessage();
+            if (!fragment) return next;
+            const msg = getOrCreateLiveAssistantMessage(next);
             const parts = msg.content as MessagePart[];
             const last = parts.at(-1) as any;
             if (last?.type === "reasoning") {
@@ -940,14 +954,13 @@ import type {
             } else {
                 parts.push({ type: "reasoning", text: fragment });
             }
-            messages = [...messages];
-            return;
+            return [...next];
         }
 
         if (type === "assistant_text") {
             const chunk = asString(data.content);
-            if (!chunk) return;
-            const msg = getLiveAssistantMessage();
+            if (!chunk) return next;
+            const msg = getOrCreateLiveAssistantMessage(next);
             const parts = msg.content as MessagePart[];
             const last = parts.at(-1) as any;
             if (last?.type === "text") {
@@ -955,21 +968,19 @@ import type {
             } else {
                 parts.push({ type: "text", text: chunk });
             }
-            messages = [...messages];
-            return;
+            return [...next];
         }
 
         if (type === "tool_call") {
             const toolName = asString(data.name) || asString(data.tool) || "tool";
             const args = asArgsRecord(data.args ?? data.payload ?? data.arguments ?? {});
             const id = asString(data.id) || asString(data.tool_call_id) || `live-${Date.now()}`;
-            const msg = getLiveAssistantMessage();
+            const msg = getOrCreateLiveAssistantMessage(next);
             (msg.content as MessagePart[]).push({
                 type: "tool_call",
                 tool_call: { id, name: toolName, arguments: args ?? {} },
             });
-            messages = [...messages];
-            return;
+            return [...next];
         }
 
         if (type === "tool_result") {
@@ -977,7 +988,7 @@ import type {
             const toolCallId = asString(data.tool_call_id) || asString(data.id) || "";
             const result = data.result ?? data.output ?? data.preview ?? "";
             const isError = data.ok === false || data.status === "error" || data.is_error === true;
-            messages = [...messages, {
+            next.push({
                 role: "tool",
                 content: [{
                     type: "tool_result",
@@ -988,8 +999,50 @@ import type {
                         is_error: isError,
                     },
                 }],
-            }];
+            });
         }
+        return next;
+    }
+
+    function buildMessagesFromEventLog(
+        events: Array<{ id: number; type: string; data: Record<string, unknown> }>,
+    ): StoredMessage[] {
+        let next: StoredMessage[] = [];
+        for (const event of events) {
+            next = applyLiveEventToMessages(next, event.type, event.data);
+        }
+        return next;
+    }
+
+    function buildActivityFromEventLog(
+        events: Array<{ id: number; type: string; data: Record<string, unknown> }>,
+    ): ActivityItem[] {
+        const items: ActivityItem[] = [];
+        for (const event of events) {
+            const item = formatActivityItem(event.id, event.type, event.data);
+            if (item) {
+                items.push(item);
+            }
+        }
+        return trimTail(items, 80);
+    }
+
+    function getOrCreateLiveAssistantMessage(
+        source: StoredMessage[],
+    ): StoredMessage & { live: true } {
+        const last = source.at(-1) as
+            | (StoredMessage & { live?: boolean })
+            | undefined;
+        if (last?.live && last.role === "assistant") {
+            return last as StoredMessage & { live: true };
+        }
+        const msg = {
+            role: "assistant",
+            content: [] as MessagePart[],
+            live: true as const,
+        };
+        source.push(msg);
+        return msg;
     }
 
     function parseJson(value: string): Record<string, unknown> | null {
@@ -1676,6 +1729,7 @@ import type {
             {currentModel}
             {currentProvider}
             workspaceRoot={displayWorkspace}
+            gitBranch={currentGitBranch}
             {reasoningInfo}
             {steeringQueue}
             onSend={() => void submitPrompt()}
@@ -1765,11 +1819,17 @@ import type {
 
 <!-- Model Picker Modal -->
 {#if modelPickerOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-        class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+        class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm md:p-4"
+        transition:fade={{ duration: 150 }}
+        onclick={closeModelPicker}
     >
         <div
-            class="bg-bg-surface border border-border-default rounded-t-xl md:rounded-xl w-full max-w-sm flex flex-col overflow-hidden max-h-[80vh]"
+            class="bg-bg-surface md:border border-border-default rounded-t-2xl md:rounded-xl w-full md:max-w-md flex flex-col overflow-hidden max-h-[85vh] shadow-2xl"
+            transition:fly={{ y: 200, duration: 250, opacity: 1 }}
+            onclick={(e) => e.stopPropagation()}
         >
             <div
                 class="flex items-center justify-between px-4 py-3 border-b border-border-default"
@@ -1796,13 +1856,13 @@ import type {
                     >
                 </button>
             </div>
-            <div class="px-4 py-2 border-b border-border-default">
+            <div class="px-3 py-3 border-b border-border-default bg-bg-surface">
                 <input
                     bind:this={modelSearchInput}
                     type="text"
                     bind:value={modelSearchQuery}
                     placeholder="Search models..."
-                    class="w-full bg-bg-elevated border border-transparent focus:border-accent focus:outline-none rounded-lg px-3 py-2 text-[13px] text-text-secondary placeholder:text-text-tertiary transition-colors"
+                    class="w-full bg-bg-surface border border-border-default focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none rounded-lg px-3 py-2.5 text-[14px] text-text-secondary placeholder:text-text-tertiary transition-all"
                     autocomplete="off"
                 />
             </div>
@@ -1816,12 +1876,12 @@ import type {
                         class="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-bg-elevated transition-colors"
                         type="button"
                     >
-                        <div class="flex flex-col min-w-0">
+                        <div class="flex flex-col min-w-0 pr-4">
                             <span class="text-[13px] text-text-secondary"
                                 >{shortenModel(m.label)}</span
                             >
                             {#if m.description}
-                                <span class="text-[11px] text-text-tertiary truncate">{m.description}</span>
+                                <span class="text-[12px] text-text-tertiary truncate mt-0.5">{m.description}</span>
                             {/if}
                         </div>
                         {#if m.label === currentModel}

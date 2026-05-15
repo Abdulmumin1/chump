@@ -25,6 +25,7 @@ from .config import (
 )
 from .resources import ResourceCatalog, build_skill_bundle
 from .tools import build_tools
+from .git_utils import get_git_branch
 
 SYSTEM_PROMPT = """
 
@@ -243,6 +244,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         return {
             "agent_id": self.id,
             "workspace_root": str(self._config.workspace_root),
+            "git_branch": get_git_branch(self._config.workspace_root),
             "provider": self._config.provider,
             "model": self._config.model,
             "max_steps": self._config.max_steps,
@@ -540,8 +542,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
             yield f"event: end\ndata: {json.dumps(full_text)}\n\n"
         except Exception as exc:
-            self._log(f"chat error: {exc}\n{traceback.format_exc()}")
-            yield f"event: error\ndata: {json.dumps(str(exc))}\n\n"
+            self._log(
+                "chat error: "
+                f"{type(exc).__name__}: {exc!r}\n"
+                f"{''.join(traceback.format_exception(exc))}"
+            )
+            yield f"event: error\ndata: {json.dumps(self._format_chat_error(exc))}\n\n"
 
     async def _finalize_turn(self, result: Any, full_response: str) -> str:
         if not full_response.strip():
@@ -703,6 +709,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
         if not self._config.verbose:
             return
         print(f"[chump:{self.id}] {message}", flush=True)
+
+    def _format_chat_error(self, exc: BaseException) -> str:
+        text = str(exc).strip()
+        if text:
+            return text
+        return f"{type(exc).__name__}: chat failed without an error message"
 
     def _discard_last_user_message(self, message: str) -> None:
         if not self._messages:

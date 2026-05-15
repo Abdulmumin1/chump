@@ -67,6 +67,7 @@
         models = [],
         currentModel = "",
         workspaceRoot = "",
+        gitBranch = "",
         currentProvider = "",
         reasoningInfo = null,
         steeringQueue = [],
@@ -86,6 +87,7 @@
         currentModel: string;
         currentProvider: string;
         workspaceRoot: string;
+        gitBranch: string;
         reasoningInfo: { effort: string | null; budget: number | null } | null;
         steeringQueue: Array<{
             content: string;
@@ -453,7 +455,9 @@
     }
 
     function shortenModel(name: string): string {
-        return name.replace(/^workers_ai\/@cf\//, "");
+        const short = name.replace(/^workers_ai\/@cf\//, "");
+        const parts = short.split("/");
+        return parts.length > 1 ? parts.pop() || short : short;
     }
 
     function steeringLabel(item: {
@@ -688,6 +692,15 @@
                 ></path></svg
             >
             <span class="truncate">{workspaceRoot || "—"}</span>
+            {#if gitBranch}
+                <svg class="w-3.5 h-3.5 text-text-muted opacity-50 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <line x1="6" x2="6" y1="3" y2="15"></line>
+                    <circle cx="18" cy="6" r="3"></circle>
+                    <circle cx="6" cy="18" r="3"></circle>
+                    <path d="M18 9a9 9 0 0 1-9 9"></path>
+                </svg>
+                <span class="truncate ml-1">{gitBranch}</span>
+            {/if}
         </div>
         <div class="flex items-center gap-2 min-w-0">
             {#if reasoningInfo?.effort}
