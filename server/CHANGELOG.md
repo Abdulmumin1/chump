@@ -1,5 +1,12 @@
 # chump-server
 
+## 0.0.18
+
+- Expose `git_branch` in health endpoint and agent status
+- Structured chat error responses with type and formatted message
+- Structured Codex `response.failed` error parsing with code/type/message breakdown
+- Bump dependency: `ai-query==1.7.46`
+
 ## 0.0.17
 
 - Configurable retry policy for provider calls via `CHUMP_RETRY_*` environment variables.

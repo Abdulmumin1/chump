@@ -1,5 +1,14 @@
 # chump-agent
 
+## 0.0.18
+
+### Patch Changes
+
+- SSE error parsing: extract `.error` from JSON error payloads instead of raw JSON string
+  Immediate `/share` slash command handling during steering mode
+  Expose `git_branch` in agent metadata
+  fix: input paste buffer handling
+
 ## 0.0.17
 
 ### Patch Changes

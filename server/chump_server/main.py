@@ -11,6 +11,7 @@ from ai_query.agents import AgentServer
 from ai_query.agents.server.types import AgentServerConfig
 from aiohttp import web
 
+from .git_utils import get_git_branch
 from .agent import ChumpAgent, build_system_prompt
 from .config import ChumpConfig, load_config
 from .resources import ResourceCatalog
@@ -51,6 +52,7 @@ class ChumpServer(AgentServer):
                 "version": _package_version("chump-server"),
                 "ai_query_version": _package_version("ai-query"),
                 "workspace_root": str(self.chump_config.workspace_root),
+                "git_branch": get_git_branch(self.chump_config.workspace_root),
                 "data_dir": str(self.chump_config.data_dir),
                 "provider": self.chump_config.provider,
                 "model": self.chump_config.model,

@@ -129,7 +129,7 @@ export async function streamChat(
 			finalText = safeParseString(event.data);
 		}
 		if (event.event === 'error') {
-			streamError = safeParseString(event.data) || 'chat failed';
+			streamError = safeParseError(event.data) || 'chat failed';
 		}
 	});
 
@@ -397,10 +397,35 @@ function parseSseEvent(rawEvent: string): SseEvent | null {
 
 function safeParseString(value: string): string {
 	try {
-		return JSON.parse(value) as string;
+		const parsed = JSON.parse(value) as unknown;
+		return typeof parsed === 'string' ? parsed : value;
 	} catch {
 		return value;
 	}
+}
+
+function safeParseError(value: string): string {
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (typeof parsed === 'string') {
+			return parsed;
+		}
+		if (isErrorPayload(parsed)) {
+			return parsed.error;
+		}
+	} catch {
+		// Fall through to raw SSE data.
+	}
+	return value;
+}
+
+function isErrorPayload(value: unknown): value is { error: string } {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		'error' in value &&
+		typeof value.error === 'string'
+	);
 }
 
 function sanitizeSegment(value: string): string {

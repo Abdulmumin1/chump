@@ -144,6 +144,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       provider: string;
       model: string;
       reasoning: Record<string, unknown> | null;
+      git_branch?: string;
     }, shareManager.current()));
   });
   setSteeringQueueHook((payload) => {
@@ -199,6 +200,27 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader,
     lineQueue,
     () => activeSteerHandler,
+    async (line) => {
+      if (!isImmediateActiveSlashCommand(line.text)) {
+        return false;
+      }
+      await handleSlashCommand(line.text, {
+        config,
+        closeEventStream,
+        shareManager,
+        metadata: target.metadata,
+        setFooter: (footer) => promptReader.setFooter(footer),
+        setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
+        setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
+        setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
+        restartEventStream: async (nextConfig) => {
+          closeEventStream?.();
+          closeEventStream = await startEventStream(nextConfig);
+          return closeEventStream;
+        },
+      });
+      return true;
+    },
   );
 
   try {
@@ -798,6 +820,7 @@ async function readInputLoop(
   promptReader: ReturnType<typeof createPromptReader>,
   lineQueue: AsyncLineQueue,
   getSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null,
+  handleActiveSlashCommand: ((submission: PromptSubmission) => Promise<boolean>) | null,
 ): Promise<void> {
   try {
     while (true) {
@@ -807,6 +830,12 @@ async function readInputLoop(
         return;
       }
       const steerHandler = getSteerHandler();
+      if (steerHandler && handleActiveSlashCommand) {
+        const handled = await handleActiveSlashCommand(line).catch(() => false);
+        if (handled) {
+          continue;
+        }
+      }
       if (steerHandler && shouldSteer(line)) {
         // Server is the source of truth for the steering queue. We do NOT
         // push locally here — the server broadcasts a steering_queue event
@@ -847,6 +876,10 @@ function isBlockedActiveSlashCommand(value: string): boolean {
     "/clear",
     "/agent",
   ]).has(command);
+}
+
+function isImmediateActiveSlashCommand(value: string): boolean {
+  return value.trimStart().split(/\s+/, 1)[0] === "/share";
 }
 
 class AsyncLineQueue {
@@ -1106,7 +1139,7 @@ async function renderSwitchedSession(
 
 function renderFooter(
   config: ChumpConfig,
-  health: { provider: string; model: string; reasoning: Record<string, unknown> | null },
+  health: { provider: string; model: string; reasoning: Record<string, unknown> | null; git_branch?: string },
   share: ShareStatus | null,
 ): string {
   // Render each part in full; the input frame wraps the footer at the
@@ -1117,7 +1150,7 @@ function renderFooter(
     renderReasoning(health.reasoning),
     share ? "shared" : "",
     config.serverSource,
-    config.agentId,
+    health.git_branch ? `* ${health.git_branch}` : "",
   ]);
 }
 
