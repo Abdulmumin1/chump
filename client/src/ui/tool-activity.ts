@@ -182,6 +182,8 @@ function displayToolName(name: string): string {
     return "web search";
   } else if (name === "read_file") {
     return "Read";
+  } else if (name === "skill") {
+    return "Skill";
   } else if (name === "load_skill") {
     return "Skill";
   }
@@ -221,6 +223,11 @@ export function formatToolArgs(toolName: string, value: unknown): string {
 
   if (toolName === "website") {
     return typeof args.query === "string" ? args.query : "";
+  }
+
+  if (toolName === "skill") {
+    const name = typeof args.name === "string" ? args.name : "";
+    return name;
   }
 
   if (toolName === "load_skill") {

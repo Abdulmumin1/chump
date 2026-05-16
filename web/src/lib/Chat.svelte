@@ -18,7 +18,6 @@
         getSessions,
         getState,
         getStatus,
-        loadSkill,
         normalizeServerUrl,
         openEventStream,
         sessionTitle,
@@ -204,7 +203,6 @@ import type {
     let currentModel = $derived(
         status ? `${status.provider}/${status.model}` : "",
     );
-    let currentSkills = $derived(status?.skills ?? health?.skills ?? []);
     let displayWorkspace = $derived(
         shortenWorkspacePath(
             status?.workspace_root ?? health?.workspace_root ?? "",
@@ -853,15 +851,6 @@ import type {
                         args,
                     );
                     pushToast(`Thinking set to ${args}`, "success");
-                    break;
-                }
-                case "skill": {
-                    const result = await loadSkill(
-                        serverUrl,
-                        activeSessionId,
-                        args,
-                    );
-                    pushToast(`Loaded skill: ${result.name}`, "success");
                     break;
                 }
                 case "clear": {
@@ -1724,7 +1713,6 @@ import type {
             {activeSessionId}
             {canSend}
             {isSending}
-            skills={currentSkills}
             models={availableModels}
             {currentModel}
             {currentProvider}

@@ -42,8 +42,59 @@ class ResourceCatalogTests(unittest.TestCase):
             self.assertIn("Follow them for every reply and action", prompt)
             self.assertIn(f"## {(workspace / 'AGENTS.md').resolve()}", prompt)
             self.assertIn("Use pnpm.", prompt)
-            self.assertNotIn("<available_skills>", prompt)
-            self.assertNotIn("demo-skill", prompt)
+            self.assertIn("# Available Skills", prompt)
+            self.assertIn("<available_skills>", prompt)
+            self.assertIn("<name>demo-skill</name>", prompt)
+            self.assertIn(str((skill_dir / "SKILL.md").resolve()), prompt)
+
+    def test_discovers_skills_from_chump_singular_and_plural_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "workspace"
+            agent_dir = root / "agent-home"
+            workspace.mkdir()
+            agent_dir.mkdir()
+
+            singular_dir = workspace / ".chump" / "skill" / "singular-skill"
+            singular_dir.mkdir(parents=True)
+            (singular_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: singular-skill\n"
+                "description: Loaded from .chump/skill.\n"
+                "---\n\n"
+                "# Singular Skill\n",
+                encoding="utf-8",
+            )
+
+            plural_dir = agent_dir / "skills" / "plural-skill"
+            plural_dir.mkdir(parents=True)
+            (plural_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: plural-skill\n"
+                "description: Loaded from global skills.\n"
+                "---\n\n"
+                "# Plural Skill\n",
+                encoding="utf-8",
+            )
+
+            singular_global_dir = agent_dir / "skill" / "singular-global-skill"
+            singular_global_dir.mkdir(parents=True)
+            (singular_global_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: singular-global-skill\n"
+                "description: Loaded from global skill.\n"
+                "---\n\n"
+                "# Singular Global Skill\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"CHUMP_AGENT_DIR": str(agent_dir)}):
+                catalog = ResourceCatalog(workspace)
+
+            names = catalog.skill_names()
+            self.assertIn("plural-skill", names)
+            self.assertIn("singular-global-skill", names)
+            self.assertIn("singular-skill", names)
 
     def test_instruction_files_for_path_finds_nearest_nested_instruction(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

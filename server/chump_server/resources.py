@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import os
 import re
 from dataclasses import dataclass
@@ -8,7 +9,7 @@ from typing import Iterable
 
 
 INSTRUCTION_FILE_NAMES = ("AGENTS.md", "CLAUDE.md")
-DEFAULT_SKILL_DIRS = (".chump/skills", ".agents/skills")
+DEFAULT_SKILL_DIRS = (".chump/skill", ".chump/skills", ".agents/skills")
 SKILL_ROOT_FILE_NAMES = ("SKILL.md",)
 FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.DOTALL)
 
@@ -56,10 +57,47 @@ class ResourceCatalog:
         instruction_section = self.build_instruction_prompt()
         if instruction_section:
             sections.append(instruction_section)
+        skill_section = self.build_skill_prompt()
+        if skill_section:
+            sections.append(skill_section)
         return "\n\n".join(section for section in sections if section)
 
     def build_instruction_prompt(self) -> str:
         return self._format_instruction_section(self._system_instructions)
+
+    def build_skill_prompt(self) -> str:
+        visible_skills = [
+            skill for skill in self._skills if not skill.disable_model_invocation
+        ]
+        if not visible_skills:
+            return ""
+
+        blocks = [
+            "# Available Skills",
+            "These skills provide specialized instructions for specific tasks.",
+            (
+                "IMPORTANT: If the task clearly matches a skill, call the "
+                "`skill` tool with the skill name before proceeding."
+            ),
+            (
+                "When a loaded skill references relative paths, resolve them "
+                "against the base directory included in the tool result."
+            ),
+            "",
+            "<available_skills>",
+        ]
+        for skill in visible_skills:
+            blocks.extend(
+                [
+                    "  <skill>",
+                    f"    <name>{_escape_xml(skill.name)}</name>",
+                    f"    <description>{_escape_xml(skill.description)}</description>",
+                    f"    <location>{_escape_xml(str(skill.file_path))}</location>",
+                    "  </skill>",
+                ]
+            )
+        blocks.append("</available_skills>")
+        return "\n".join(blocks)
 
     def instruction_files_for_path(
         self,
@@ -135,6 +173,7 @@ class ResourceCatalog:
             self.workspace_root / relative_path
             for relative_path in DEFAULT_SKILL_DIRS
         ] + [
+            self.global_agent_dir / "skill",
             self.global_agent_dir / "skills",
             Path.home() / ".agents" / "skills",
         ]
@@ -240,6 +279,10 @@ def _load_skills_from_root(root: Path) -> list[SkillInfo]:
                     seen_dirs.add(key)
 
     return discovered
+
+
+def _escape_xml(value: str) -> str:
+    return html.escape(value, quote=True).replace("'", "&apos;")
 
 
 def _load_skill_from_dir(directory: Path) -> SkillInfo | None:

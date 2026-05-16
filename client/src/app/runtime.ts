@@ -13,6 +13,7 @@ import type {
   CliOptions,
   ManagedServerMetadata,
 } from "../core/types.ts";
+import { getWorkspaceStatePaths } from "./state-paths.ts";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
@@ -247,7 +248,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
     }
 
     const port = await findAvailablePort();
-    const paths = getWorkspacePaths(workspaceRoot);
+    const paths = getWorkspaceStatePaths(workspaceRoot);
     const command = resolveServerCommand();
     await mkdir(paths.dataDir, { recursive: true });
 
@@ -256,7 +257,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
       env: {
         ...process.env,
         CHUMP_WORKSPACE_ROOT: workspaceRoot,
-        CHUMP_DATA_DIR: paths.dataDir,
+        CHUMP_STATE_DIR: paths.dataDir,
         CHUMP_AUTH_FILE: globalAuthFilePath(),
         CHUMP_HOST: "127.0.0.1",
         CHUMP_PORT: String(port),
@@ -309,7 +310,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
 async function spawnManagedServer(workspaceRoot: string): Promise<ManagedServerMetadata> {
   const port = await findAvailablePort();
   const command = resolveServerCommand();
-  const paths = getWorkspacePaths(workspaceRoot);
+  const paths = getWorkspaceStatePaths(workspaceRoot);
   await mkdir(paths.dataDir, { recursive: true });
 
   const logFd = openSync(paths.logPath, "a");
@@ -320,7 +321,7 @@ async function spawnManagedServer(workspaceRoot: string): Promise<ManagedServerM
       env: {
         ...process.env,
         CHUMP_WORKSPACE_ROOT: workspaceRoot,
-        CHUMP_DATA_DIR: paths.dataDir,
+        CHUMP_STATE_DIR: paths.dataDir,
         CHUMP_AUTH_FILE: globalAuthFilePath(),
         CHUMP_HOST: "127.0.0.1",
         CHUMP_PORT: String(port),
@@ -363,7 +364,7 @@ async function withWorkspaceLock<T>(
   workspaceRoot: string,
   task: () => Promise<T>,
 ): Promise<T> {
-  const lockDir = getWorkspacePaths(workspaceRoot).lockDir;
+  const lockDir = getWorkspaceStatePaths(workspaceRoot).lockDir;
   await mkdir(path.dirname(lockDir), { recursive: true });
   const startedAt = Date.now();
 
@@ -396,7 +397,7 @@ async function withWorkspaceLock<T>(
 async function readManagedServerMetadata(
   workspaceRoot: string,
 ): Promise<ManagedServerMetadata | null> {
-  const metadataPath = getWorkspacePaths(workspaceRoot).metadataPath;
+  const metadataPath = getWorkspaceStatePaths(workspaceRoot).metadataPath;
   try {
     const raw = await readFile(metadataPath, "utf-8");
     return JSON.parse(raw) as ManagedServerMetadata;
@@ -412,7 +413,7 @@ async function writeManagedServerMetadata(
   workspaceRoot: string,
   metadata: ManagedServerMetadata,
 ): Promise<void> {
-  const paths = getWorkspacePaths(workspaceRoot);
+  const paths = getWorkspaceStatePaths(workspaceRoot);
   await mkdir(paths.dataDir, { recursive: true });
   const tempPath = `${paths.metadataPath}.tmp`;
   await writeFile(tempPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf-8");
@@ -420,23 +421,8 @@ async function writeManagedServerMetadata(
 }
 
 async function clearManagedServerMetadata(workspaceRoot: string): Promise<void> {
-  const metadataPath = getWorkspacePaths(workspaceRoot).metadataPath;
+  const metadataPath = getWorkspaceStatePaths(workspaceRoot).metadataPath;
   await rm(metadataPath, { force: true });
-}
-
-function getWorkspacePaths(workspaceRoot: string): {
-  dataDir: string;
-  metadataPath: string;
-  lockDir: string;
-  logPath: string;
-} {
-  const dataDir = path.join(workspaceRoot, ".chump");
-  return {
-    dataDir,
-    metadataPath: path.join(dataDir, "server.json"),
-    lockDir: path.join(dataDir, "server.lock"),
-    logPath: path.join(dataDir, "server.log"),
-  };
 }
 
 function globalAuthFilePath(): string {

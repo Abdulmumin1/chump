@@ -42,7 +42,7 @@ def test_normalize_model_name_uses_provider_default_when_not_strict():
 def test_load_config_reads_retry_policy(monkeypatch, tmp_path):
     auth_file = tmp_path / "missing-auth.json"
     monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
-    monkeypatch.setenv("CHUMP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("CHUMP_RETRY_MAX_ATTEMPTS", "5")
     monkeypatch.setenv("CHUMP_RETRY_INITIAL_DELAY", "0.25")
     monkeypatch.setenv("CHUMP_RETRY_MAX_DELAY", "4")
@@ -56,3 +56,25 @@ def test_load_config_reads_retry_policy(monkeypatch, tmp_path):
     assert config.retry_max_delay == 4
     assert config.retry_backoff == 1.5
     assert config.retry_jitter is False
+
+
+def test_load_config_migrates_legacy_workspace_state(monkeypatch, tmp_path):
+    workspace = tmp_path / "workspace"
+    legacy_dir = workspace / ".chump"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "chump.sqlite3").write_text("db", encoding="utf-8")
+    (legacy_dir / "server.log").write_text("log", encoding="utf-8")
+
+    auth_file = tmp_path / "missing-auth.json"
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+
+    config = load_config()
+
+    assert config.data_dir != legacy_dir
+    assert (config.data_dir / "chump.sqlite3").read_text(encoding="utf-8") == "db"
+    assert (config.data_dir / "server.log").read_text(encoding="utf-8") == "log"
+    assert not (legacy_dir / "chump.sqlite3").exists()
+    assert not (legacy_dir / "server.log").exists()
+    assert legacy_dir.exists()

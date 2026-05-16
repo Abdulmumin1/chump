@@ -12,8 +12,9 @@ from ai_query.agents.server.types import AgentServerConfig
 from aiohttp import web
 
 from .git_utils import get_git_branch
-from .agent import ChumpAgent, build_system_prompt
+from .agent import ChumpAgent
 from .config import ChumpConfig, load_config
+from .managed_idle import is_resume_gap
 from .resources import ResourceCatalog
 
 
@@ -36,6 +37,7 @@ class ChumpServer(AgentServer):
         self.resources = resources
         self.started_at = time.time()
         self._managed_idle_task: asyncio.Task[None] | None = None
+        self._managed_idle_resume_grace_until: float | None = None
 
     def on_app_setup(self, app: web.Application) -> None:
         app._client_max_size = 64 * 1024 * 1024
@@ -167,11 +169,25 @@ class ChumpServer(AgentServer):
         if timeout is None:
             return
         interval = max(0.25, min(1.0, timeout / 2))
+        last_tick = time.monotonic()
         while True:
             await asyncio.sleep(interval)
+            tick = time.monotonic()
+            loop_gap = tick - last_tick
+            last_tick = tick
             now = time.time()
-            if self._active_connection_count() > 0:
+            if is_resume_gap(loop_gap, interval, timeout):
+                self._managed_idle_resume_grace_until = now + timeout
                 continue
+            if self._active_connection_count() > 0:
+                self._managed_idle_resume_grace_until = None
+                continue
+            if (
+                self._managed_idle_resume_grace_until is not None
+                and now < self._managed_idle_resume_grace_until
+            ):
+                continue
+            self._managed_idle_resume_grace_until = None
             last_activity = max(
                 [
                     self.started_at,

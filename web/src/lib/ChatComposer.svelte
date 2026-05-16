@@ -63,7 +63,6 @@
         activeSessionId,
         canSend,
         isSending,
-        skills = [],
         models = [],
         currentModel = "",
         workspaceRoot = "",
@@ -82,7 +81,6 @@
         activeSessionId: string;
         canSend: boolean;
         isSending: boolean;
-        skills: Array<{ name: string; description: string }>;
         models: ModelChoice[];
         currentModel: string;
         currentProvider: string;
@@ -130,7 +128,7 @@
         label: string;
         command: string;
         description: string;
-        kind: "root" | "model" | "skill" | "command";
+        kind: "root" | "model" | "command";
     };
 
     const ROOT_COMMANDS: Suggestion[] = [
@@ -144,12 +142,6 @@
             label: "/thinking",
             command: "/thinking ",
             description: "choose reasoning level",
-            kind: "root",
-        },
-        {
-            label: "/skill",
-            command: "/skill:",
-            description: "load a skill manually",
             kind: "root",
         },
         {
@@ -198,23 +190,6 @@
         if (!text.startsWith("/")) return [];
 
         const trimmed = text.trim();
-
-        if (trimmed.startsWith("/skill:") || /^\/skill\s/.test(trimmed)) {
-            const query = trimmed.startsWith("/skill:")
-                ? trimmed.slice("/skill:".length).trim().toLowerCase()
-                : trimmed.slice("/skill".length).trim().toLowerCase();
-            return skills
-                .filter(
-                    (s: { name: string; description: string }) =>
-                        !query || s.name.toLowerCase().includes(query),
-                )
-                .map((s: { name: string; description: string }) => ({
-                    label: s.name,
-                    command: `/skill:${s.name}`,
-                    description: s.description,
-                    kind: "skill" as const,
-                }));
-        }
 
         if (/^\/model(?:\s|$)/.test(trimmed)) {
             const query = trimmed.slice("/model".length).trim().toLowerCase();
@@ -429,11 +404,6 @@
             void onCommand("thinking", mode);
             return;
         }
-        if (trimmed.startsWith("/skill:")) {
-            const skillName = trimmed.slice("/skill:".length).trim();
-            void onCommand("skill", skillName);
-            return;
-        }
     }
 
     function scrollSelectedIntoView() {
@@ -636,7 +606,7 @@
                     class="text-[11px] md:text-[12px] font-medium text-text-muted mr-1 md:mr-2 tracking-wide hidden sm:inline"
                     >⌘ Enter</span
                 >
-                {#if isSending}
+                {#if isSending && !composerText.trim() && !hasAttachments}
                     <button
                         aria-label="Abort"
                         class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-error/20 hover:bg-error/30 text-error rounded-[6px]"

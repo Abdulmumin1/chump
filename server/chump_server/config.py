@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,9 +117,8 @@ def load_config() -> ChumpConfig:
     workspace_root = Path(
         os.environ.get("CHUMP_WORKSPACE_ROOT", str(project_root))
     ).resolve()
-    data_dir = Path(
-        os.environ.get("CHUMP_DATA_DIR", str(project_root / ".chump"))
-    ).resolve()
+    data_dir = workspace_state_dir(workspace_root)
+    migrate_legacy_workspace_state(workspace_root, data_dir)
     auth_config = load_auth_config()
     apply_auth_environment(auth_config)
 
@@ -201,6 +203,60 @@ def auth_file_path() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "chump" / "auth.json"
     return Path.home() / ".local" / "share" / "chump" / "auth.json"
+
+
+def workspace_state_dir(workspace_root: Path) -> Path:
+    configured = os.environ.get("CHUMP_STATE_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (_state_base_dir() / "workspaces" / _workspace_state_slug(workspace_root)).resolve()
+
+
+def _state_base_dir() -> Path:
+    if xdg_state_home := os.environ.get("XDG_STATE_HOME"):
+        return Path(xdg_state_home).expanduser() / "chump"
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "chump"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "chump"
+    return Path.home() / ".local" / "state" / "chump"
+
+
+def _workspace_state_slug(workspace_root: Path) -> str:
+    name = re.sub(r"[^a-z0-9_-]+", "-", workspace_root.name.lower()).strip("-")
+    if not name:
+        name = "workspace"
+    digest = hashlib.sha256(str(workspace_root).encode("utf-8")).hexdigest()[:16]
+    return f"{name}-{digest}"
+
+
+def migrate_legacy_workspace_state(workspace_root: Path, data_dir: Path) -> None:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    legacy_dir = workspace_root / ".chump"
+    legacy_paths = [
+        workspace_root / ".chump.sqlite3",
+        legacy_dir / "chump.sqlite3",
+        legacy_dir / "server.json",
+        legacy_dir / "server.log",
+        legacy_dir / "server.lock",
+        legacy_dir / "client.log",
+    ]
+
+    for source in legacy_paths:
+        _move_legacy_path(source, data_dir / source.name)
+
+
+def _move_legacy_path(source: Path, destination: Path) -> None:
+    if not source.exists():
+        return
+    if source.resolve() == destination.resolve():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        return
+    shutil.move(str(source), str(destination))
 
 
 def apply_auth_environment(

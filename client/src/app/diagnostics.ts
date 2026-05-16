@@ -1,8 +1,12 @@
+import process from "node:process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import process from "node:process";
+
+import { resolveWorkspaceRoot } from "./config.ts";
+import { getWorkspaceStatePaths } from "./state-paths.ts";
 
 let installed = false;
+let clientLogPath: string | null = null;
 
 export function installClientDiagnostics(): void {
   if (installed) {
@@ -49,11 +53,14 @@ export function logClientEvent(kind: string, detail: string): void {
 }
 
 function logClientDiagnostic(kind: string, detail: string): void {
-  const dir = path.join(process.cwd(), ".chump");
   try {
-    mkdirSync(dir, { recursive: true });
+    if (!clientLogPath) {
+      const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+      clientLogPath = getWorkspaceStatePaths(workspaceRoot).clientLogPath;
+    }
+    mkdirSync(path.dirname(clientLogPath), { recursive: true });
     appendFileSync(
-      path.join(dir, "client.log"),
+      clientLogPath,
       `${new Date().toISOString()} [${process.pid}] ${kind}: ${detail}\n`,
     );
   } catch {

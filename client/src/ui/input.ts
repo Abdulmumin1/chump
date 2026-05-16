@@ -245,7 +245,6 @@ function createInteractivePromptReader(): {
         hiddenBelow: slashMenu.hiddenBelow,
       },
     );
-    const menuTopSpacerLines = menuLines.length > 0 ? 1 : 0;
     const queueLines = queuedDisplay.length > 0
       ? [
           ...queuedDisplay.map((queued) => renderQueuedMessage(formatSubmissionPreview(queued))),
@@ -264,17 +263,13 @@ function createInteractivePromptReader(): {
     ];
     const promptFrameLines = [
       ...queueLines,
-      ...(menuTopSpacerLines > 0 ? [""] : []),
-      ...menuLines,
-      "",
       statusRow,
       ...promptLines,
+      ...menuLines,
+      ...(menuLines.length > 0 ? [""] : []),
     ];
     const cursorFrameLineIndex =
       queueLines.length +
-      menuTopSpacerLines +
-      menuLines.length +
-      1 +
       2 +
       target.line;
 
@@ -310,8 +305,7 @@ function createInteractivePromptReader(): {
 
     // Pre-compute the status row's index in the flat renderedRows array so
     // both the full-paint and patch paths can reference it.
-    const statusPromptFrameIndex =
-      queueLines.length + menuTopSpacerLines + menuLines.length + 1;
+    const statusPromptFrameIndex = queueLines.length;
     let statusIndexInRenderedLocal = 0;
     for (let i = 0; i < statusPromptFrameIndex; i += 1) {
       statusIndexInRenderedLocal += wrapAnsiLine(promptFrameLines[i] ?? "", wrapWidth).length;
