@@ -1,0 +1,118 @@
+<script lang="ts">
+	let selectedTab = $state('HTML');
+	const tabs = ['HTML', 'THE SOCIAL WEB', 'SKEUMORPHISM', 'MODERN', 'MACHINE'];
+</script>
+
+<div class="min-h-screen bg-white text-black flex flex-col items-center justify-between font-sans overflow-x-hidden pt-12 pb-24 relative">
+	<!-- HEADER -->
+	<header class="w-full max-w-4xl px-6 flex flex-col items-center pt-8">
+		<div class="flex flex-col md:flex-row items-center justify-center w-full relative mb-[-0.5rem] md:mb-[-1.5rem] z-10">
+			<h1 class="text-5xl sm:text-6xl md:text-8xl lg:text-[7rem] font-serif tracking-tighter uppercase whitespace-nowrap" style="font-family: 'Times New Roman', Times, serif;">
+				Museum
+			</h1>
+			
+			<div class="flex items-center mx-4 my-2 md:my-0 md:absolute md:right-[5%] lg:right-[8%] xl:right-0">
+				<div class="relative flex items-center justify-center w-16 h-16 md:w-20 md:h-20 lg:w-24 lg:h-24">
+					<div class="absolute inset-0 rounded-full flex flex-col justify-evenly overflow-hidden border border-black/10">
+						{#each Array(7) as _}
+							<div class="w-full h-[2px] bg-black"></div>
+						{/each}
+					</div>
+					<span class="text-xl md:text-2xl lg:text-3xl font-serif bg-white px-2 z-10 tracking-tighter" style="font-family: 'Times New Roman', Times, serif;">
+						OF
+					</span>
+				</div>
+			</div>
+		</div>
+		
+		<h1 class="text-5xl sm:text-6xl md:text-8xl lg:text-[7rem] font-serif tracking-tighter uppercase text-center whitespace-nowrap" style="font-family: 'Times New Roman', Times, serif;">
+			The Human Web
+		</h1>
+	</header>
+
+	<!-- CENTER ARTWORK -->
+	<main class="flex-grow flex items-center justify-center w-full px-6 mt-16 mb-12">
+		<div class="relative w-64 h-80 sm:w-72 sm:h-96 md:w-[340px] md:h-[420px] transition-transform duration-700 hover:scale-[1.02] group">
+			<!-- Mac Body -->
+			<div class="absolute inset-0 bg-[#ffb9a6] rounded-t-2xl rounded-b-sm shadow-[0_20px_50px_rgba(255,182,163,0.3)] flex flex-col p-5 md:p-6 pb-0">
+				
+				<!-- Bezel & Screen -->
+				<div class="w-full h-[60%] bg-[#ffa68d] rounded-xl shadow-inner flex flex-col items-center justify-center p-3 sm:p-4 relative overflow-hidden">
+					<div class="w-full h-full bg-[#ff552e] rounded-lg shadow-[inset_0_0_30px_rgba(0,0,0,0.15)] relative overflow-hidden group-hover:bg-[#ff613b] transition-colors duration-700">
+						<div class="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] bg-gradient-to-br from-white/20 to-transparent rotate-45 transform origin-center pointer-events-none"></div>
+					</div>
+				</div>
+
+				<!-- Floppy Drive / Vents area -->
+				<div class="w-full h-[25%] mt-4 relative">
+					<!-- Apple Logo placeholder -->
+					<div class="absolute top-0 left-0 w-4 h-4 text-[#ff552e] flex items-center justify-center overflow-hidden">
+						<svg viewBox="0 0 384 512" class="w-full h-full fill-current"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+					</div>
+					
+					<!-- Model Text -->
+					<div class="absolute top-0 right-0 text-[#ff7453] text-[11px] sm:text-xs font-serif tracking-tight font-medium">
+						Macintosh SE
+					</div>
+
+					<!-- Floppy Slots & Vents -->
+					<div class="absolute bottom-4 w-full flex flex-col space-y-2">
+						<div class="w-[85%] h-2 bg-[#f49980] rounded-sm ml-auto"></div>
+						<div class="w-full flex justify-between items-center h-2">
+							<div class="w-[45%] h-full bg-[#f49980] rounded-sm"></div>
+							<div class="w-[45%] h-full bg-[#f49980] rounded-sm"></div>
+							<div class="w-1.5 h-1.5 bg-[#f49980] rounded-full mr-1"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Keyboard / Base Vents -->
+			<div class="absolute -bottom-8 left-[-2%] w-[104%] h-14 bg-[#ff9274] rounded-b-md shadow-lg flex flex-col items-center justify-evenly py-1 overflow-hidden z-10">
+				{#each Array(10) as _}
+					<div class="w-[98%] h-[1.5px] bg-[#de6f52]/60"></div>
+				{/each}
+			</div>
+		</div>
+	</main>
+
+	<!-- BOTTOM TEXT -->
+	<section class="max-w-2xl text-center px-6 mt-8 mb-24 z-10 flex flex-col items-center">
+		<p class="text-lg md:text-xl font-medium mb-3 tracking-tight text-gray-900">The web was made by people.</p>
+		<p class="text-sm md:text-base text-gray-600 leading-relaxed font-sans max-w-lg">
+			Not by algorithms, not by models, not by machines that<br class="hidden sm:block"/>
+			calculate inputs. It was crafted in workshops arguing over protocols, shipping software on floppy disks, building companies from nothing, and connecting the world one awkward, brilliant, human decision at a time.
+		</p>
+	</section>
+
+	<!-- FLOATING TOOLBAR -->
+	<nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#8e8e8e]/90 backdrop-blur-md p-1.5 rounded-full border border-white/10 shadow-2xl z-50 overflow-x-auto max-w-[95vw] hide-scrollbar">
+		<div class="flex items-center min-w-max">
+			{#each tabs as tab}
+				<button 
+					onclick={() => selectedTab = tab}
+					class="flex items-center space-x-2 px-4 py-2 rounded-full text-[10px] sm:text-xs font-mono tracking-[0.15em] transition-all duration-300
+						{selectedTab === tab ? 'bg-white/20 text-white shadow-sm' : 'text-gray-200 hover:bg-white/10 hover:text-white'}"
+				>
+					<div class="w-3.5 h-3.5 rounded-full border border-current flex items-center justify-center bg-transparent shrink-0">
+						{#if selectedTab === tab}
+							<div class="w-2 h-2 rounded-full bg-white"></div>
+						{/if}
+					</div>
+					<span class="pt-0.5 whitespace-nowrap">{tab}</span>
+				</button>
+			{/each}
+		</div>
+	</nav>
+</div>
+
+<style>
+	/* Hide scrollbar for the floating nav on small screens */
+	.hide-scrollbar::-webkit-scrollbar {
+		display: none;
+	}
+	.hide-scrollbar {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+</style>
