@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.19
+
+- feat: consolidate state paths, extract system prompt, and auto shutdown server map
+
 ## 0.0.18
 
 - Expose `git_branch` in health endpoint and agent status

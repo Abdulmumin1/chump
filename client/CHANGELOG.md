@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.19
+
+### Patch Changes
+
+- feat: consolidate state paths, extract system prompt, and improve web composer mobile UX
+
 ## 0.0.18
 
 ### Patch Changes
