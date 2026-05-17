@@ -57,7 +57,7 @@
 	};
 </script>
 
-<div class="min-h-screen bg-bg-body text-text-main flex flex-col items-center justify-between font-sans overflow-x-hidden pt-20 sm:pt-12 pb-24 relative">
+<div class="h-[100dvh] w-full bg-bg-body text-text-main flex flex-col items-center justify-between font-sans overflow-hidden pt-16 sm:pt-8 pb-16 sm:pb-24 relative box-border">
 	<!-- TOP NAV -->
 	<nav class="absolute top-6 w-full flex justify-center sm:justify-end sm:pr-10 z-50 font-mono text-[10px] sm:text-xs tracking-[0.15em] items-center space-x-6">
 		<a href="https://github.com/Abdulmumin1/chump" target="_blank" rel="noopener noreferrer" class="text-text-secondary hover:text-text-main transition-colors">GITHUB</a>
@@ -65,52 +65,52 @@
 	</nav>
 
 	<!-- HEADER -->
-	<header class="w-full max-w-4xl px-6 flex flex-col items-center pt-4 sm:pt-8 relative">
-		<div class="flex flex-row items-center justify-center w-full relative mb-[-0.25rem] md:mb-[-1rem] z-10">
-			<h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase whitespace-nowrap text-text-inverse flex items-center justify-center line-anim" style="font-family: 'Times New Roman', Times, serif; animation-delay: 0ms;">
+	<header class="w-full max-w-4xl px-4 flex flex-col items-center pt-2 sm:pt-4 relative flex-shrink-0">
+		<div class="flex flex-row items-center justify-center w-full relative mb-[-0.25rem] md:mb-[-0.5rem] z-10">
+			<h1 class="text-3xl sm:text-5xl md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase whitespace-nowrap text-text-inverse flex items-center justify-center line-anim leading-none" style="font-family: 'Times New Roman', Times, serif; animation-delay: 0ms;">
 				Chump
 			</h1>
 
 			<div class="flex items-center ml-3 sm:ml-5">
-				<div class="relative flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 transition-all duration-500 line-anim" style="animation-delay: 90ms;">
+				<div class="relative flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 md:w-20 md:h-20 lg:w-24 lg:h-24 transition-all duration-500 line-anim" style="animation-delay: 90ms;">
 					<div class="absolute inset-0 rounded-full flex flex-col justify-evenly overflow-hidden border border-border-default">
 						{#each Array(7) as _}
 							<div class="w-full h-[2px] bg-text-inverse opacity-20"></div>
 						{/each}
 					</div>
-					<span class="text-[8px] sm:text-[10px] md:text-xs lg:text-sm font-mono font-bold bg-bg-body px-1 z-10 tracking-tighter text-text-inverse transition-all duration-300">
+					<span class="text-[6px] sm:text-[8px] md:text-xs lg:text-sm font-mono font-bold bg-bg-body px-1 z-10 tracking-tighter text-text-inverse transition-all duration-300">
 						{selectedTab}
 					</span>
 				</div>
 			</div>
 		</div>
 		
-		<h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase text-center whitespace-nowrap text-text-inverse flex items-center justify-center line-anim mt-1 sm:mt-0" style="font-family: 'Times New Roman', Times, serif; animation-delay: 180ms;">
+		<h1 class="text-3xl sm:text-5xl md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase text-center whitespace-nowrap text-text-inverse flex items-center justify-center line-anim mt-1 sm:mt-0 leading-none" style="font-family: 'Times New Roman', Times, serif; animation-delay: 180ms;">
 			Coding Agent
 		</h1>
 	</header>
 
 	<!-- CENTER ARTWORK -->
-	<main class="flex-grow flex items-center justify-center w-full px-6 mt-16 mb-12 perspective-1000">
+	<main class="flex-grow flex items-center justify-center w-full px-4 mt-6 sm:mt-10 mb-4 sm:mb-8 perspective-1000 overflow-hidden">
 		<div class="animate-float">
 			<MacintoshSE {selectedTab} />
 		</div>
 	</main>
 
 	<!-- BOTTOM TEXT -->
-	<section class="max-w-2xl w-full text-center px-6 mt-8 mb-24 z-10 flex flex-col items-center relative min-h-[120px] sm:min-h-[100px]">
+	<section class="max-w-2xl w-full text-center px-4 mb-20 sm:mb-24 z-10 flex flex-col items-center relative min-h-[100px] sm:min-h-[90px] flex-shrink-0">
 		<!-- Svelte handles crossfade overlap natively by mounting the new div before unmounting the old if they share the grid/absolute space -->
 		{#key selectedTab}
 			<div 
 				class="absolute w-full px-6 flex flex-col items-center left-1/2 -translate-x-1/2"
 			>
 				<p 
-					class="text-lg md:text-xl font-medium mb-3 tracking-tight text-text-inverse"
+					class="text-base sm:text-lg md:text-xl font-medium mb-2 sm:mb-3 tracking-tight text-text-inverse"
 					in:maskRevealIn={{ duration: 760, delay: 380 }} 
 					out:maskRevealOut={{ duration: 520, delay: 0 }}
 				>{tabContent.title}</p>
 				<p 
-					class="text-sm md:text-base text-text-secondary leading-relaxed font-sans max-w-lg mx-auto"
+					class="text-xs sm:text-sm md:text-base text-text-secondary leading-relaxed font-sans max-w-lg mx-auto"
 					in:maskRevealIn={{ duration: 760, delay: 470 }} 
 					out:maskRevealOut={{ duration: 520, delay: 70 }}
 				>
@@ -121,7 +121,7 @@
 	</section>
 
 	<!-- FLOATING TOOLBAR -->
-	<nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-bg-surface/80 backdrop-blur-md p-1.5 rounded-full border border-border-default z-50 overflow-x-auto max-w-[95vw] hide-scrollbar">
+	<nav class="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 bg-bg-surface/80 backdrop-blur-md p-1.5 rounded-full border border-border-default z-50 overflow-x-auto max-w-[95vw] hide-scrollbar">
 		<div class="flex items-center min-w-max">
 			{#each tabs as tab}
 				<button 
