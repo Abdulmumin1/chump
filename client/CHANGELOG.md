@@ -1,5 +1,14 @@
 # chump-agent
 
+## 0.0.20
+
+### Patch Changes
+
+- - Update web chat interface to display correct context token limits mimicking CLI
+  - Move web app workspace route to `/c` and promote landing page to `/`
+  - Add animated CONNECT button on root landing page
+  - Fix live tool output display mapping during SSE stream
+
 ## 0.0.19
 
 ### Patch Changes

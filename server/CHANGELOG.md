@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.20
+
+- Support for tracking and syncing usage data for context limits with client
+
 ## 0.0.19
 
 - feat: consolidate state paths, extract system prompt, and auto shutdown server map

@@ -93,8 +93,9 @@ export class ToolActivityRenderer {
       typeof payload.preview === "string"
         ? payload.preview
         : compactJson(payload);
+    const visiblePreview = userFacingToolPreview(toolName, ok, preview);
     if (toolName === "bash") {
-      this.writeLine(renderCommandOutput(ok, truncatePreview(preview, 500)));
+      this.writeLine(renderCommandOutput(ok, truncatePreview(visiblePreview, 4000)));
       this.writeLine("");
       this.activity = true;
       return;
@@ -143,7 +144,7 @@ export class ToolActivityRenderer {
       return;
     }
 
-    this.writeLine(`\n${renderToolResult(ok, label, preview)}`);
+    this.writeLine(`\n${renderToolResult(ok, label, visiblePreview)}`);
     this.writeLine("");
     this.activity = true;
   }
@@ -489,4 +490,16 @@ function truncatePreview(value: string, limit: number): string {
     return value;
   }
   return `${value.slice(0, limit - 16)} ...[truncated]`;
+}
+
+function userFacingToolPreview(
+  toolName: string,
+  status: string,
+  preview: string,
+): string {
+  if (status === "error" && toolName === "apply_patch") {
+    const [firstLine = "apply_patch failed"] = preview.split("\n", 1);
+    return firstLine;
+  }
+  return preview;
 }
