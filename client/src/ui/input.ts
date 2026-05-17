@@ -75,6 +75,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
+  setRuleBadge: (badge: string | null) => void;
 } {
   if (!input.isTTY) {
     return {
@@ -92,6 +93,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       setSessionSuggestions: () => {},
       setStatus: () => {},
       setFooter: () => {},
+      setRuleBadge: () => {},
     };
   }
 
@@ -115,6 +117,7 @@ function createInteractivePromptReader(): {
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
+  setRuleBadge: (badge: string | null) => void;
 } {
   readline.emitKeypressEvents(input);
   input.setRawMode(true);
@@ -128,6 +131,7 @@ function createInteractivePromptReader(): {
   let queuedDisplay: PromptSubmission[] = [];
   let statusLine: string | null = null;
   let footerLine: string | null = null;
+  let ruleBadge: string | null = null;
   let closed = false;
   let slashSelection = 0;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [], skills: [] };
@@ -255,11 +259,12 @@ function createInteractivePromptReader(): {
       ? [truncateAnsiLine(footerLine.replaceAll(/\s*\n\s*/g, " "), wrapWidth)]
       : [];
     const frameWidth = Math.max(12, columns - 1);
-    const rule = renderInputRule(frameWidth);
+    const topRule = renderInputRule(frameWidth, ruleBadge);
+    const bottomRule = renderInputRule(frameWidth);
     const promptLines = [
-      rule,
+      topRule,
       ...lines.map((line) => `${inputIndent}${renderInput(line)}`),
-      rule,
+      bottomRule,
     ];
     const promptFrameLines = [
       ...queueLines,
@@ -1341,6 +1346,17 @@ function createInteractivePromptReader(): {
       forceRedraw = true;
       // Footer changes are also non-urgent; never let them contend with the
       // user's keystrokes. They'll be picked up on the next paint.
+      if (userIsTyping()) {
+        return;
+      }
+      softRequestRedraw();
+    },
+    setRuleBadge(badge: string | null) {
+      if (ruleBadge === badge) {
+        return;
+      }
+      ruleBadge = badge;
+      forceRedraw = true;
       if (userIsTyping()) {
         return;
       }

@@ -7,6 +7,7 @@ from ..resources import ResourceCatalog, build_instruction_bundle, build_skill_b
 from ..safety import SafetyError, WorkspaceGuard
 from ._utils import (
     _fingerprint,
+    _multiline_preview,
     _preview,
     _result_metadata,
     _workspace_key,
@@ -40,18 +41,24 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
                 metadata = {**_result_metadata(result), **extra_metadata}
             else:
                 metadata = _result_metadata(result)
+            preview = _multiline_preview(result) if name == "bash" else _preview(result)
             await emit(
                 "tool_result",
                 tool=name,
                 name=name,
                 ok=True,
                 status="ok",
-                preview=_preview(result),
+                preview=preview,
                 metadata=metadata,
             )
             log(f"ok {name}: {_preview(result, 240)}")
             return result
         except Exception as exc:
+            error_preview = str(exc)
+            if name == "apply_patch":
+                error_preview = error_preview.splitlines()[0] if error_preview else ""
+            elif name == "bash":
+                error_preview = _multiline_preview(error_preview)
             await emit(
                 "tool_result",
                 tool=name,
@@ -59,8 +66,12 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
                 ok=False,
                 status="error",
                 error=str(exc),
-                preview=str(exc),
-                metadata={"chars": len(str(exc)), "truncated": False},
+                preview=error_preview,
+                metadata={
+                    "chars": len(str(exc)),
+                    "preview_chars": len(error_preview),
+                    "truncated": error_preview != str(exc),
+                },
             )
             log(f"error {name}: {exc}")
             raise

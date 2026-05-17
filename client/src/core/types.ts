@@ -46,6 +46,7 @@ export type ChumpStatus = {
   steering_queue?: SteeringQueueItem[];
   instruction_files: string[];
   skills: SkillSummary[];
+  usage?: UsageSummary | null;
 };
 
 export type ChumpHealth = {
@@ -150,6 +151,20 @@ export type SessionsResponse = {
 export type SkillSummary = {
   name: string;
   description: string;
+};
+
+export type UsageStats = {
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+};
+
+export type UsageSummary = {
+  last_step: UsageStats | null;
+  current_turn: UsageStats | null;
+  last_turn: UsageStats | null;
+  session_total: UsageStats | null;
 };
 
 export type ShareStatus = {

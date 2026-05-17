@@ -27,6 +27,12 @@ def _preview(value: str, limit: int = 160) -> str:
     return compact[: limit - 3] + "..."
 
 
+def _multiline_preview(value: str, limit: int = 4000) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: limit - 16] + " ...[truncated]"
+
+
 def _result_metadata(value: str, limit: int = 160) -> dict[str, object]:
     compact = " ".join(value.split())
     return {

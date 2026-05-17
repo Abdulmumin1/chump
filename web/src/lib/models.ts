@@ -1,3 +1,5 @@
+import type { ChumpHealth, ChumpStatus, UsageSummary } from "$lib/chump/types";
+
 export const FALLBACK_MODELS: Record<string, any> = {
   codex: {
     id: "codex",
@@ -135,16 +137,36 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "chump_cloud",
     name: "Chump Cloud",
     models: {
-      "deepseek-v4-pro": { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", reasoning: true },
-      "deepseek-v4-flash": { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", reasoning: true },
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
     },
   },
   deepseek: {
     id: "deepseek",
     name: "DeepSeek",
     models: {
-      "deepseek-v4-pro": { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", reasoning: true },
-      "deepseek-v4-flash": { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", reasoning: true },
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
     },
   },
 };
@@ -165,6 +187,9 @@ const CODEX_MODELS = new Set([
 function modelCatalogProviderId(provider: string): string {
   if (provider === "codex") {
     return "openai";
+  }
+  if (provider === "chump_cloud") {
+    return "deepseek";
   }
   if (provider === "workers_ai") {
     return "cloudflare-workers-ai";
@@ -305,4 +330,44 @@ export async function listModelChoices(providers: string[]): Promise<ModelChoice
       }))
       .sort((left, right) => modelRank(provider, left.model) - modelRank(provider, right.model) || left.label.localeCompare(right.label));
   });
+}
+
+export async function getModelContextLimit(
+  provider: string,
+  model: string,
+): Promise<number | null> {
+  const catalog = await fetchModelCatalog();
+  const entry =
+    catalog[modelCatalogProviderId(provider)] ?? FALLBACK_MODELS[provider];
+  const info = entry?.models[model];
+  if (typeof info?.limit?.context !== "number") {
+    return null;
+  }
+  return info.limit.context as number;
+}
+
+export function latestContextTokens(usage: UsageSummary | null | undefined): number | null {
+  const lastStepTotal = usage?.last_step?.total_tokens ?? null;
+  if (lastStepTotal && lastStepTotal > 0) {
+    return lastStepTotal;
+  }
+  return null;
+}
+
+export async function formatCtxLabel(
+  health: ChumpHealth | ChumpStatus,
+): Promise<string | null> {
+  const limit = await getModelContextLimit(health.provider, health.model);
+  const latestContext = latestContextTokens(health.usage);
+
+  if (limit && latestContext !== null && latestContext >= 0) {
+    return `(ctx ${formatNumber(Math.min(latestContext, limit))} / ${formatNumber(limit)})`;
+  }
+  if (limit) {
+    return `(ctx ${formatNumber(limit)})`;
+  }
+  if (latestContext !== null && latestContext > 0) {
+    return `(ctx ${formatNumber(latestContext)})`;
+  }
+  return null;
 }

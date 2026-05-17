@@ -3,7 +3,7 @@
 </script>
 
 <div
-    class="relative w-[280px] h-[360px] md:w-[320px] md:h-[410px] flex flex-col items-center transition-transform duration-700 hover:scale-[1.02] group"
+    class="relative w-[240px] h-[310px] sm:w-[280px] sm:h-[360px] md:w-[320px] md:h-[410px] flex flex-col items-center transition-transform duration-700 hover:scale-[1.02] group max-h-[40vh]"
 >
     <!-- Mac Body -->
     <div
@@ -20,7 +20,7 @@
 
             <!-- The CRT Screen -->
             <div
-                class="absolute top-[18px] bottom-[24px] left-[22px] right-[22px] bg-[#7b8a3f] rounded-lg shadow-[inset_0_0_25px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center overflow-hidden z-10 font-mono text-[8px] sm:text-[10px] text-[#e8ecd8] p-2 sm:p-3"
+                class="absolute top-[18px] bottom-[24px] left-[22px] right-[22px] bg-[#7b8a3f] rounded-lg shadow-[inset_0_0_25px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center overflow-hidden z-10 font-mono text-[7px] sm:text-[8px] md:text-[10px] text-[#e8ecd8] p-2 sm:p-3"
             >
                 <div
                     class="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] bg-gradient-to-br from-white/10 to-transparent rotate-45 transform origin-center pointer-events-none z-0"
@@ -33,7 +33,7 @@
                     {#if selectedTab === "CLI"}
                         <div class="mt-1">$ chump</div>
                         <div class="mt-1 opacity-70">
-                            >fix our onboarding flow ...
+                            >rewrite this in rust. no mistakes
                         </div>
                         <div class="mt-1 opacity-70 animate-pulse">_</div>
                     {:else if selectedTab === "WEB"}
@@ -116,17 +116,17 @@
                         </div>
                     {:else if selectedTab === "SERVER"}
                         <div
-                            class="mt-1 opacity-70 text-[6px] sm:text-[8px] font-mono"
+                            class="mt-1 opacity-70 text-[5px] sm:text-[6px] md:text-[8px] font-mono"
                         >
                             [2024-05-16] INFO: bound to :3000
                         </div>
                         <div
-                            class="mt-1 opacity-70 text-[6px] sm:text-[8px] font-mono"
+                            class="mt-1 opacity-70 text-[5px] sm:text-[6px] md:text-[8px] font-mono"
                         >
                             [2024-05-16] INFO: Tunnel active
                         </div>
                         <div
-                            class="mt-1 text-[6px] sm:text-[8px] font-bold font-mono"
+                            class="mt-1 text-[5px] sm:text-[6px] md:text-[8px] font-bold font-mono"
                         >
                             READY: Accepting RPCs
                         </div>

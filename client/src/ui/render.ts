@@ -981,8 +981,19 @@ export function renderInput(value: string): string {
 
 export function renderInputRule(
   width: number = process.stdout.columns ?? 80,
+  badge: string | null = null,
 ): string {
-  return faint("─".repeat(Math.max(12, width)));
+  const totalWidth = Math.max(12, width);
+  if (!badge) {
+    return faint("─".repeat(totalWidth));
+  }
+  const badgeText = `(${badge})`;
+  const rightWidth = totalWidth - badgeText.length >= 6 ? 1 : 0;
+  const leftWidth = totalWidth - badgeText.length - rightWidth - 2;
+  if (leftWidth < 4) {
+    return faint("─".repeat(totalWidth));
+  }
+  return `${faint("─".repeat(leftWidth))} ${success(badgeText)} ${faint("─".repeat(rightWidth))}`;
 }
 
 export function renderError(message: string): string {
