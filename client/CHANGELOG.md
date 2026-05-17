@@ -1,8 +1,8 @@
 # chump-agent
 
-## 0.1.0
+## 0.0.20
 
-### Minor Changes
+### Patch Changes
 
 - - Update web chat interface to display correct context token limits mimicking CLI
   - Move web app workspace route to `/c` and promote landing page to `/`
