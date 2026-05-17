@@ -791,6 +791,28 @@
                             >{readFileRange}</span
                         >
                     {/if}
+                {:else if block.originalToolName === "apply_patch"}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
+                        >Edited</span
+                    >
+                    {#if block.toolName !== block.originalToolName}
+                        <span
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary opacity-80"
+                            >{truncatePath(block.toolName)}</span
+                        >
+                    {/if}
+                {:else if block.originalToolName === "write_file" || block.originalToolName === "create_file"}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
+                        >Write file</span
+                    >
+                    {#if block.toolName !== block.originalToolName}
+                        <span
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary opacity-80"
+                            >{truncatePath(block.toolName)}</span
+                        >
+                    {/if}
                 {:else}
                     <span
                         class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
