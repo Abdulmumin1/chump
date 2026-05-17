@@ -1207,22 +1207,25 @@ async function renderInputBadge(
   },
 ): Promise<string | null> {
   const limit = await getModelContextLimit(health.provider, health.model);
-  const sessionTotal = health.usage?.session_total?.total_tokens ?? null;
-  const currentTurn = health.usage?.current_turn?.total_tokens ?? null;
-  const activeUsed =
-    health.turn_running && currentTurn && currentTurn > 0
-      ? (sessionTotal ?? 0) + currentTurn
-      : sessionTotal;
-  if (limit && activeUsed !== null && activeUsed >= 0) {
-    return `ctx ${formatCompactNumber(Math.min(activeUsed, limit))} / ${formatCompactNumber(limit)}`;
+  const latestContext = latestContextTokens(health.usage);
+  if (limit && latestContext !== null && latestContext >= 0) {
+    return `ctx ${formatCompactNumber(Math.min(latestContext, limit))} / ${formatCompactNumber(limit)}`;
   }
   if (limit) {
     return `ctx ${formatCompactNumber(limit)}`;
   }
-  if (activeUsed !== null && activeUsed > 0) {
-    return `used ${formatCompactNumber(activeUsed)}`;
+  if (latestContext !== null && latestContext > 0) {
+    return `ctx ${formatCompactNumber(latestContext)}`;
   }
   return await getModelContextLabel(health.provider, health.model);
+}
+
+function latestContextTokens(usage: UsageSummary | null | undefined): number | null {
+  const lastStepTotal = usage?.last_step?.total_tokens ?? null;
+  if (lastStepTotal && lastStepTotal > 0) {
+    return lastStepTotal;
+  }
+  return null;
 }
 
 function formatCompactNumber(value: number): string {

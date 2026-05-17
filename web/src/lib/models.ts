@@ -1,3 +1,5 @@
+import type { ChumpHealth, ChumpStatus, UsageSummary } from "$lib/chump/types";
+
 export const FALLBACK_MODELS: Record<string, any> = {
   codex: {
     id: "codex",
@@ -328,4 +330,44 @@ export async function listModelChoices(providers: string[]): Promise<ModelChoice
       }))
       .sort((left, right) => modelRank(provider, left.model) - modelRank(provider, right.model) || left.label.localeCompare(right.label));
   });
+}
+
+export async function getModelContextLimit(
+  provider: string,
+  model: string,
+): Promise<number | null> {
+  const catalog = await fetchModelCatalog();
+  const entry =
+    catalog[modelCatalogProviderId(provider)] ?? FALLBACK_MODELS[provider];
+  const info = entry?.models[model];
+  if (typeof info?.limit?.context !== "number") {
+    return null;
+  }
+  return info.limit.context as number;
+}
+
+export function latestContextTokens(usage: UsageSummary | null | undefined): number | null {
+  const lastStepTotal = usage?.last_step?.total_tokens ?? null;
+  if (lastStepTotal && lastStepTotal > 0) {
+    return lastStepTotal;
+  }
+  return null;
+}
+
+export async function formatCtxLabel(
+  health: ChumpHealth | ChumpStatus,
+): Promise<string | null> {
+  const limit = await getModelContextLimit(health.provider, health.model);
+  const latestContext = latestContextTokens(health.usage);
+
+  if (limit && latestContext !== null && latestContext >= 0) {
+    return `(ctx ${formatNumber(Math.min(latestContext, limit))} / ${formatNumber(limit)})`;
+  }
+  if (limit) {
+    return `(ctx ${formatNumber(limit)})`;
+  }
+  if (latestContext !== null && latestContext > 0) {
+    return `(ctx ${formatNumber(latestContext)})`;
+  }
+  return null;
 }

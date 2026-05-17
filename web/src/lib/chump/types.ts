@@ -19,6 +19,21 @@ export type ChumpHealth = {
 	skills: Array<{ name: string; description: string }>;
 	models?: string[];
 	available_providers?: string[];
+	usage?: UsageSummary | null;
+};
+
+export type UsageStats = {
+	input_tokens: number;
+	output_tokens: number;
+	cached_tokens: number;
+	total_tokens: number;
+};
+
+export type UsageSummary = {
+	last_step: UsageStats | null;
+	current_turn: UsageStats | null;
+	last_turn: UsageStats | null;
+	session_total: UsageStats | null;
 };
 
 export type SessionSummary = {
@@ -133,6 +148,7 @@ export type ChumpStatus = {
 	steering_queue?: SteeringQueueItem[];
 	instruction_files: string[];
 	skills: Array<{ name: string; description: string }>;
+	usage?: UsageSummary | null;
 };
 
 export type SteeringQueueItem = {

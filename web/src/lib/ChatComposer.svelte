@@ -69,6 +69,7 @@
         gitBranch = "",
         currentProvider = "",
         reasoningInfo = null,
+        contextUsageLabel = null,
         steeringQueue = [],
         onSend,
         onDeleteSteering,
@@ -87,6 +88,7 @@
         workspaceRoot: string;
         gitBranch: string;
         reasoningInfo: { effort: string | null; budget: number | null } | null;
+        contextUsageLabel: string | null;
         steeringQueue: Array<{
             content: string;
             attachments?: Array<Record<string, unknown>>;
@@ -450,7 +452,7 @@
 </script>
 
 <div
-    class="w-full px-2 md:px-8 pb-4 md:pb-6 pt-2 bg-bg-surface relative first:rounded-t-lg overflow-hidden"
+    class="w-full px-2 md:px-8 pb-4 md:pb-6 pt-2 bg-bg-surface relative first:rounded-t-lg"
     role="region"
     ondragenter={handleDragEnter}
     ondragleave={handleDragLeave}
@@ -547,12 +549,20 @@
         </div>
     {/if}
 
-    <div
-        class="max-w-4xl mx-auto bg-bg-code border border-border-default rounded-[8px] flex flex-col focus-within:border-border-hover relative z-10"
-    >
-        <textarea
-            bind:this={textareaElement}
-            bind:value={composerText}
+    <div class="max-w-4xl mx-auto relative z-10 flex flex-col">
+        {#if contextUsageLabel}
+            <div class="self-end mb-1 pr-1 md:pr-2 text-[10px] md:text-[11px] font-mono text-text-muted select-none flex items-center">
+                <span>{contextUsageLabel}</span>
+            </div>
+        {:else}
+            <div class="h-1 md:h-1.5"></div>
+        {/if}
+        <div
+            class="bg-bg-code border border-border-default rounded-[8px] flex flex-col focus-within:border-border-hover"
+        >
+            <textarea
+                bind:this={textareaElement}
+                bind:value={composerText}
             rows="2"
             placeholder="Message the agent..."
             onkeydown={handleKeydown}
@@ -640,6 +650,7 @@
                     </button>
                 {/if}
             </div>
+        </div>
         </div>
     </div>
 

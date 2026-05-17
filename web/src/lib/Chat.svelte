@@ -80,7 +80,7 @@ import type {
         getSupportedFormats?: () => Promise<string[]>;
     };
 
-    import { listModelChoices, type ModelChoice } from "$lib/models";
+    import { listModelChoices, formatCtxLabel, type ModelChoice } from "$lib/models";
 
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
@@ -137,6 +137,18 @@ import type {
     let currentProvider = $derived(
         status ? status.provider : ""
     );
+
+    let contextUsageLabel = $state<string | null>(null);
+    $effect(() => {
+        const source = status ?? health;
+        if (source) {
+            formatCtxLabel(source).then(label => {
+                contextUsageLabel = label;
+            });
+        } else {
+            contextUsageLabel = null;
+        }
+    });
 
     function pushToast(
         message: string,
@@ -1719,6 +1731,7 @@ import type {
             workspaceRoot={displayWorkspace}
             gitBranch={currentGitBranch}
             {reasoningInfo}
+            {contextUsageLabel}
             {steeringQueue}
             onSend={() => void submitPrompt()}
             onDeleteSteering={(index) => void deleteSteering(index)}
