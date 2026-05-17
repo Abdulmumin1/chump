@@ -61,6 +61,17 @@
 	<!-- TOP NAV -->
 	<nav class="absolute top-6 w-full flex justify-center sm:justify-end sm:pr-10 z-50 font-mono text-[10px] sm:text-xs tracking-[0.15em] items-center space-x-6">
 		<a href="https://github.com/Abdulmumin1/chump" target="_blank" rel="noopener noreferrer" class="text-text-secondary hover:text-text-main transition-colors">GITHUB</a>
+		<a href="/c" class="group relative flex items-center gap-2 text-text-secondary hover:text-accent transition-colors">
+			<span class="tracking-[0.2em]">CONNECT</span>
+			<!-- Weird/Funky symbol: an asterisk that spins on hover, simulating a connection spark/terminal star -->
+			<div class="relative w-4 h-4 flex items-center justify-center">
+				<svg class="w-4 h-4 opacity-70 group-hover:opacity-100 transition-all duration-700 ease-in-out group-hover:rotate-180" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M12 2L13.5 9.5L21 11L13.5 12.5L12 20L10.5 12.5L3 11L10.5 9.5L12 2Z" />
+				</svg>
+				<!-- Small radar/pulse effect behind the star that flares up on hover -->
+				<div class="absolute inset-0 rounded-full border border-accent opacity-0 group-hover:animate-[ping_1.5s_ease-out_infinite]"></div>
+			</div>
+		</a>
 		<a href="https://github.com/Abdulmumin1/chump#prebuilt-binary-no-nodejs-install-needed" target="_blank" rel="noopener noreferrer" class="px-4 py-2 rounded-full border border-border-default text-text-main hover:bg-text-main hover:text-bg-body transition-all duration-300">DOWNLOAD</a>
 	</nav>
 
