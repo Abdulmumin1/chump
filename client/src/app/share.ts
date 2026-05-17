@@ -86,7 +86,7 @@ export class ShareManager {
 
 function buildConnectUrl(publicUrl: string, agentId: string): string | null {
   const base =
-    process.env.CHUMP_SHARE_WEB_URL?.trim() || "https://chump.yaqeen.me";
+    process.env.CHUMP_SHARE_WEB_URL?.trim() || "https://chump.yaqeen.me/c";
   if (!base) {
     return null;
   }
@@ -94,6 +94,7 @@ function buildConnectUrl(publicUrl: string, agentId: string): string | null {
   let url: URL;
   try {
     url = new URL(base);
+    if (url.pathname === "/") url.pathname = "/c";
   } catch {
     return null;
   }
