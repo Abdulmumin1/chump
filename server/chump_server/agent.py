@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import time
@@ -102,6 +103,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 "read_files": {},
                 "commands_run": [],
                 "notes": [],
+                "usage_summary": default_usage_summary(),
             },
             tools={},
             stop_when=step_count_is(config.max_steps),
@@ -115,6 +117,10 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._pending_steering_events: list[dict[str, Any]] = []
         self._steering_lock = asyncio.Lock()
         self._turn_instruction_claims: set[str] = set()
+        self._usage_summary: dict[str, Any] = default_usage_summary()
+
+    async def on_start(self) -> None:
+        self._usage_summary = normalize_usage_summary(self.state.get("usage_summary"))
 
     @action
     async def status(self) -> dict[str, Any]:
@@ -144,13 +150,20 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 {"name": item.name, "description": item.description}
                 for item in self._resources.skills
             ],
+            "usage": self._usage_summary,
         }
 
     @action
     async def clear_messages(self) -> dict[str, str]:
         now = time.time()
+        self._usage_summary = default_usage_summary()
         await self.clear()
-        await self.update_state(last_user_goal=None, read_files={}, updated_at=now)
+        await self.update_state(
+            last_user_goal=None,
+            read_files={},
+            updated_at=now,
+            usage_summary=self._usage_summary,
+        )
         return {"status": "ok"}
 
     @action
@@ -337,6 +350,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._ensure_model()
         self._last_step_records = []
         self._turn_instruction_claims = set()
+        self._usage_summary["last_step"] = None
+        self._usage_summary["current_turn"] = zero_usage_dict()
         raw_attachments = attachments or []
         valid_attachments = [
             item for item in raw_attachments if is_image_attachment(item)
@@ -360,6 +375,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             created_at=created_at if isinstance(created_at, (int, float)) else now,
             updated_at=now,
             last_user_goal=message,
+            usage_summary=self._usage_summary,
         )
         options = TurnOptions(
             provider_options=self._turn_provider_options(),
@@ -427,6 +443,16 @@ class ChumpAgent(Agent[dict[str, Any]]):
             yield f"event: error\ndata: {json.dumps(self._format_chat_error(exc))}\n\n"
 
     async def _finalize_turn(self, result: Any, full_response: str) -> str:
+        usage = await resolve_usage(result)
+        if usage is not None:
+            usage_dict = usage_to_dict(usage)
+            self._usage_summary["current_turn"] = usage_dict
+            self._usage_summary["last_turn"] = usage_dict
+            self._usage_summary["session_total"] = merge_usage_dicts(
+                self._usage_summary.get("session_total"), usage_dict
+            )
+            await self._persist_usage_summary()
+            await self.emit("agent_status", await self.status())
         if not full_response.strip():
             full_response = await self._build_empty_response_fallback(result)
             self._log(f"chat produced fallback response: {full_response}")
@@ -469,6 +495,23 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
 
     async def _on_step_finish(self, event) -> None:
+        raw_step_usage = (
+            getattr(event, "step_usage", None)
+            or getattr(event.step, "usage", None)
+        )
+        raw_cumulative_usage = (
+            getattr(event, "cumulative_usage", None)
+            or getattr(event, "usage", None)
+        )
+        step_usage = usage_to_dict(raw_step_usage)
+        cumulative_usage = usage_to_dict(raw_cumulative_usage)
+        self._usage_summary["last_step"] = step_usage
+        if cumulative_usage is not None:
+            self._usage_summary["current_turn"] = cumulative_usage
+        else:
+            self._usage_summary["current_turn"] = merge_usage_dicts(
+                self._usage_summary.get("current_turn"), step_usage
+            )
         record = {
             "step": event.step_number,
             "text": event.step.text,
@@ -485,6 +528,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 for result in event.step.tool_results
             ],
             "finish_reason": event.step.finish_reason,
+            "usage": step_usage,
+            "cumulative_usage": cumulative_usage,
         }
         self._last_step_records.append(record)
         payload = {
@@ -498,6 +543,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 }
                 for result in record["tool_results"]
             ],
+            "usage": step_usage,
+            "cumulative_usage": cumulative_usage,
         }
         self._log(
             "step "
@@ -519,7 +566,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
             if len(preview) > 240:
                 preview = preview[:237] + "..."
             self._log(f"tool result [{status}] {tool_result['tool_name']}: {preview}")
+        await self._persist_usage_summary()
         await self.emit("status", payload)
+        await self.emit("agent_status", await self.status())
+
+    async def _persist_usage_summary(self) -> None:
+        self.state["usage_summary"] = normalize_usage_summary(self._usage_summary)
+        await self.save_state()
 
     def _ensure_model(self) -> None:
         if self.model is None:
@@ -608,6 +661,81 @@ def build_session_title(message: str) -> str:
     if len(normalized) <= 72:
         return normalized
     return normalized[:69].rstrip() + "..."
+
+
+def default_usage_summary() -> dict[str, Any]:
+    return {
+        "last_step": None,
+        "current_turn": None,
+        "last_turn": None,
+        "session_total": zero_usage_dict(),
+    }
+
+
+def zero_usage_dict() -> dict[str, int]:
+    return {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_tokens": 0,
+        "total_tokens": 0,
+    }
+
+
+def usage_to_dict(usage: Any) -> dict[str, int] | None:
+    if usage is None:
+        return None
+    return {
+        "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+        "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+        "cached_tokens": int(getattr(usage, "cached_tokens", 0) or 0),
+        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+    }
+
+
+def merge_usage_dicts(
+    base: dict[str, int] | None,
+    delta: dict[str, int] | None,
+) -> dict[str, int] | None:
+    if base is None:
+        return delta
+    if delta is None:
+        return base
+    return {
+        "input_tokens": int(base.get("input_tokens", 0))
+        + int(delta.get("input_tokens", 0)),
+        "output_tokens": int(base.get("output_tokens", 0))
+        + int(delta.get("output_tokens", 0)),
+        "cached_tokens": int(base.get("cached_tokens", 0))
+        + int(delta.get("cached_tokens", 0)),
+        "total_tokens": int(base.get("total_tokens", 0))
+        + int(delta.get("total_tokens", 0)),
+    }
+
+
+def normalize_usage_summary(raw: Any) -> dict[str, Any]:
+    summary = default_usage_summary()
+    if not isinstance(raw, dict):
+        return summary
+    for key in ("last_step", "current_turn", "last_turn", "session_total"):
+        value = raw.get(key)
+        if isinstance(value, dict):
+            summary[key] = {
+                "input_tokens": int(value.get("input_tokens", 0) or 0),
+                "output_tokens": int(value.get("output_tokens", 0) or 0),
+                "cached_tokens": int(value.get("cached_tokens", 0) or 0),
+                "total_tokens": int(value.get("total_tokens", 0) or 0),
+            }
+    summary["session_total"] = summary["session_total"] or zero_usage_dict()
+    return summary
+
+
+async def resolve_usage(result: Any) -> Any:
+    usage = getattr(result, "usage", None)
+    if inspect.isawaitable(usage):
+        return await usage
+    return usage
+
+
 def build_user_content(
     message: str,
     attachments: list[dict[str, Any]],

@@ -21,7 +21,11 @@ import {
 } from "./commands.ts";
 import { connectProvider, readGlobalAuth, updateGlobalAuth } from "./auth.ts";
 import { logClientEvent } from "./diagnostics.ts";
-import { listModelChoices } from "./models.ts";
+import {
+  getModelContextLabel,
+  getModelContextLimit,
+  listModelChoices,
+} from "./models.ts";
 import { ShareManager } from "./share.ts";
 import { renderTerminalQr } from "./terminal-qr.ts";
 import {
@@ -71,6 +75,7 @@ import type {
   ManagedServerMetadata,
   PromptSubmission,
   ShareStatus,
+  UsageSummary,
 } from "../core/types.ts";
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -131,6 +136,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     getSessions(config),
   ]);
   promptReader.setFooter(renderFooter(config, status, shareManager.current()));
+  promptReader.setRuleBadge(await renderInputBadge(status));
   promptReader.setSessionSuggestions(sessions.sessions);
   promptReader.setModelSuggestions(await loadModelSuggestions());
   promptReader.setSkillSuggestions(health.skills);
@@ -140,12 +146,17 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   });
   setUserMessageHook((payload) => liveSync.suppressUserMessage(payload));
   setAgentStatusHook((payload) => {
-    promptReader.setFooter(renderFooter(config, payload as {
+    const status = payload as {
       provider: string;
       model: string;
       reasoning: Record<string, unknown> | null;
       git_branch?: string;
-    }, shareManager.current()));
+      usage?: UsageSummary | null;
+    };
+    promptReader.setFooter(renderFooter(config, status, shareManager.current()));
+    void renderInputBadge(status).then((badge) => {
+      promptReader.setRuleBadge(badge);
+    });
   });
   setSteeringQueueHook((payload) => {
     // Server is the source of truth for the steering queue. Apply its
@@ -188,11 +199,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
   if (options.sessionId) {
-    await renderSwitchedSession(config, shareManager, (footer) => promptReader.setFooter(footer), (sessionsList) => {
+    await renderSwitchedSession(
+      config,
+      shareManager,
+      (footer) => promptReader.setFooter(footer),
+      (badge) => promptReader.setRuleBadge(badge),
+      (sessionsList) => {
       promptReader.setSessionSuggestions(sessionsList);
-    }, {
-      skipEmptyTranscript: true,
-    });
+      },
+      {
+        skipEmptyTranscript: true,
+      },
+    );
     promptReader.setSkillSuggestions((await getHealth(config)).skills);
   }
 
@@ -210,6 +228,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         shareManager,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
+        setRuleBadge: (badge) => promptReader.setRuleBadge(badge),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
@@ -243,6 +262,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         shareManager,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
+        setRuleBadge: (badge) => promptReader.setRuleBadge(badge),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
@@ -957,6 +977,7 @@ async function handleSlashCommand(
     shareManager: ShareManager;
     metadata: ManagedServerMetadata | null;
     setFooter: (footer: string | null) => void;
+    setRuleBadge: (badge: string | null) => void;
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
     setSkillSuggestions: (skills: Awaited<ReturnType<typeof getHealth>>["skills"]) => void;
@@ -995,6 +1016,7 @@ async function handleSlashCommand(
       const status = await setModel(config, provider, model);
       await updateGlobalAuth({ provider: status.provider, model: status.model });
       context.setFooter(renderFooter(config, status, context.shareManager.current()));
+      context.setRuleBadge(await renderInputBadge(status));
       context.setModelSuggestions(await loadModelSuggestions());
       writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
       break;
@@ -1039,6 +1061,7 @@ async function handleSlashCommand(
       const status = await setReasoning(config, mode);
       await updateGlobalAuth({ reasoning: { mode } });
       context.setFooter(renderFooter(config, status, context.shareManager.current()));
+      context.setRuleBadge(await renderInputBadge(status));
       writeOutput(`${renderMuted(`thinking set to ${mode}`)}\n`);
       break;
     }
@@ -1059,9 +1082,16 @@ async function handleSlashCommand(
         closeEventStream = await context.restartEventStream(config);
         clearTerminal();
         writeOutput(`${renderBanner(config)}\n`);
-        await renderSwitchedSession(config, context.shareManager, context.setFooter, context.setSessionSuggestions, {
-          skipEmptyTranscript: true,
-        });
+        await renderSwitchedSession(
+          config,
+          context.shareManager,
+          context.setFooter,
+          context.setRuleBadge,
+          context.setSessionSuggestions,
+          {
+            skipEmptyTranscript: true,
+          },
+        );
         context.setSkillSuggestions((await getHealth(config)).skills);
         break;
       }
@@ -1070,7 +1100,13 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(config, context.shareManager, context.setFooter, context.setSessionSuggestions);
+      await renderSwitchedSession(
+        config,
+        context.shareManager,
+        context.setFooter,
+        context.setRuleBadge,
+        context.setSessionSuggestions,
+      );
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -1084,7 +1120,13 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(config, context.shareManager, context.setFooter, context.setSessionSuggestions);
+      await renderSwitchedSession(
+        config,
+        context.shareManager,
+        context.setFooter,
+        context.setRuleBadge,
+        context.setSessionSuggestions,
+      );
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -1120,6 +1162,7 @@ async function renderSwitchedSession(
   config: ChumpConfig,
   shareManager: ShareManager,
   setFooter: (footer: string | null) => void,
+  setRuleBadge: (badge: string | null) => void,
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
   options: { skipEmptyTranscript?: boolean } = {},
 ): Promise<void> {
@@ -1130,6 +1173,7 @@ async function renderSwitchedSession(
     getSessions(config),
   ]);
   setFooter(renderFooter(config, status, shareManager.current()));
+  setRuleBadge(await renderInputBadge(status));
   setSessionSuggestions(sessions.sessions);
   if (options.skipEmptyTranscript && response.messages.length === 0) {
     return;
@@ -1152,6 +1196,37 @@ function renderFooter(
     config.serverSource,
     health.git_branch ? `* ${health.git_branch}` : "",
   ]);
+}
+
+async function renderInputBadge(
+  health: {
+    provider: string;
+    model: string;
+    turn_running?: boolean;
+    usage?: UsageSummary | null;
+  },
+): Promise<string | null> {
+  const limit = await getModelContextLimit(health.provider, health.model);
+  const sessionTotal = health.usage?.session_total?.total_tokens ?? null;
+  const currentTurn = health.usage?.current_turn?.total_tokens ?? null;
+  const activeUsed =
+    health.turn_running && currentTurn && currentTurn > 0
+      ? (sessionTotal ?? 0) + currentTurn
+      : sessionTotal;
+  if (limit && activeUsed !== null && activeUsed >= 0) {
+    return `ctx ${formatCompactNumber(Math.min(activeUsed, limit))} / ${formatCompactNumber(limit)}`;
+  }
+  if (limit) {
+    return `ctx ${formatCompactNumber(limit)}`;
+  }
+  if (activeUsed !== null && activeUsed > 0) {
+    return `used ${formatCompactNumber(activeUsed)}`;
+  }
+  return await getModelContextLabel(health.provider, health.model);
+}
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, { notation: "compact" }).format(value);
 }
 
 function renderShareStatus(share: ShareStatus, label: string): void {

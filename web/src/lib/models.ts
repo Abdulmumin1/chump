@@ -135,16 +135,36 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "chump_cloud",
     name: "Chump Cloud",
     models: {
-      "deepseek-v4-pro": { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", reasoning: true },
-      "deepseek-v4-flash": { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", reasoning: true },
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
     },
   },
   deepseek: {
     id: "deepseek",
     name: "DeepSeek",
     models: {
-      "deepseek-v4-pro": { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", reasoning: true },
-      "deepseek-v4-flash": { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", reasoning: true },
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
     },
   },
 };
@@ -165,6 +185,9 @@ const CODEX_MODELS = new Set([
 function modelCatalogProviderId(provider: string): string {
   if (provider === "codex") {
     return "openai";
+  }
+  if (provider === "chump_cloud") {
+    return "deepseek";
   }
   if (provider === "workers_ai") {
     return "cloudflare-workers-ai";

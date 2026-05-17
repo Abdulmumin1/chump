@@ -6,6 +6,7 @@ import process from "node:process";
 import { globalDataDir } from "./auth.ts";
 
 const MODELS_TTL_MS = 5 * 60 * 1000;
+let modelCatalogPromise: Promise<Record<string, ModelProvider>> | null = null;
 const CODEX_MODELS = new Set([
   "gpt-5.5",
   "gpt-5.4",
@@ -120,11 +121,13 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         id: "deepseek-v4-pro",
         name: "DeepSeek V4 Pro",
         reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
       },
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
         name: "DeepSeek V4 Flash",
         reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
       },
     },
   },
@@ -209,11 +212,13 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         id: "deepseek-v4-pro",
         name: "DeepSeek V4 Pro",
         reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
       },
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
         name: "DeepSeek V4 Flash",
         reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
       },
     },
   },
@@ -277,7 +282,40 @@ export async function listModelChoices(
   });
 }
 
+export async function getModelContextLabel(
+  provider: string,
+  model: string,
+): Promise<string | null> {
+  const limit = await getModelContextLimit(provider, model);
+  if (limit === null) {
+    return null;
+  }
+  return `ctx ${formatNumber(limit)}`;
+}
+
+export async function getModelContextLimit(
+  provider: string,
+  model: string,
+): Promise<number | null> {
+  const catalog = await loadModelCatalog();
+  const entry =
+    catalog[modelCatalogProviderId(provider)] ?? FALLBACK_MODELS[provider];
+  const info = entry?.models[model];
+  if (typeof info?.limit?.context !== "number") {
+    return null;
+  }
+  return info.limit.context;
+}
+
 async function loadModelCatalog(): Promise<Record<string, ModelProvider>> {
+  if (modelCatalogPromise) {
+    return await modelCatalogPromise;
+  }
+  modelCatalogPromise = loadModelCatalogInternal();
+  return await modelCatalogPromise;
+}
+
+async function loadModelCatalogInternal(): Promise<Record<string, ModelProvider>> {
   const cached = await readCachedCatalog();
   if (cached) {
     return normalizeCatalog(cached);
@@ -357,6 +395,9 @@ function normalizeCatalog(value: unknown): Record<string, ModelProvider> {
 function modelCatalogProviderId(provider: string): string {
   if (provider === "codex") {
     return "openai";
+  }
+  if (provider === "chump_cloud") {
+    return "deepseek";
   }
   if (provider === "workers_ai") {
     return "cloudflare-workers-ai";
