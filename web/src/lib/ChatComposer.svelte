@@ -464,64 +464,6 @@
             <span class="text-accent text-sm font-medium">Drop images here</span>
         </div>
     {/if}
-
-    {#if steeringQueue.length > 0}
-        <div class="max-w-[90%] mx-auto space-y-2">
-            {#each steeringQueue as item, index (`${index}-${item.content}`)}
-                <div
-                    class="group flex items-center gap-2 border border-border-default bg-bg-code/95 px-3 py-2"
-                >
-                    <span
-                        class="text-[10px] font-mono font-bold uppercase tracking-[0.18em] text-text-tertiary"
-                        >Queued</span
-                    >
-                    <span
-                        class="min-w-0 flex-1 truncate text-[13px] text-text-secondary"
-                        >{steeringLabel(item)}</span
-                    >
-                    <button
-                        type="button"
-                        aria-label="Delete queued steering"
-                        class="flex h-7 w-7 items-center justify-center rounded-[6px] text-text-tertiary hover:bg-border-hover hover:text-error"
-                        onclick={() => onDeleteSteering(index)}
-                    >
-                        <svg
-                            class="h-3.5 w-3.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            ><path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="1.8"
-                                d="M6 7h12m-9 0V5h6v2m-8 0 1 12h8l1-12"
-                            ></path></svg
-                        >
-                    </button>
-                    <button
-                        type="button"
-                        aria-label="Edit queued steering"
-                        class="flex h-7 w-7 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-border-hover hover:text-accent"
-                        onclick={() => onEditSteering(index)}
-                    >
-                        <svg
-                            class="h-3.5 w-3.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            ><path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="1.8"
-                                d="m16.8 4.8 2.4 2.4M4 20h4.5L19.2 9.3a1.7 1.7 0 0 0 0-2.4l-2.1-2.1a1.7 1.7 0 0 0-2.4 0L4 15.5V20Z"
-                            ></path></svg
-                        >
-                    </button>
-                </div>
-            {/each}
-        </div>
-    {/if}
-
     {#if hasAttachments}
         <div class="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
             {#each composerAttachments as attachment, index (attachment.filename + index)}
@@ -549,14 +491,71 @@
         </div>
     {/if}
 
-    <div class="max-w-4xl mx-auto relative z-10 flex flex-col">
-        {#if contextUsageLabel}
-            <div class="self-end mb-1 pr-1 md:pr-2 text-[10px] md:text-[11px] font-mono text-text-muted select-none flex items-center">
-                <span>{contextUsageLabel}</span>
+    <div class="max-w-4xl mx-auto relative z-10 flex flex-col w-full">
+        <!-- Steering Queue moved right above the input context container -->
+        {#if steeringQueue.length > 0}
+            <div class="space-y-2 mb-2 w-full px-1">
+                {#each steeringQueue as item, index (`${index}-${item.content}`)}
+                    <div
+                        class="group flex items-center gap-2 border border-border-default bg-bg-code/95 px-3 py-2 rounded-[8px]"
+                    >
+                        <span
+                            class="text-[10px] font-mono font-bold uppercase tracking-[0.18em] text-text-tertiary"
+                            >Queued</span
+                        >
+                        <span
+                            class="min-w-0 flex-1 truncate text-[13px] text-text-secondary"
+                            >{steeringLabel(item)}</span
+                        >
+                        <button
+                            type="button"
+                            aria-label="Delete queued steering"
+                            class="flex h-7 w-7 items-center justify-center rounded-[6px] text-text-tertiary hover:bg-border-hover hover:text-error"
+                            onclick={() => onDeleteSteering(index)}
+                        >
+                            <svg
+                                class="h-3.5 w-3.5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                ><path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="1.8"
+                                    d="M6 7h12m-9 0V5h6v2m-8 0 1 12h8l1-12"
+                                ></path></svg
+                            >
+                        </button>
+                        <button
+                            type="button"
+                            aria-label="Edit queued steering"
+                            class="flex h-7 w-7 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-border-hover hover:text-accent"
+                            onclick={() => onEditSteering(index)}
+                        >
+                            <svg
+                                class="h-3.5 w-3.5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                ><path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="1.8"
+                                    d="m16.8 4.8 2.4 2.4M4 20h4.5L19.2 9.3a1.7 1.7 0 0 0 0-2.4l-2.1-2.1a1.7 1.7 0 0 0-2.4 0L4 15.5V20Z"
+                                ></path></svg
+                            >
+                        </button>
+                    </div>
+                {/each}
             </div>
-        {:else}
-            <div class="h-1 md:h-1.5"></div>
         {/if}
+
+        <!-- Context label and gap -->
+        <div class="self-end min-h-[20px] flex items-center pr-1 md:pr-2">
+            {#if contextUsageLabel}
+                <span class="text-[10px] md:text-[11px] font-mono text-text-muted select-none">{contextUsageLabel}</span>
+            {/if}
+        </div>
         <div
             class="bg-bg-code border border-border-default rounded-[8px] flex flex-col focus-within:border-border-hover"
         >
