@@ -952,6 +952,17 @@
                             >{truncatePath(block.toolName)}</span
                         >
                     {/if}
+                {:else if block.originalToolName === "skill" || block.originalToolName === "load_skill"}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        >Skill</span
+                    >
+                    {#if block.toolName !== block.originalToolName}
+                        <span
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            >{block.toolName.replace(/^Skill\s+/i, "")}</span
+                        >
+                    {/if}
                 {:else}
                     <span
                         class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"

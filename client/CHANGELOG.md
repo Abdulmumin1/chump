@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.22
+
+### Patch Changes
+
+- Added Gemini 3.5 Flash model support with accurate token limits, updated model catalog merging, and updated web UI tool headers to cleanly display loaded skills.
+
 ## 0.0.21
 
 ### Patch Changes

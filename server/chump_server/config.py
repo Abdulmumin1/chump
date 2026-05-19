@@ -26,7 +26,7 @@ DEFAULT_MODELS = {
     "codex": "gpt-5.4",
     "openai": "gpt-5.4",
     "chump_cloud": "deepseek-v4-flash",
-    "google": "gemini-2.5-flash",
+    "google": "gemini-3.5-flash",
     "anthropic": "claude-sonnet-4-20250514",
     "workers_ai": "@cf/moonshotai/kimi-k2.5",
     "deepseek": "deepseek-v4-pro",
@@ -65,6 +65,7 @@ PROVIDER_MODELS = {
         "deepseek-v4-flash",
     },
     "google": {
+        "gemini-3.5-flash",
         "gemini-3.1-pro-preview",
         "gemini-3-pro-preview",
         "gemini-3-flash-preview",

@@ -39,6 +39,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
   ]),
   chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
   google: new Set([
+    "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
     "gemini-3-flash-preview",
@@ -177,6 +178,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "google",
     name: "Google",
     models: {
+      "gemini-3.5-flash": {
+        id: "gemini-3.5-flash",
+        name: "Gemini 3.5 Flash",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
       "gemini-3.1-pro-preview": {
         id: "gemini-3.1-pro-preview",
         name: "Gemini 3.1 Pro Preview",
@@ -417,10 +424,24 @@ function normalizeCatalog(value: unknown): Record<string, ModelProvider> {
   if (!value || typeof value !== "object") {
     return FALLBACK_MODELS;
   }
-  return {
-    ...FALLBACK_MODELS,
-    ...(value as Record<string, ModelProvider>),
-  };
+  const merged: Record<string, ModelProvider> = { ...FALLBACK_MODELS };
+  for (const [provider, entry] of Object.entries(
+    value as Record<string, ModelProvider>,
+  )) {
+    const fallback = FALLBACK_MODELS[provider];
+    merged[provider] =
+      fallback && entry?.models
+        ? {
+            ...fallback,
+            ...entry,
+            models: {
+              ...fallback.models,
+              ...entry.models,
+            },
+          }
+        : entry;
+  }
+  return merged;
 }
 
 function modelCatalogProviderId(provider: string): string {
@@ -511,6 +532,7 @@ function modelRank(provider: string, model: string): number {
       "gpt-5-codex",
     ],
     google: [
+      "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3-pro-preview",
       "gemini-3-flash-preview",

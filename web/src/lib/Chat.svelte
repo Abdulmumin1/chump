@@ -1576,6 +1576,9 @@
                 const file =
                     asString(args?.file_path) || asString(args?.path) || "";
                 if (file) headerTitle = file.split("/").pop() || file;
+            } else if (toolName === "skill" || toolName === "load_skill") {
+                const name = asString(args?.name) || "";
+                if (name) headerTitle = `Skill ${name}`;
             }
 
             if (
@@ -1686,6 +1689,9 @@
                     const file =
                         asString(args?.file_path) || asString(args?.path) || "";
                     if (file) headerTitle = file.split("/").pop() || file;
+                } else if (toolName === "skill" || toolName === "load_skill") {
+                    const name = asString(args?.name) || "";
+                    if (name) headerTitle = `Skill ${name}`;
                 }
 
                 if (

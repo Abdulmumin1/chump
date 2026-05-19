@@ -51,6 +51,12 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "google",
     name: "Google",
     models: {
+      "gemini-3.5-flash": {
+        id: "gemini-3.5-flash",
+        name: "Gemini 3.5 Flash",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
       "gemini-3.1-pro-preview": { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", reasoning: true },
       "gemini-3-pro-preview": { id: "gemini-3-pro-preview", name: "Gemini 3 Pro Preview", reasoning: true },
       "gemini-3-flash-preview": { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview", reasoning: true },
@@ -155,6 +161,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
   ]),
   chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
   google: new Set([
+    "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
     "gemini-3-flash-preview",
@@ -245,6 +252,7 @@ function modelRank(provider: string, model: string): number {
       "gpt-5-codex",
     ],
     google: [
+      "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3-pro-preview",
       "gemini-3-flash-preview",
@@ -295,13 +303,35 @@ export async function fetchModelCatalog(): Promise<Record<string, any>> {
     });
     if (response.ok) {
       const json = await response.json();
-      cachedCatalog = { ...FALLBACK_MODELS, ...json };
+      cachedCatalog = mergeCatalog(json);
       return cachedCatalog!;
     }
   } catch (error) {
     console.warn("Failed to fetch models catalog", error);
   }
   return FALLBACK_MODELS;
+}
+
+function mergeCatalog(value: unknown): Record<string, any> {
+  if (!value || typeof value !== "object") {
+    return FALLBACK_MODELS;
+  }
+  const merged: Record<string, any> = { ...FALLBACK_MODELS };
+  for (const [provider, entry] of Object.entries(value as Record<string, any>)) {
+    const fallback = FALLBACK_MODELS[provider];
+    merged[provider] =
+      fallback && entry?.models
+        ? {
+            ...fallback,
+            ...entry,
+            models: {
+              ...fallback.models,
+              ...entry.models,
+            },
+          }
+        : entry;
+  }
+  return merged;
 }
 
 export type ModelChoice = {

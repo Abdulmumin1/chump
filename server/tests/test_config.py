@@ -16,6 +16,10 @@ def test_normalize_model_name_accepts_provider_model_pair():
     assert normalize_model_name("deepseek", "deepseek-v4-flash") == "deepseek-v4-flash"
 
 
+def test_normalize_model_name_accepts_google_provider_model_pair():
+    assert normalize_model_name("google", "gemini-3.5-flash") == "gemini-3.5-flash"
+
+
 def test_normalize_model_name_accepts_chump_cloud_provider_model_pair():
     assert (
         normalize_model_name("chump_cloud", "deepseek-v4-flash")
@@ -58,6 +62,17 @@ def test_load_config_reads_retry_policy(monkeypatch, tmp_path):
     assert config.retry_jitter is False
 
 
+def test_load_config_uses_latest_google_default_model(monkeypatch, tmp_path):
+    auth_file = tmp_path / "missing-auth.json"
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CHUMP_PROVIDER", "google")
+
+    config = load_config()
+
+    assert config.model == "gemini-3.5-flash"
+
+
 def test_load_config_migrates_legacy_workspace_state(monkeypatch, tmp_path):
     workspace = tmp_path / "workspace"
     legacy_dir = workspace / ".chump"
@@ -69,6 +84,7 @@ def test_load_config_migrates_legacy_workspace_state(monkeypatch, tmp_path):
     monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
     monkeypatch.setenv("CHUMP_WORKSPACE_ROOT", str(workspace))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    monkeypatch.delenv("CHUMP_STATE_DIR", raising=False)
 
     config = load_config()
 

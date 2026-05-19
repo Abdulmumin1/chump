@@ -37,7 +37,7 @@ const PROVIDERS = {
   },
   google: {
     label: "Google",
-    defaultModel: "gemini-2.5-flash",
+    defaultModel: "gemini-3.5-flash",
     fields: [{ key: "GOOGLE_API_KEY", label: "Google API key", secret: true }],
   },
   deepseek: {

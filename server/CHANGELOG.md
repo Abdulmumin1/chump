@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.22
+
+- Add Gemini 3.5 Flash model support and configure its input/output token limits.
+- Set Google's default fallback model to `gemini-3.5-flash`.
+- Fix config test suite isolation under active shell environments.
+
 ## 0.0.21
 
 - Track per-file diff stats and structured change records in agent/session state.
