@@ -22,6 +22,12 @@ const ROOT_COMMANDS: Array<{
     action: "submit",
   },
   {
+    label: "/status",
+    command: "/status",
+    description: "show current session details",
+    action: "submit",
+  },
+  {
     label: "/sessions",
     command: "/session ",
     description: "pick a stored session",
@@ -311,6 +317,7 @@ export function parseSlashCommand(input: string): {
 
   switch (command) {
     case "help":
+    case "status":
     case "sessions":
     case "clear":
     case "agent":

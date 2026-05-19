@@ -30,6 +30,7 @@ export type ManagedServerMetadata = {
 export type ChumpStatus = {
   agent_id: string;
   workspace_root: string;
+  git_branch?: string;
   provider: string;
   model: string;
   max_steps: number;
@@ -78,12 +79,15 @@ export type ChumpState = {
   files_touched: string[];
   commands_run: string[];
   notes: string[];
+  file_diffs?: Record<string, { added: number; removed: number }>;
 };
 
-export type AgentStateResponse = {
-  agent_id: string;
-  state: ChumpState;
-};
+export type AgentStateResponse =
+  | ChumpState
+  | {
+      agent_id?: string;
+      state: ChumpState;
+    };
 
 export type StoredMessage = {
   role: string;
@@ -229,6 +233,7 @@ export type SlashCommandSuggestionView = {
 
 export type SlashCommand =
   | "help"
+  | "status"
   | "sessions"
   | "clear"
   | "agent"
