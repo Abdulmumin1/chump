@@ -7,6 +7,7 @@
         transcript,
         transcriptElement = $bindable(),
         isSending,
+        isConnecting = false,
         expandedBlocks,
         expandedReasoning,
         onToggleBlock,
@@ -19,6 +20,7 @@
         transcript: Array<any>;
         transcriptElement: HTMLDivElement | null;
         isSending: boolean;
+        isConnecting?: boolean;
         expandedBlocks: Record<string, boolean>;
         expandedReasoning: Record<string, boolean>;
         onToggleBlock: (id: string) => void;
@@ -28,6 +30,24 @@
         activeSessionId?: string;
         onOpenConnectModal?: () => void;
     }>();
+
+    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinnerFrame = $state(0);
+    let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+    $effect(() => {
+        if (isConnecting) {
+            spinnerFrame = 0;
+            spinnerTimer = setInterval(() => {
+                spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
+            }, 80);
+        } else {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+            spinnerTimer = null;
+        }
+        return () => {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+        };
+    });
 </script>
 
 <div class="flex-1 overflow-y-auto p-4 md:p-8" bind:this={transcriptElement}>
@@ -53,10 +73,18 @@
                     </p>
                     {#if onOpenConnectModal}
                         <button
-                            class="button-primary"
+                            class="button-primary flex items-center justify-center gap-2 min-w-[120px]"
                             onclick={onOpenConnectModal}
+                            disabled={isConnecting}
                         >
-                            Connect now
+                            {#if isConnecting}
+                                <span class="font-mono text-[14px]" aria-hidden="true"
+                                    >{spinnerFrames[spinnerFrame]}</span
+                                >
+                                Connecting...
+                            {:else}
+                                Connect now
+                            {/if}
                         </button>
                     {/if}
                 {:else if !activeSessionId}

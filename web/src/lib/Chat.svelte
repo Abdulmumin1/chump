@@ -1991,6 +1991,7 @@
             {transcript}
             bind:transcriptElement
             {isSending}
+            {isConnecting}
             {expandedBlocks}
             {expandedReasoning}
             onToggleBlock={toggleBlock}
