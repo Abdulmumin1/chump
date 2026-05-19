@@ -112,6 +112,7 @@
                                     >
                                         <svg
                                             class="h-5 w-5 flex-shrink-0 text-text-highlight"
+                                            aria-hidden="true"
                                             fill="none"
                                             viewBox="0 0 24 24"
                                             stroke="currentColor"
@@ -140,6 +141,7 @@
                                             : '-rotate-90'}"
                                         fill="none"
                                         viewBox="0 0 24 24"
+                                        aria-hidden="true"
                                         stroke="currentColor"
                                         ><path
                                             stroke-linecap="round"
@@ -184,6 +186,7 @@
                             >
                                 <svg
                                     class="w-4 h-4"
+                                    aria-hidden="true"
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"

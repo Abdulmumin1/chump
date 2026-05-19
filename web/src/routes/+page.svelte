@@ -82,7 +82,7 @@
 				Chump
 			</h1>
 
-			<div class="flex items-center ml-3 sm:ml-5">
+			<div class="flex items-center ml-3 sm:ml-5" aria-hidden="true">
 				<div class="relative flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 md:w-20 md:h-20 lg:w-24 lg:h-24 transition-all duration-500 line-anim" style="animation-delay: 90ms;">
 					<div class="absolute inset-0 rounded-full flex flex-col justify-evenly overflow-hidden border border-border-default">
 						{#each Array(7) as _}
@@ -96,9 +96,9 @@
 			</div>
 		</div>
 		
-		<h1 class="text-3xl sm:text-5xl md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase text-center whitespace-nowrap text-text-inverse flex items-center justify-center line-anim mt-1 sm:mt-0 leading-none" style="font-family: 'Times New Roman', Times, serif; animation-delay: 180ms;">
+		<h2 class="text-3xl sm:text-5xl md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase text-center whitespace-nowrap text-text-inverse flex items-center justify-center line-anim mt-1 sm:mt-0 leading-none" style="font-family: 'Times New Roman', Times, serif; animation-delay: 180ms;">
 			Coding Agent
-		</h1>
+		</h2>
 	</header>
 
 	<!-- CENTER ARTWORK -->
@@ -113,6 +113,7 @@
 		<!-- Svelte handles crossfade overlap natively by mounting the new div before unmounting the old if they share the grid/absolute space -->
 		{#key selectedTab}
 			<div 
+				aria-live="polite"
 				class="absolute w-full px-6 flex flex-col items-center left-1/2 -translate-x-1/2"
 			>
 				<p 
@@ -136,6 +137,8 @@
 		<div class="flex items-center min-w-max">
 			{#each tabs as tab}
 				<button 
+					role="tab"
+					aria-selected={selectedTab === tab}
 					onclick={() => selectedTab = tab}
 					class="flex items-center space-x-2 px-4 py-2 rounded-full text-[10px] sm:text-xs font-mono tracking-[0.15em] transition-all duration-300
 						{selectedTab === tab ? 'bg-accent text-text-on-accent' : 'text-text-secondary hover:bg-bg-hover hover:text-text-main'}"

@@ -465,7 +465,7 @@
         <!-- Scroll to bottom float -->
         <div class="absolute left-1/2 -top-10 -translate-x-1/2 z-30 transition-opacity opacity-80 hover:opacity-100">
             <button onclick={onScrollToBottom} class="inline-flex items-center gap-1 rounded-[9px] border border-border-default bg-bg-elevated px-2.5 py-1 text-[11px] text-text-secondary transition-all hover:border-border-hover hover:bg-bg-hover hover:text-text-main">
-                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
                 Scroll to bottom
             </button>
         </div>
@@ -482,7 +482,7 @@
                 <div class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-default bg-bg-code flex-shrink-0">
                     <img
                         src={attachmentThumbSrc(attachment)}
-                        alt={attachment.filename}
+                        alt="Preview of {attachment.filename}"
                         class="w-full h-full object-cover"
                     />
                     <button
@@ -529,6 +529,7 @@
                                 class="h-3.5 w-3.5"
                                 fill="none"
                                 viewBox="0 0 24 24"
+                                aria-hidden="true"
                                 stroke="currentColor"
                                 ><path
                                     stroke-linecap="round"
@@ -548,6 +549,7 @@
                                 class="h-3.5 w-3.5"
                                 fill="none"
                                 viewBox="0 0 24 24"
+                                aria-hidden="true"
                                 stroke="currentColor"
                                 ><path
                                     stroke-linecap="round"
@@ -593,13 +595,14 @@
                     class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated rounded-[6px] transition-colors"
                     onclick={openFilePicker}
                 >
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                     </svg>
                 </button>
                 <input
                     bind:this={fileInputElement}
                     type="file"
+                    aria-label="Upload images"
                     accept={ACCEPTED_IMAGE_TYPES}
                     multiple
                     class="hidden"
@@ -608,8 +611,9 @@
                 {#if isSending}
                     <span
                         class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
+                        aria-live="polite"
                     >
-                        <span class="font-mono text-[15px] text-text-highlight"
+                        <span class="font-mono text-[15px] text-text-highlight" aria-hidden="true"
                             >{spinnerFrames[spinnerFrame]}</span
                         >
                         Working...
@@ -651,6 +655,7 @@
                             class="w-3.5 h-3.5 md:w-4 md:h-4"
                             fill="none"
                             viewBox="0 0 24 24"
+                            aria-hidden="true"
                             stroke="currentColor"
                             ><path
                                 stroke-linecap="round"
@@ -673,10 +678,12 @@
             class="flex items-center gap-1.5 text-[10px] md:text-[11px] font-mono text-text-muted truncate max-w-[70%]"
         >
             <svg
+                aria-label="Workspace root"
                 class="w-3 h-3 flex-shrink-0"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
+                role="img"
                 ><path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -686,7 +693,7 @@
             >
             <span class="truncate">{workspaceRoot || "—"}</span>
             {#if gitBranch}
-                <svg class="w-3.5 h-3.5 text-text-muted opacity-50 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg aria-label="Git branch" role="img" class="w-3.5 h-3.5 text-text-muted opacity-50 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <line x1="6" x2="6" y1="3" y2="15"></line>
                     <circle cx="18" cy="6" r="3"></circle>
                     <circle cx="6" cy="18" r="3"></circle>
@@ -707,6 +714,7 @@
             {#if currentModel}
                 <button
                     class="truncate text-left font-mono text-[10px] md:text-[11px] text-text-muted transition-colors hover:text-text-highlight"
+                    aria-label="Current model: {shortenModel(currentModel)}. Click to change."
                     onclick={() => onCommand("__open_model_picker", "")}
                     type="button"
                 >
@@ -722,9 +730,12 @@
         >
             <div
                 class="bg-bg-code border border-border-default rounded-[8px] overflow-hidden max-h-[280px] overflow-y-auto"
+                role="listbox"
+                aria-label="Command suggestions"
             >
                 {#each suggestions as suggestion, index (suggestion.command)}
                     <button
+                        role="option"
                         class="flex w-full items-center gap-3 px-4 py-2 text-left {index ===
                         selectedIndex
                             ? 'bg-bg-elevated'
@@ -732,6 +743,7 @@
                         onclick={() => acceptSuggestion(suggestion)}
                         data-suggestion-selected={index === selectedIndex}
                         type="button"
+                        aria-selected={index === selectedIndex}
                     >
                         <span
                             class="min-w-[140px] font-mono text-[13px] text-text-highlight"

@@ -14,7 +14,7 @@
 	}
 </script>
 
-<div class="fixed bottom-4 left-1/2 -translate-x-1/2 md:left-auto md:right-4 md:translate-x-0 z-50 flex flex-col gap-2 pointer-events-none">
+<div class="fixed bottom-4 left-1/2 -translate-x-1/2 md:left-auto md:right-4 md:translate-x-0 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite">
 	{#each toasts as toast (toast.id)}
 		<button
 			onclick={() => remove(toast.id)}
@@ -25,7 +25,7 @@
 			type="button"
 		>
 			<span>{toast.message}</span>
-			<svg class="w-3.5 h-3.5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+			<svg class="w-3.5 h-3.5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
 		</button>
 	{/each}
 </div>

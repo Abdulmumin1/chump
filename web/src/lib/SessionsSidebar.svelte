@@ -49,6 +49,8 @@
     class="{open
         ? 'translate-x-0 opacity-100'
         : '-translate-x-full opacity-0'} fixed inset-y-0 left-0 w-[240px] flex flex-col bg-bg-surface-alt border-r border-border-subtle flex-shrink-0 z-30 transition-all duration-200 ease-in-out"
+    aria-hidden={!open}
+    style:visibility={open ? 'visible' : 'hidden'}
 >
     <div
         class="p-2 flex items-center"
@@ -71,7 +73,9 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
             </div>
+            <label for="session-filter-input" class="sr-only">Filter sessions</label>
             <input
+                id="session-filter-input"
                 bind:value={sessionInput}
                 onkeydown={(e) => e.key === "Enter" && onOpenSession()}
                 placeholder="Filter..."
