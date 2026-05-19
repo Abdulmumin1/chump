@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.21
+
+### Patch Changes
+
+- Prepare release with improved CLI resilience and recovery, richer session/tool state reporting, and web workspace state UX refresh.
+
 ## 0.0.20
 
 ### Patch Changes
