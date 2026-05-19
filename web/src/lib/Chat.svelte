@@ -1,11 +1,13 @@
 <script lang="ts">
     import { browser } from "$app/environment";
     import { onMount, tick } from "svelte";
+    import { cubicOut } from "svelte/easing";
     import { fade, fly } from "svelte/transition";
     import SessionsSidebar from "$lib/SessionsSidebar.svelte";
     import TranscriptPane from "$lib/TranscriptPane.svelte";
     import ChatComposer from "$lib/ChatComposer.svelte";
     import Toasts from "$lib/Toasts.svelte";
+    import WorkspaceState from "$lib/WorkspaceState.svelte";
 
     import {
         abortCurrentTurn,
@@ -25,12 +27,12 @@
         setReasoning,
         steerCurrentTurn,
         streamChat,
-} from "$lib/chump/api";
-import type {
-    ChatAttachment,
-    ChumpHealth,
-    ChumpState,
-    ChumpStatus,
+    } from "$lib/chump/api";
+    import type {
+        ChatAttachment,
+        ChumpHealth,
+        ChumpState,
+        ChumpStatus,
         MessagePart,
         SessionSummary,
         StoredMessage,
@@ -80,7 +82,11 @@ import type {
         getSupportedFormats?: () => Promise<string[]>;
     };
 
-    import { listModelChoices, formatCtxLabel, type ModelChoice } from "$lib/models";
+    import {
+        listModelChoices,
+        formatCtxLabel,
+        type ModelChoice,
+    } from "$lib/models";
 
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
@@ -106,6 +112,7 @@ import type {
     let connectionError = $state("");
     let actionNotice = $state("");
     let transcriptElement = $state<HTMLDivElement | null>(null);
+    let isAtBottom = $state(true);
     let connectUrlInput = $state<HTMLInputElement | null>(null);
     let modelSearchInput = $state<HTMLInputElement | null>(null);
     let stopEvents: (() => void) | null = null;
@@ -134,15 +141,13 @@ import type {
     let modelSearchQuery = $state("");
 
     let availableModels = $state<ModelChoice[]>([]);
-    let currentProvider = $derived(
-        status ? status.provider : ""
-    );
+    let currentProvider = $derived(status ? status.provider : "");
 
     let contextUsageLabel = $state<string | null>(null);
     $effect(() => {
         const source = status ?? health;
         if (source) {
-            formatCtxLabel(source).then(label => {
+            formatCtxLabel(source).then((label) => {
                 contextUsageLabel = label;
             });
         } else {
@@ -201,16 +206,36 @@ import type {
     let transcript = $derived(buildTranscript(messages));
     let canConnect = $derived(serverUrl.trim().length > 0);
     let canSend = $derived(
-        Boolean(serverUrl && (composerText.trim().length > 0 || composerAttachments.length > 0)),
+        Boolean(
+            serverUrl &&
+            (composerText.trim().length > 0 || composerAttachments.length > 0),
+        ),
     );
-
 
     let filteredModels = $derived(
-        availableModels.filter((m) =>
-            m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-            m.description.toLowerCase().includes(modelSearchQuery.toLowerCase())
-        )
+        availableModels.filter(
+            (m) =>
+                m.label
+                    .toLowerCase()
+                    .includes(modelSearchQuery.toLowerCase()) ||
+                m.description
+                    .toLowerCase()
+                    .includes(modelSearchQuery.toLowerCase()),
+        ),
     );
+
+    let groupedModels = $derived.by(() => {
+        const groups: Array<{provider: string, models: ModelChoice[]}> = [];
+        const map: Record<string, number> = {};
+        for (const m of filteredModels) {
+            if (map[m.provider] === undefined) {
+                map[m.provider] = groups.length;
+                groups.push({provider: m.provider, models: []});
+            }
+            groups[map[m.provider]].models.push(m);
+        }
+        return groups;
+    });
 
     let currentModel = $derived(
         status ? `${status.provider}/${status.model}` : "",
@@ -239,7 +264,7 @@ import type {
     }
 
     function shortenModel(name: string): string {
-        return name.replace(/^workers_ai\/@cf\//, '');
+        return name.replace(/^workers_ai\/@cf\//, "").replace(/^@cf\//, "");
     }
 
     $effect(() => {
@@ -262,6 +287,20 @@ import type {
         window.history.replaceState({}, "", nextUrl);
     });
 
+    $effect(() => {
+        const el = transcriptElement;
+        if (el) {
+            const handleScroll = () => {
+                const threshold = 50;
+                isAtBottom =
+                    el.scrollHeight - el.scrollTop - el.clientHeight <=
+                    threshold;
+            };
+            el.addEventListener("scroll", handleScroll);
+            return () => el.removeEventListener("scroll", handleScroll);
+        }
+    });
+
     onMount(() => {
         if (serverUrl.trim()) {
             void connectToServer();
@@ -280,9 +319,13 @@ import type {
             return null;
         }
 
-        return (window as Window & {
-            BarcodeDetector?: BarcodeDetectorConstructor;
-        }).BarcodeDetector ?? null;
+        return (
+            (
+                window as Window & {
+                    BarcodeDetector?: BarcodeDetectorConstructor;
+                }
+            ).BarcodeDetector ?? null
+        );
     }
 
     function applyScannedConnectValue(value: string): void {
@@ -402,7 +445,9 @@ import type {
             sessions = nextSessionsResponse.sessions;
             if (nextHealth.available_providers?.length) {
                 listModelChoices(nextHealth.available_providers)
-                    .then((choices) => { availableModels = choices; })
+                    .then((choices) => {
+                        availableModels = choices;
+                    })
                     .catch(console.error);
             } else {
                 availableModels = [];
@@ -424,6 +469,9 @@ import type {
             connectionError = toErrorMessage(error);
             clearSessionView();
         } finally {
+            if (!connectionError) {
+                closeConnectModal();
+            }
             isConnecting = false;
         }
     }
@@ -482,12 +530,16 @@ import type {
         connectionError = "";
 
         try {
-            const [nextStatus, nextState, nextMessages] =
-                await Promise.all([
-                    getStatus(serverUrl, sessionId),
-                    getState(serverUrl, sessionId),
-                    getMessages(serverUrl, sessionId),
-                ]);
+            const nextStatus = await getStatus(serverUrl, sessionId);
+
+            if (currentToken !== loadToken || activeSessionId !== sessionId) {
+                return;
+            }
+
+            const [nextState, nextMessages] = await Promise.all([
+                getState(serverUrl, sessionId),
+                getMessages(serverUrl, sessionId),
+            ]);
 
             if (currentToken !== loadToken || activeSessionId !== sessionId) {
                 return;
@@ -498,7 +550,7 @@ import type {
             steeringQueue = parseSteeringQueue({
                 items: nextStatus.steering_queue ?? [],
             });
-            sessionState = nextState.state;
+            sessionState = nextState;
             messages = nextMessages.messages;
             activity = [];
             lastEventId = 0;
@@ -506,7 +558,10 @@ import type {
             if (nextStatus.turn_running === true) {
                 try {
                     const eventLog = await getEventLog(serverUrl, sessionId);
-                    if (currentToken !== loadToken || activeSessionId !== sessionId) {
+                    if (
+                        currentToken !== loadToken ||
+                        activeSessionId !== sessionId
+                    ) {
                         return;
                     }
                     if (eventLog.events.length > 0) {
@@ -530,6 +585,29 @@ import type {
                 isLoadingSession = false;
             }
         }
+    }
+
+    function ensureSessionListed(sessionId: string): void {
+        if (sessions.some((session) => session.id === sessionId)) {
+            return;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        sessions = [
+            {
+                id: sessionId,
+                active: false,
+                message_count: 0,
+                event_count: 0,
+                title: null,
+                created_at: now,
+                updated_at: now,
+                last_user_goal: null,
+                last_activity: null,
+                connections: 0,
+            },
+            ...sessions,
+        ];
     }
 
     function openSessionStream(sessionId: string): void {
@@ -654,7 +732,8 @@ import type {
     }
 
     async function submitPrompt(): Promise<void> {
-        const text = composerText.trim() || (composerAttachments.length > 0 ? " " : "");
+        const text =
+            composerText.trim() || (composerAttachments.length > 0 ? " " : "");
         if ((!text && composerAttachments.length === 0) || !serverUrl) {
             return;
         }
@@ -766,6 +845,7 @@ import type {
         }
 
         const newSessionId = createSessionId(health.workspace_root);
+        ensureSessionListed(newSessionId);
         await selectSession(newSessionId);
     }
 
@@ -783,6 +863,7 @@ import type {
         }
 
         const newSessionId = createSessionId(health.workspace_root);
+        ensureSessionListed(newSessionId);
         await selectSession(newSessionId);
         return newSessionId;
     }
@@ -893,9 +974,7 @@ import type {
         });
     }
 
-    function parseSteeringQueue(
-        payload: Record<string, unknown>,
-    ): Array<{
+    function parseSteeringQueue(payload: Record<string, unknown>): Array<{
         content: string;
         attachments?: Array<Record<string, unknown>>;
     }> {
@@ -973,9 +1052,15 @@ import type {
         }
 
         if (type === "tool_call") {
-            const toolName = asString(data.name) || asString(data.tool) || "tool";
-            const args = asArgsRecord(data.args ?? data.payload ?? data.arguments ?? {});
-            const id = asString(data.id) || asString(data.tool_call_id) || `live-${Date.now()}`;
+            const toolName =
+                asString(data.name) || asString(data.tool) || "tool";
+            const args = asArgsRecord(
+                data.args ?? data.payload ?? data.arguments ?? {},
+            );
+            const id =
+                asString(data.id) ||
+                asString(data.tool_call_id) ||
+                `live-${Date.now()}`;
             const msg = getOrCreateLiveAssistantMessage(next);
             (msg.content as MessagePart[]).push({
                 type: "tool_call",
@@ -985,28 +1070,44 @@ import type {
         }
 
         if (type === "tool_result") {
-            const toolName = asString(data.name) || asString(data.tool) || asString(data.tool_name) || "tool";
-            const toolCallId = asString(data.tool_call_id) || asString(data.id) || "";
+            const toolName =
+                asString(data.name) ||
+                asString(data.tool) ||
+                asString(data.tool_name) ||
+                "tool";
+            const toolCallId =
+                asString(data.tool_call_id) || asString(data.id) || "";
             const result = data.result ?? data.output ?? data.preview ?? "";
-            const isError = data.ok === false || data.status === "error" || data.is_error === true;
+            const isError =
+                data.ok === false ||
+                data.status === "error" ||
+                data.is_error === true;
+            const metadata = asRecord(data.metadata);
             next.push({
                 role: "tool",
-                content: [{
-                    type: "tool_result",
-                    tool_result: {
-                        tool_call_id: toolCallId,
-                        tool_name: toolName,
-                        result,
-                        is_error: isError,
+                content: [
+                    {
+                        type: "tool_result",
+                        tool_result: {
+                            tool_call_id: toolCallId,
+                            tool_name: toolName,
+                            result,
+                            is_error: isError,
+                            metadata: metadata ?? undefined,
+                        },
                     },
-                }],
+                ],
             });
         }
         return next;
     }
 
     function buildMessagesFromEventLog(
-        events: Array<{ id: number; type: string; data: Record<string, unknown> }>,
+        events: Array<{
+            id: number;
+            type: string;
+            data: Record<string, unknown>;
+        }>,
     ): StoredMessage[] {
         let next: StoredMessage[] = [];
         for (const event of events) {
@@ -1016,7 +1117,11 @@ import type {
     }
 
     function buildActivityFromEventLog(
-        events: Array<{ id: number; type: string; data: Record<string, unknown> }>,
+        events: Array<{
+            id: number;
+            type: string;
+            data: Record<string, unknown>;
+        }>,
     ): ActivityItem[] {
         const items: ActivityItem[] = [];
         for (const event of events) {
@@ -1094,7 +1199,10 @@ import type {
             const message = source[i];
 
             // Assistant messages: split reasoning parts out as separate items
-            if (message.role === "assistant" && Array.isArray(message.content)) {
+            if (
+                message.role === "assistant" &&
+                Array.isArray(message.content)
+            ) {
                 let reasoningBuf = "";
                 const nonReasoningBlocks: TranscriptBlock[] = [];
 
@@ -1103,7 +1211,10 @@ import type {
                     if (candidate.type === "reasoning") {
                         const fragment = asString(candidate.text);
                         if (fragment) {
-                            reasoningBuf = mergeReasoningText(reasoningBuf, fragment);
+                            reasoningBuf = mergeReasoningText(
+                                reasoningBuf,
+                                fragment,
+                            );
                         }
                         continue;
                     }
@@ -1163,10 +1274,18 @@ import type {
                                 if (block.toolCallId) {
                                     if (
                                         parentBlock.kind === "tool-call" &&
-                                        parentBlock.toolCallId === block.toolCallId
+                                        parentBlock.toolCallId ===
+                                            block.toolCallId
                                     ) {
                                         parentBlock.result = block.result;
                                         parentBlock.error = block.error;
+                                        if (block.metadata) {
+                                            parentBlock.metadata =
+                                                block.metadata;
+                                            parentBlock.isDiff =
+                                                parentBlock.isDiff ||
+                                                hasDiffMetadata(block.metadata);
+                                        }
                                         parentBlock.hasResult = true;
                                         found = true;
                                         break;
@@ -1174,10 +1293,17 @@ import type {
                                 } else if (
                                     parentBlock.kind === "tool-call" &&
                                     !parentBlock.hasResult &&
-                                    parentBlock.originalToolName === block.originalToolName
+                                    parentBlock.originalToolName ===
+                                        block.originalToolName
                                 ) {
                                     parentBlock.result = block.result;
                                     parentBlock.error = block.error;
+                                    if (block.metadata) {
+                                        parentBlock.metadata = block.metadata;
+                                        parentBlock.isDiff =
+                                            parentBlock.isDiff ||
+                                            hasDiffMetadata(block.metadata);
+                                    }
                                     parentBlock.hasResult = true;
                                     found = true;
                                     break;
@@ -1307,10 +1433,12 @@ import type {
             let headerTitle = toolName;
 
             if (toolName === "bash" || toolName === "execute_command") {
-                const cmd = asString(args?.command) || asString(args?.cmd) || "";
+                const cmd =
+                    asString(args?.command) || asString(args?.cmd) || "";
                 if (cmd) headerTitle = `$ ${cmd}`;
             } else if (toolName === "read_file" || toolName === "view_file") {
-                const file = asString(args?.file_path) || asString(args?.path) || "";
+                const file =
+                    asString(args?.file_path) || asString(args?.path) || "";
                 if (file) headerTitle = file.split("/").pop() || file;
             } else if (
                 toolName === "edit_file" ||
@@ -1318,7 +1446,8 @@ import type {
                 toolName === "write_file" ||
                 toolName === "create_file"
             ) {
-                const file = asString(args?.file_path) || asString(args?.path) || "";
+                const file =
+                    asString(args?.file_path) || asString(args?.path) || "";
                 if (file) headerTitle = file.split("/").pop() || file;
             }
 
@@ -1369,6 +1498,9 @@ import type {
                 text: stringifyValue(toolResult?.result),
                 error: toolResult?.is_error === true,
                 result: toolResult?.result,
+                metadata: asRecord(toolResult?.metadata) ?? undefined,
+                toolName: asString(toolResult?.tool_name) || "tool",
+                originalToolName: asString(toolResult?.tool_name) || "tool",
             };
         }
         if (kind === "image") {
@@ -1478,6 +1610,7 @@ import type {
                     text: stringifyValue(toolResult?.result),
                     error: toolResult?.is_error === true,
                     result: toolResult?.result,
+                    metadata: asRecord(toolResult?.metadata) ?? undefined,
                     toolName,
                     originalToolName: toolName,
                 });
@@ -1569,6 +1702,16 @@ import type {
         return null;
     }
 
+    function hasDiffMetadata(
+        metadata: Record<string, unknown> | undefined,
+    ): boolean {
+        if (!metadata) return false;
+        if (Array.isArray(metadata.files) && metadata.files.length > 0) {
+            return true;
+        }
+        return Boolean(metadata.diff && typeof metadata.diff === "object");
+    }
+
     function formatRole(role: string): string {
         if (role === "assistant") {
             return "Assistant";
@@ -1612,7 +1755,6 @@ import type {
     function reversedTail<T>(items: T[], size: number): T[] {
         return trimTail(items, size).slice().reverse();
     }
-
 </script>
 
 <svelte:head>
@@ -1622,13 +1764,14 @@ import type {
 <div
     class="flex h-[100dvh] bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
 >
-    <!-- Sidebar overlay -->
     {#if sidebarOpen}
-        <button
-            class="fixed inset-0 bg-black/50 z-20"
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+            class="fixed inset-0 z-20 bg-black/10 backdrop-blur-[1px]"
+            transition:fade={{ duration: 200 }}
             onclick={closeSidebar}
-            aria-label="Close sidebar"
-        ></button>
+        ></div>
     {/if}
 
     <SessionsSidebar
@@ -1653,43 +1796,41 @@ import type {
     />
 
     <!-- Center: Chat/Editor Area -->
-    <main class="flex-1 flex flex-col bg-bg-surface relative min-w-0">
-        <!-- Header Tabs -->
+    <main
+        class="flex-1 flex flex-col bg-bg-surface relative min-w-0 h-[100dvh] transition-all duration-200 ease-out"
+        style={sidebarOpen ? "transform: translateX(40px); overflow: hidden; border-radius: 12px; box-shadow: 0 0 0 1px var(--border-subtle);" : ""}
+    >
+        <!-- Top Fade overlay for scrolling under floating header -->
         <div
-            class="flex items-center border-b border-border-subtle bg-bg-surface-alt overflow-x-auto hide-scrollbar"
-        >
-            <div
-                class="flex-1 flex items-center px-3 md:px-4 py-2 gap-3 min-w-0"
-            >
-                <button
-                    class="text-text-tertiary hover:text-text-secondary transition-colors flex-shrink-0"
-                    onclick={toggleSidebar}
-                    aria-label="Toggle sidebar"
-                >
-                    <svg
-                        class="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        ><path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M4 6h16M4 12h16M4 18h16"
-                        ></path></svg
-                    >
-                </button>
-                <span class="truncate text-text-secondary text-[13px]"
-                    >{selectedSession
-                        ? sessionTitle(selectedSession)
-                        : "No Session"}</span
-                >
-            </div>
+            class="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-bg-surface via-bg-surface/80 to-transparent z-10 pointer-events-none"
+        ></div>
 
-            <div class="flex items-center gap-2 px-2 md:px-4 flex-shrink-0">
+        <!-- Header Controls -->
+        <div
+            class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-3 md:p-4 pointer-events-none select-none"
+        >
+            <button
+                class="icon-button pointer-events-auto h-8 w-8"
+                onclick={toggleSidebar}
+                aria-label="Toggle sidebar"
+            >
+                <svg
+                    class="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    ><path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M4 6h16M4 12h16M4 18h16"
+                    ></path></svg
+                >
+            </button>
+            <div class="flex items-center gap-2 pointer-events-none">
                 <button
                     aria-label="Create new session"
-                    class="w-7 h-7 flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated rounded-[6px] transition-colors"
+                    class="icon-button pointer-events-auto h-8 w-8"
                     onclick={() => void createFreshSession()}
                 >
                     <svg
@@ -1717,100 +1858,128 @@ import type {
             onToggleBlock={toggleBlock}
             onToggleReasoning={toggleReasoning}
             {reasoningSummary}
+            {health}
+            {activeSessionId}
+            onOpenConnectModal={openConnectModal}
         />
 
-        <ChatComposer
-            bind:composerText
-            bind:composerAttachments
-            {activeSessionId}
-            {canSend}
-            {isSending}
-            models={availableModels}
-            {currentModel}
-            {currentProvider}
-            workspaceRoot={displayWorkspace}
-            gitBranch={currentGitBranch}
-            {reasoningInfo}
-            {contextUsageLabel}
-            {steeringQueue}
-            onSend={() => void submitPrompt()}
-            onDeleteSteering={(index) => void deleteSteering(index)}
-            onEditSteering={(index) => void editSteering(index)}
-            onCommand={handleCommand}
-            onAbort={() => void abortTurn()}
-        />
+        {#if health}
+            <ChatComposer
+                bind:composerText
+                bind:composerAttachments
+                {activeSessionId}
+                {canSend}
+                {isSending}
+                models={availableModels}
+                {currentModel}
+                {currentProvider}
+                workspaceRoot={displayWorkspace}
+                gitBranch={currentGitBranch}
+                {reasoningInfo}
+                {contextUsageLabel}
+                {steeringQueue}
+                onSend={() => void submitPrompt()}
+                onDeleteSteering={(index) => void deleteSteering(index)}
+                onEditSteering={(index) => void editSteering(index)}
+                onCommand={handleCommand}
+                onAbort={() => void abortTurn()}
+                onScrollToBottom={!isAtBottom
+                    ? () => void scrollTranscriptToEnd()
+                    : undefined}
+            />
+        {/if}
     </main>
+
+    <!-- Workspace State Sidebar -->
+    {#if sessionState}
+        <WorkspaceState state={sessionState} {sidebarOpen} />
+    {/if}
 </div>
 
-<!-- Connect Modal -->
 {#if connectModalOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay/60 backdrop-blur-[2px] p-4"
+        transition:fade={{ duration: 150 }}
+        onclick={closeConnectModal}
     >
         <div
-            class="bg-bg-code border border-border-default rounded-[12px] w-full max-w-[320px] flex flex-col overflow-hidden"
+            class="flex w-full max-w-[300px] flex-col overflow-hidden rounded-lg border border-border-default bg-bg-surface shadow-2xl"
+            transition:fly={{ y: 8, duration: 150 }}
+            onclick={(e) => e.stopPropagation()}
         >
-            <div class="py-1">
-                <div class="px-3 py-2 flex items-center justify-between border-b border-border-default mx-2">
-                    <span class="text-[13px] font-medium text-text-secondary">Connect to Server</span>
-                    <button
-                        class="text-text-tertiary hover:bg-bg-elevated rounded p-1 transition-colors flex-shrink-0"
-                        onclick={closeConnectModal}
-                        aria-label="Close"
-                    >
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                    </button>
-                </div>
-                <div class="p-3">
-                    <div class="bg-bg-elevated border border-transparent focus-within:border-accent rounded-lg flex items-center px-3 py-2 transition-colors">
+            <div class="p-1.5 space-y-1.5">
+                <div class="flex flex-col gap-1.5">
+                    <div class="flex bg-bg-input rounded-md border border-border-default focus-within:border-accent/40 transition-colors items-center pr-1">
                         <input
                             bind:this={connectUrlInput}
-                            id="connect-url"
                             bind:value={serverUrl}
-                            placeholder="http://127.0.0.1:8080"
+                            placeholder="http://..."
                             onkeydown={(e) =>
                                 e.key === "Enter" &&
                                 canConnect &&
                                 !isConnecting &&
-                                (void connectToServer(), closeConnectModal())}
-                            class="w-full bg-transparent border-none text-[13px] text-text-secondary placeholder:text-text-tertiary focus:outline-none"
+                                (void connectToServer())}
+                            class="w-full bg-transparent border-none px-2.5 py-1.5 text-[12px] text-text-main placeholder:text-text-muted focus:outline-none"
                             autocomplete="off"
                         />
+                        <button
+                            onclick={() => {
+                                void connectToServer();
+                            }}
+                            disabled={!canConnect || isConnecting}
+                            class="bg-accent text-text-on-accent h-6 px-2.5 rounded-sm text-[11px] font-bold transition-all active:scale-[0.95] disabled:opacity-30"
+                        >
+                            {isConnecting ? "..." : "Connect"}
+                        </button>
                     </div>
+                    
                     <button
-                        type="button"
                         onclick={() => void startQrScanner()}
-                        class="mt-2 w-full rounded-lg border border-border-default bg-bg-elevated px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:border-accent hover:text-accent"
+                        class="flex items-center justify-center gap-2 w-full py-1.5 rounded-md bg-bg-elevated border border-border-subtle hover:bg-bg-hover transition-colors text-text-secondary group active:scale-[0.98]"
                     >
-                        Scan QR Code
-                    </button>
-                    {#if qrScannerOpen}
-                        <div class="mt-3 overflow-hidden rounded-lg border border-border-default bg-black">
-                            <video
-                                bind:this={qrVideoElement}
-                                class="aspect-square w-full object-cover"
-                                playsinline
-                                muted
-                            ></video>
-                        </div>
-                    {/if}
-                    {#if qrScannerError}
-                        <div class="text-[12px] text-error mt-2 px-1">{qrScannerError}</div>
-                    {/if}
-                    {#if connectionError}
-                        <div class="text-[12px] text-error mt-2 px-1">{connectionError}</div>
-                    {/if}
-                    <button
-                        onclick={() => {
-                            void connectToServer();
-                            closeConnectModal();
-                        }}
-                        disabled={!canConnect || isConnecting}
-                        class="w-full mt-3 py-2 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent text-text-on-accent font-medium rounded-lg transition-colors text-[13px]"
-                    >
-                        {isConnecting ? "Connecting..." : "Connect"}
+                        <svg class="w-4 h-4 text-text-tertiary group-hover:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7V5a2 2 0 012-2h2m10 0h2a2 2 0 012 2v2m0 10v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2" />
+                            <rect x="7" y="7" width="3" height="3" rx="0.5" />
+                            <rect x="14" y="7" width="3" height="3" rx="0.5" />
+                            <rect x="7" y="14" width="3" height="3" rx="0.5" />
+                            <rect x="14" y="14" width="1" height="1" />
+                            <rect x="16" y="16" width="1" height="1" />
+                            <rect x="14" y="16" width="1" height="1" />
+                            <rect x="16" y="14" width="1" height="1" />
+                        </svg>
+                        <span class="text-[12px] font-medium">Scan QR Code</span>
                     </button>
                 </div>
+
+                {#if qrScannerOpen}
+                    <div class="relative overflow-hidden rounded-md border border-border-default bg-black aspect-square shadow-inner">
+                        <video
+                            bind:this={qrVideoElement}
+                            class="w-full h-full object-cover"
+                            playsinline
+                            muted
+                        ></video>
+                        <button 
+                            onclick={stopQrScanner}
+                            class="absolute top-2 right-2 p-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md"
+                        >
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                {/if}
+
+                {#if connectionError || qrScannerError}
+                    <div class="text-[10px] text-error px-2 py-1.5 flex items-start gap-1.5 bg-error/5 rounded-md border border-error/10">
+                        <svg class="w-3.5 h-3.5 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        {connectionError || qrScannerError}
+                    </div>
+                {/if}
             </div>
         </div>
     </div>
@@ -1823,15 +1992,18 @@ import type {
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-        class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm md:p-4"
+        class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-bg-overlay/60 backdrop-blur-[2px]"
         transition:fade={{ duration: 150 }}
         onclick={closeModelPicker}
     >
         <div
-            class="bg-bg-surface md:border border-border-default rounded-t-2xl md:rounded-xl w-full md:max-w-md flex flex-col overflow-hidden max-h-[85vh] shadow-2xl"
+            class="flex max-h-[65vh] w-full flex-col overflow-hidden rounded-t-2xl border-x border-t border-border-subtle bg-bg-elevated md:max-w-md md:rounded-[12px] md:border"
             transition:fly={{ y: 200, duration: 250, opacity: 1 }}
             onclick={(e) => e.stopPropagation()}
         >
+            <div class="md:hidden flex justify-center pt-3 pb-1">
+                <div class="w-12 h-1.5 bg-text-tertiary/20 rounded-full"></div>
+            </div>
             <div
                 class="flex items-center justify-between px-4 py-3 border-b border-border-default"
             >
@@ -1839,7 +2011,7 @@ import type {
                     >Switch Model</span
                 >
                 <button
-                    class="text-text-tertiary hover:text-text-secondary transition-colors"
+                    class="button-tertiary px-1.5 py-1 text-text-tertiary"
                     onclick={closeModelPicker}
                     aria-label="Close"
                 >
@@ -1857,61 +2029,81 @@ import type {
                     >
                 </button>
             </div>
-            <div class="px-3 py-3 border-b border-border-default bg-bg-surface">
+            <div
+                class="px-3 py-3 border-b border-border-default bg-bg-elevated"
+            >
                 <input
                     bind:this={modelSearchInput}
                     type="text"
                     bind:value={modelSearchQuery}
                     placeholder="Search models..."
-                    class="w-full bg-bg-surface border border-border-default focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none rounded-lg px-3 py-2.5 text-[14px] text-text-secondary placeholder:text-text-tertiary transition-all"
+                    class="w-full rounded-[9px] border border-border-subtle bg-bg-surface px-3 py-2 text-[14px] text-text-secondary placeholder:text-text-tertiary transition-all focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/20"
                     autocomplete="off"
                 />
             </div>
-            <div class="overflow-y-auto py-1">
-                {#each filteredModels as m (m.label)}
-                    <button
-                        onclick={() => {
-                            void handleCommand("model", `${m.provider}/${m.model}`);
-                            closeModelPicker();
-                        }}
-                        class="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-bg-elevated transition-colors"
-                        type="button"
-                    >
-                        <div class="flex flex-col min-w-0 pr-4">
-                            <span class="text-[13px] text-text-secondary"
-                                >{shortenModel(m.label)}</span
-                            >
-                            {#if m.description}
-                                <span class="text-[12px] text-text-tertiary truncate mt-0.5">{m.description}</span>
+            <div class="overflow-y-auto py-1 bg-bg-elevated">
+                {#each groupedModels as {provider, models}}
+                    <div class="px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-tertiary bg-bg-elevated/80 backdrop-blur-sm sticky top-0 z-10 border-b border-border-subtle/30">
+                        {provider.replace(/_/g, ' ')}
+                    </div>
+                    {#each models as m (m.label)}
+                        <button
+                            onclick={() => {
+                                void handleCommand(
+                                    "model",
+                                    `${m.provider}/${m.model}`,
+                                );
+                                closeModelPicker();
+                            }}
+                            class="group flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/5"
+                            type="button"
+                        >
+                            <div class="flex flex-col min-w-0 pr-4">
+                                <span class="text-[13.5px] font-medium {m.label === currentModel ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'} transition-colors"
+                                    >{m.name || shortenModel(m.model)}</span
+                                >
+                                {#if m.description}
+                                    <div class="flex items-center gap-2 mt-0.5">
+                                        <span class="text-[12px] text-text-tertiary truncate"
+                                            >{m.description}</span
+                                        >
+                                    </div>
+                                {/if}
+                            </div>
+                            {#if m.label === currentModel}
+                                <div class="flex items-center gap-2">
+                                    <span class="flex-shrink-0 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-[#111111]"
+                                        >Active</span
+                                    >
+                                    <svg class="w-4 h-4 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                            {:else}
+                                <div class="opacity-0 group-hover:opacity-100 transition-opacity">
+                                     <svg class="w-4 h-4 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </div>
                             {/if}
-                        </div>
-                        {#if m.label === currentModel}
-                            <span
-                                class="text-[10px] px-1.5 py-0.5 rounded bg-accent-bg text-accent flex-shrink-0"
-                                >active</span
-                            >
-                        {/if}
-                    </button>
+                        </button>
+                    {/each}
                 {:else}
-                    <div class="px-4 py-4 text-center text-[13px] text-text-tertiary">
-                        No models found
+                    <div
+                        class="px-4 py-12 text-center"
+                    >
+                        <div class="text-[14px] text-text-secondary font-medium">No models found</div>
+                        <div class="text-[12px] text-text-tertiary mt-1">Try a different search term</div>
                     </div>
                 {/each}
             </div>
+            <!-- Bottom safe area spacer for mobile -->
+            <div class="h-6 md:hidden bg-bg-elevated"></div>
         </div>
     </div>
 {/if}
 
 <style>
-    /* Hide scrollbar for tabs */
-    .hide-scrollbar::-webkit-scrollbar {
-        display: none;
-    }
-    .hide-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-    }
-
     /* VS Code inspired custom scrollbar */
     ::-webkit-scrollbar {
         width: 10px;

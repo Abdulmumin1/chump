@@ -29,7 +29,6 @@ export const FALLBACK_MODELS: Record<string, any> = {
       "gpt-5.3-codex": { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", reasoning: true },
       "gpt-5.2": { id: "gpt-5.2", name: "GPT-5.2", reasoning: true },
       "gpt-5.2-pro": { id: "gpt-5.2-pro", name: "GPT-5.2 Pro", reasoning: true },
-      "gpt-5.2-chat-latest": { id: "gpt-5.2-chat-latest", name: "GPT-5.2 Chat", reasoning: false },
       "gpt-5.1": { id: "gpt-5.1", name: "GPT-5.1", reasoning: true },
       "gpt-5": { id: "gpt-5", name: "GPT-5", reasoning: true },
       "gpt-5-mini": { id: "gpt-5-mini", name: "GPT-5 Mini", reasoning: true },
@@ -58,24 +57,12 @@ export const FALLBACK_MODELS: Record<string, any> = {
       "gemini-2.5-flash": { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", reasoning: true },
       "gemini-2.5-pro": { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", reasoning: true },
       "gemini-2.5-flash-lite": { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", reasoning: true },
-      "gemini-2.0-flash": { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", reasoning: false },
-      "gemini-2.0-flash-lite": { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite", reasoning: false },
     },
   },
   workers_ai: {
     id: "workers_ai",
     name: "Cloudflare Workers AI",
     models: {
-      "@cf/openai/gpt-oss-120b": {
-        id: "@cf/openai/gpt-oss-120b",
-        name: "GPT OSS 120B",
-        reasoning: false,
-      },
-      "@cf/openai/gpt-oss-20b": {
-        id: "@cf/openai/gpt-oss-20b",
-        name: "GPT OSS 20B",
-        reasoning: false,
-      },
       "@cf/zai-org/glm-4.7-flash": {
         id: "@cf/zai-org/glm-4.7-flash",
         name: "GLM 4.7 Flash",
@@ -95,41 +82,6 @@ export const FALLBACK_MODELS: Record<string, any> = {
         id: "@cf/moonshotai/kimi-k2.6",
         name: "Kimi K2.6",
         reasoning: true,
-      },
-      "@cf/qwen/qwen3-30b-a3b-fp8": {
-        id: "@cf/qwen/qwen3-30b-a3b-fp8",
-        name: "Qwen3 30B A3B FP8",
-        reasoning: false,
-      },
-      "@cf/qwen/qwq-32b": {
-        id: "@cf/qwen/qwq-32b",
-        name: "QwQ 32B",
-        reasoning: false,
-      },
-      "@cf/qwen/qwen2.5-coder-32b-instruct": {
-        id: "@cf/qwen/qwen2.5-coder-32b-instruct",
-        name: "Qwen2.5 Coder 32B",
-        reasoning: false,
-      },
-      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b": {
-        id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
-        name: "DeepSeek R1 Distill Qwen 32B",
-        reasoning: false,
-      },
-      "@cf/meta/llama-4-scout-17b-16e-instruct": {
-        id: "@cf/meta/llama-4-scout-17b-16e-instruct",
-        name: "Llama 4 Scout",
-        reasoning: false,
-      },
-      "@cf/meta/llama-3.3-70b-instruct-fp8-fast": {
-        id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-        name: "Llama 3.3 70B FP8 Fast",
-        reasoning: false,
-      },
-      "@cf/mistralai/mistral-small-3.1-24b-instruct": {
-        id: "@cf/mistralai/mistral-small-3.1-24b-instruct",
-        name: "Mistral Small 3.1 24B",
-        reasoning: false,
       },
     },
   },
@@ -184,6 +136,42 @@ const CODEX_MODELS = new Set([
   "gpt-5-codex",
 ]);
 
+const SUPPORTED_MODELS: Record<string, Set<string>> = {
+  codex: new Set(CODEX_MODELS),
+  openai: new Set([
+    "gpt-5.5",
+    "gpt-5.4-pro",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.3-codex",
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-codex",
+  ]),
+  chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+  google: new Set([
+    "gemini-3.1-pro-preview",
+    "gemini-3-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash-lite",
+  ]),
+  anthropic: new Set(["claude-sonnet-4-20250514"]),
+  workers_ai: new Set([
+    "@cf/zai-org/glm-4.7-flash",
+    "@cf/nvidia/nemotron-3-120b-a12b",
+    "@cf/moonshotai/kimi-k2.5",
+    "@cf/moonshotai/kimi-k2.6",
+  ]),
+  deepseek: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+};
+
 function modelCatalogProviderId(provider: string): string {
   if (provider === "codex") {
     return "openai";
@@ -201,6 +189,9 @@ function isUsableChatModel(provider: string, model: any): boolean {
   if (!model.id) {
     return false;
   }
+  if (!SUPPORTED_MODELS[provider]?.has(model.id)) {
+    return false;
+  }
   if ((provider === "openai" || provider === "codex") && !model.id.startsWith("gpt-5")) {
     return false;
   }
@@ -214,7 +205,16 @@ function isUsableChatModel(provider: string, model: any): boolean {
   if (/(embedding|embed|reranker|bge|distilbert|bart-large-cnn|melotts|deepgram|aura|nova|smart-turn|indictrans|m2m100)/u.test(lower)) {
     return false;
   }
+  if (/(image|imagen|gpt-image|dall-e|flux|sdxl|stable-diffusion|midjourney|recraft|tts|whisper|transcribe|vision-preview)/u.test(lower)) {
+    return false;
+  }
+  if (model.reasoning !== true) {
+    return false;
+  }
   if (model.modalities?.output && !model.modalities.output.includes("text")) {
+    return false;
+  }
+  if (model.modalities?.output?.includes("image")) {
     return false;
   }
   return true;
@@ -257,8 +257,6 @@ function modelRank(provider: string, model: string): number {
       "@cf/moonshotai/kimi-k2.5",
       "@cf/zai-org/glm-4.7-flash",
       "@cf/nvidia/nemotron-3-120b-a12b",
-      "@cf/openai/gpt-oss-120b",
-      "@cf/qwen/qwen2.5-coder-32b-instruct",
     ],
     chump_cloud: [
       "deepseek-v4-pro",
@@ -311,6 +309,7 @@ export type ModelChoice = {
   model: string;
   label: string;
   description: string;
+  name?: string;
 };
 
 export async function listModelChoices(providers: string[]): Promise<ModelChoice[]> {
@@ -327,6 +326,7 @@ export async function listModelChoices(providers: string[]): Promise<ModelChoice
         model: model.id,
         label: `${provider}/${model.id}`,
         description: modelMetadata(model),
+        name: model.name,
       }))
       .sort((left, right) => modelRank(provider, left.model) - modelRank(provider, right.model) || left.label.localeCompare(right.label));
   });

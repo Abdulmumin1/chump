@@ -12,6 +12,9 @@
         onToggleBlock,
         onToggleReasoning,
         reasoningSummary,
+        health,
+        activeSessionId,
+        onOpenConnectModal,
     } = $props<{
         transcript: Array<any>;
         transcriptElement: HTMLDivElement | null;
@@ -21,14 +24,61 @@
         onToggleBlock: (id: string) => void;
         onToggleReasoning: (id: string) => void;
         reasoningSummary: (text: string) => string;
+        health?: any;
+        activeSessionId?: string;
+        onOpenConnectModal?: () => void;
     }>();
 </script>
 
 <div class="flex-1 overflow-y-auto p-4 md:p-8" bind:this={transcriptElement}>
     <div class="max-w-4xl mx-auto flex flex-col gap-6">
         {#if transcript.length === 0}
-            <div class="text-center text-text-tertiary text-[13px] mt-10">
-                Connect to a server and select a session to begin.
+            <div
+                class="flex flex-col items-center justify-center min-h-[40vh] text-center px-4 mt-8"
+            >
+                <img
+                    src="/favicon.svg"
+                    alt="Chump logo"
+                    class="w-24 h-24 mb-6"
+                />
+                {#if !health}
+                    <h1
+                        class="text-[18px] md:text-[20px] font-medium text-text-main mb-2"
+                    >
+                        Co' Connect to a server
+                    </h1>
+                    <p class="text-[14px] text-text-tertiary max-w-md mb-6">
+                        Connect to your local or remote chump server to start
+                        building.
+                    </p>
+                    {#if onOpenConnectModal}
+                        <button
+                            class="button-primary"
+                            onclick={onOpenConnectModal}
+                        >
+                            Connect now
+                        </button>
+                    {/if}
+                {:else if !activeSessionId}
+                    <h1
+                        class="text-[18px] md:text-[20px] font-medium text-text-main mb-2"
+                    >
+                        Start a session
+                    </h1>
+                    <p class="text-[14px] text-text-tertiary max-w-md">
+                        Type your first message below, or create a new session
+                        to get started.
+                    </p>
+                {:else}
+                    <h1
+                        class="text-[18px] md:text-[20px] font-medium text-text-main mb-2"
+                    >
+                        Wh' What are we building?
+                    </h1>
+                    <p class="text-[14px] text-text-tertiary max-w-md">
+                        I'm ready. Describe a task or ask a question.
+                    </p>
+                {/if}
             </div>
         {/if}
 
@@ -58,10 +108,10 @@
                                         )}
                                 >
                                     <div
-                                        class="flex min-w-0 items-center gap-3 text-text-muted mb-2"
+                                        class="mb-2 flex min-w-0 items-center gap-3 text-text-secondary"
                                     >
                                         <svg
-                                            class="h-5 w-5 flex-shrink-0"
+                                            class="h-5 w-5 flex-shrink-0 text-text-highlight"
                                             fill="none"
                                             viewBox="0 0 24 24"
                                             stroke="currentColor"
@@ -73,7 +123,7 @@
                                             ></path></svg
                                         >
                                         <span
-                                            class="text-[14px] font-medium tracking-tight text-text-muted break-words min-w-0"
+                                            class="min-w-0 break-words text-[14px] font-medium tracking-tight text-text-secondary"
                                             >{reasoningSummary(
                                                 block.text,
                                             )}</span
@@ -101,7 +151,7 @@
                                 </button>
                                 {#if expandedReasoning[`${item.id}-${index}`] ?? (isSending && itemIndex === transcript.length - 1)}
                                     <div
-                                        class="p-2 text-[12px] text-text-muted break-words overflow-hidden reasoning-marked"
+                                        class="reasoning-marked overflow-hidden break-words p-2 text-[12px] text-text-secondary"
                                     >
                                         {@html marked(block.text)}
                                     </div>

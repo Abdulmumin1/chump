@@ -18,6 +18,7 @@ import {
   readImageAttachment,
 } from "./attachments.ts";
 import { hasPendingBatch, setActiveDraft } from "./terminal.ts";
+import { stripPendingOsc11Response } from "./terminal-query.ts";
 import { StdinBuffer } from "./stdin-buffer.ts";
 import {
   renderContinuationPrompt,
@@ -132,6 +133,8 @@ function createInteractivePromptReader(): {
   let statusLine: string | null = null;
   let footerLine: string | null = null;
   let ruleBadge: string | null = null;
+  let showIdlePromptFrame = false;
+  let skipNextReadPaint = false;
   let closed = false;
   let slashSelection = 0;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [], skills: [] };
@@ -220,7 +223,7 @@ function createInteractivePromptReader(): {
   }
 
   function buildRedraw(): string {
-    if (closed || !pendingResolve) {
+    if (closed || (!pendingResolve && !showIdlePromptFrame)) {
       return "";
     }
 
@@ -480,7 +483,7 @@ function createInteractivePromptReader(): {
   }
 
   function requestRedraw(): void {
-    if (closed || !pendingResolve || redrawScheduled) {
+    if (closed || (!pendingResolve && !showIdlePromptFrame) || redrawScheduled) {
       return;
     }
     // An urgent redraw supersedes any pending soft redraw: the soft redraw's
@@ -504,7 +507,7 @@ function createInteractivePromptReader(): {
   // keystroke is reflected without delay.
   const SOFT_REDRAW_INTERVAL_MS = 250;
   function softRequestRedraw(): void {
-    if (closed || !pendingResolve) {
+    if (closed || (!pendingResolve && !showIdlePromptFrame)) {
       return;
     }
     if (redrawScheduled || softRedrawTimer) {
@@ -552,7 +555,7 @@ function createInteractivePromptReader(): {
   // and avoids the expensive `\x1b[J` clear-to-end that can confuse slow
   // terminals when issued rapidly.
   function buildStatusPatch(): string | null {
-    if (closed || !pendingResolve) {
+    if (closed || (!pendingResolve && !showIdlePromptFrame)) {
       return null;
     }
     if (statusRowPhysicalOffset === null) {
@@ -658,28 +661,46 @@ function createInteractivePromptReader(): {
 
     const resolve = pendingResolve;
     pendingResolve = null;
-    clear();
 
     const submission = typeof result === "string"
       ? buildSubmission(result, [])
       : result;
 
+    if (submission === null) {
+      clear();
+      resolve(null);
+      return;
+    }
+
     if (submission?.text.trim()) {
       inputHistory.push(submission.text);
     }
 
-    if (submission !== null) {
-      // The server is the source of truth for the steering queue: accepted
-      // submissions come back via the steering_queue event and drive the
-      // display through setQueuedDisplay. We intentionally do not push here
-      // — doing so previously produced a brief "Steering: ..." flash on
-      // every submit (for normal turns) and a double-render when a steered
-      // message was both pushed locally and echoed by the server.
-      value = "";
-      cursor = 0;
-      attachments = [];
-      historyIndex = inputHistory.length;
-      pendingResolve = null;
+    // The server is the source of truth for the steering queue: accepted
+    // submissions come back via the steering_queue event and drive the
+    // display through setQueuedDisplay. We intentionally do not push here
+    // — doing so previously produced a brief "Steering: ..." flash on
+    // every submit (for normal turns) and a double-render when a steered
+    // message was both pushed locally and echoed by the server.
+    value = "";
+    cursor = 0;
+    attachments = [];
+    historyIndex = inputHistory.length;
+    // When a turn is already running, keep the prompt frame alive while the
+    // steering request is in flight because read() will not be re-armed
+    // immediately. For normal submissions, skip the next eager read() paint
+    // so the subsequent transcript/output flush can clear + redraw atomically
+    // instead of producing a clear → repaint → clear sequence on Enter.
+    showIdlePromptFrame = abortHandler !== null;
+    skipNextReadPaint =
+      !showIdlePromptFrame &&
+      (submission.text.trim().length > 0 || submission.attachments.length > 0);
+    if (showIdlePromptFrame) {
+      forceRedraw = true;
+      const frame = buildRedraw();
+      if (frame) {
+        output.write(`${SYNC_BEGIN}${frame}${SYNC_END}`);
+      }
     }
 
     resolve(submission);
@@ -1009,7 +1030,10 @@ function createInteractivePromptReader(): {
 
   function onData(chunk: Buffer): void {
     if (!pendingResolve) return;
-    const sequence = chunk.toString("utf8");
+    const sequence = stripPendingOsc11Response(chunk.toString("utf8"));
+    if (!sequence) {
+      return;
+    }
 
     // If we're already inside a bracketed paste, or this chunk contains
     // either the start or end marker, it MUST go through StdinBuffer.
@@ -1232,6 +1256,7 @@ function createInteractivePromptReader(): {
         return Promise.resolve(null);
       }
       return new Promise((resolve) => {
+        showIdlePromptFrame = false;
         value = "";
         cursor = 0;
         attachments = [];
@@ -1241,6 +1266,10 @@ function createInteractivePromptReader(): {
         pendingResolve = resolve;
         forceRedraw = true;
         setActiveDraft({ buildClear, buildRedraw });
+        if (skipNextReadPaint) {
+          skipNextReadPaint = false;
+          return;
+        }
         redraw();
       });
     },
@@ -1249,6 +1278,7 @@ function createInteractivePromptReader(): {
         return;
       }
       closed = true;
+      showIdlePromptFrame = false;
       if (resizeDebounceTimer) {
         clearTimeout(resizeDebounceTimer);
         resizeDebounceTimer = null;

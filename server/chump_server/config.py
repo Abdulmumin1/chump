@@ -54,7 +54,6 @@ PROVIDER_MODELS = {
         "gpt-5.3-codex",
         "gpt-5.2",
         "gpt-5.2-pro",
-        "gpt-5.2-chat-latest",
         "gpt-5.1",
         "gpt-5",
         "gpt-5-mini",

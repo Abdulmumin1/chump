@@ -4,6 +4,7 @@ import type {
   AgentStateResponse,
   ChumpConfig,
   ChumpHealth,
+  ChumpState,
   ChumpStatus,
   ChatAttachment,
   SessionsResponse,
@@ -92,12 +93,12 @@ export async function clearMessages(
 
 export async function getState(
   config: ChumpConfig,
-): Promise<AgentStateResponse> {
+): Promise<ChumpState> {
   const response = await fetch(`${buildAgentUrl(config)}/state`);
   if (!response.ok) {
     throw new Error(await readErrorResponse(response));
   }
-  return (await response.json()) as AgentStateResponse;
+  return normalizeStateResponse((await response.json()) as AgentStateResponse);
 }
 
 export async function getMessages(
@@ -207,6 +208,13 @@ async function invokeAction<T>(
 
 function buildAgentUrl(config: ChumpConfig): string {
   return `${config.serverUrl}/agent/${config.agentId}`;
+}
+
+function normalizeStateResponse(response: AgentStateResponse): ChumpState {
+  if (response && typeof response === "object" && "state" in response) {
+    return response.state;
+  }
+  return response as ChumpState;
 }
 
 function safeParseError(value: string): string {

@@ -47,28 +47,40 @@
 
 <aside
     class="{open
-        ? 'translate-x-0'
-        : '-translate-x-full'} fixed inset-y-0 left-0 w-[260px] flex flex-col bg-bg-surface-alt border-r border-border-subtle flex-shrink-0 z-30 transition-transform duration-200 ease-out"
+        ? 'translate-x-0 opacity-100'
+        : '-translate-x-full opacity-0'} fixed inset-y-0 left-0 w-[240px] flex flex-col bg-bg-surface-alt border-r border-border-subtle flex-shrink-0 z-30 transition-all duration-200 ease-in-out"
 >
     <div
-        class="p-3 flex items-center justify-between border-b border-border-subtle"
+        class="p-2 flex items-center"
     >
-        <div class="flex items-center gap-2">
-            <span class="text-[13px] font-medium text-text-secondary">Home</span
-            >
+        <button
+            onclick={onCreateSession}
+            class="flex items-center gap-2 w-full px-2 py-1.5 hover:bg-bg-hover transition-colors text-text-secondary group border border-border-subtle rounded-sm"
+        >
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+            </svg>
+            <span class="text-[13px] font-medium">New Chat</span>
+        </button>
+    </div>
+
+    <div class="px-2 pb-2 border-b border-border-subtle">
+        <div class="relative group">
+            <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-text-tertiary group-focus-within:text-accent transition-colors">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+            </div>
+            <input
+                bind:value={sessionInput}
+                onkeydown={(e) => e.key === "Enter" && onOpenSession()}
+                placeholder="Filter..."
+                class="w-full bg-bg-elevated border border-transparent focus:border-accent/30 focus:bg-bg-surface focus:outline-none rounded-sm pl-7 pr-2 py-1 text-[12px] text-text-secondary placeholder:text-text-tertiary"
+            />
         </div>
     </div>
 
-    <div class="p-2 border-b border-border-subtle">
-        <input
-            bind:value={sessionInput}
-            onkeydown={(e) => e.key === "Enter" && onOpenSession()}
-            placeholder="Open session ID..."
-            class="w-full bg-bg-elevated border border-transparent focus:border-accent focus:outline-none rounded-sm px-2 py-1 text-[12px] text-text-secondary placeholder:text-text-tertiary"
-        />
-    </div>
-
-    <div class="flex-1 overflow-y-auto py-2 space-y-0.5">
+    <div class="flex-1 overflow-y-auto py-1">
         {#if sessions.length === 0}
             <div class="px-4 py-2 text-[12px] text-text-tertiary">
                 No sessions found.
@@ -76,9 +88,9 @@
         {:else}
             {#each sessions as session (session.id)}
                 <button
-                    class="w-full text-left px-3 py-1.5 flex flex-col gap-0.5 group {session.id ===
+                    class="w-full text-left px-3 py-2 flex flex-col gap-0 group transition-colors {session.id ===
                     activeSessionId
-                        ? 'bg-bg-hover text-text-inverse'
+                        ? 'bg-bg-hover text-text-primary'
                         : 'text-text-secondary hover:bg-bg-elevated'}"
                     onclick={() => onSelectSession(session.id)}
                 >
@@ -87,7 +99,8 @@
                             class="text-[13px] truncate pr-2 {session.id ===
                             activeSessionId
                                 ? 'font-medium'
-                                : ''}">{sessionTitle(session)}</span
+                                : ''}"
+                            >{sessionTitle(session)}</span
                         >
                         {#if session.active || session.connections > 0}
                             <span
@@ -96,15 +109,25 @@
                         {/if}
                     </div>
                     <div
-                        class="flex justify-between items-center w-full text-[11px] {session.id ===
+                        class="flex justify-between items-center w-full text-[10px] {session.id ===
                         activeSessionId
-                            ? 'text-text-muted'
+                            ? 'text-text-secondary/70'
                             : 'text-text-tertiary'}"
                     >
-                        <span class="truncate pr-2 opacity-80"
-                            >{session.id.split("-")[0]}...</span
-                        >
-                        <span
+                        <div class="flex items-center gap-2 truncate pr-2 min-w-0">
+                            <span class="font-mono truncate">{session.id}</span>
+                            {#if (session.total_added ?? 0) > 0 || (session.total_removed ?? 0) > 0}
+                                <span class="flex items-center gap-1 font-mono flex-shrink-0">
+                                    {#if (session.total_added ?? 0) > 0}
+                                        <span class="text-text-success">+{session.total_added}</span>
+                                    {/if}
+                                    {#if (session.total_removed ?? 0) > 0}
+                                        <span class="text-text-error">-{session.total_removed}</span>
+                                    {/if}
+                                </span>
+                            {/if}
+                        </div>
+                        <span class="whitespace-nowrap opacity-80"
                             >{formatDate(
                                 session.updated_at ?? session.created_at,
                             ).split(",")[0]}</span
@@ -115,53 +138,40 @@
         {/if}
     </div>
 
-    <!-- Sticky Footer: Connection status & controls -->
-    <div class="border-t border-border-subtle bg-bg-surface-alt p-2 flex gap-1">
-        <ThemeToggle />
-
-        {#if isConnected}
-            <button
-                onclick={onOpenConnectModal}
-                class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-bg-elevated transition-colors text-left"
-                type="button"
-            >
-                <span class="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0"
-                ></span>
-                <span class="text-[11px] font-mono text-text-tertiary truncate"
-                    >{serverDisplay()}</span
+    <div class="p-1 mt-auto flex flex-col bg-bg-surface-alt border-t border-border-subtle">
+        <div class="flex items-center gap-1">
+            <ThemeToggle />
+            {#if isConnected}
+                <button
+                    onclick={onOpenConnectModal}
+                    class="flex-1 flex items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-bg-hover group"
+                    type="button"
                 >
-                <svg
-                    class="w-3 h-3 text-text-tertiary ml-auto flex-shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                    ></path></svg
+                    <span class="block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-success"></span>
+                    <span class="text-[11px] font-medium text-text-tertiary group-hover:text-text-secondary truncate"
+                        >{serverDisplay()}</span
+                    >
+                </button>
+            {:else}
+                <button
+                    onclick={onOpenConnectModal}
+                    class="flex-1 flex items-center justify-center gap-2 border border-border-subtle px-2 py-1 hover:bg-bg-hover transition-colors"
                 >
-            </button>
-        {:else}
-            <button
-                onclick={onOpenConnectModal}
-                class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-bg-elevated hover:bg-bg-elevated border border-border-default rounded-lg transition-colors text-[12px] text-text-secondary"
-            >
-                <svg
-                    class="w-3.5 h-3.5 text-text-tertiary"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M13 10V3L4 14h7v7l9-11h-7z"
-                    ></path></svg
-                >
-                <span>{isConnecting ? "Connecting..." : "Connect"}</span>
-            </button>
-        {/if}
+                    <svg
+                        class="w-3.5 h-3.5 text-text-tertiary"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        ><path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"
+                        ></path></svg
+                    >
+                    <span class="text-[11px] text-text-secondary">{isConnecting ? "..." : "Connect"}</span>
+                </button>
+            {/if}
+        </div>
     </div>
 </aside>

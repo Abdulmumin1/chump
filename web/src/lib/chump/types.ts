@@ -36,6 +36,26 @@ export type UsageSummary = {
 	session_total: UsageStats | null;
 };
 
+export type ChangeRecordLine = {
+	type: "add" | "remove";
+	old_line: number | null;
+	new_line: number | null;
+	text: string;
+};
+
+export type ChangeRecord = {
+	path: string;
+	kind?: "add" | "update" | "delete" | "move";
+	source_path?: string | null;
+	added: number;
+	removed: number;
+	changes?: ChangeRecordLine[];
+	lines?: string[];
+	truncated?: boolean;
+	shown_changes?: number;
+	total_changes?: number;
+};
+
 export type SessionSummary = {
 	id: string;
 	active: boolean;
@@ -47,6 +67,8 @@ export type SessionSummary = {
 	last_user_goal: string | null;
 	last_activity: number | null;
 	connections: number;
+	total_added?: number;
+	total_removed?: number;
 };
 
 export type SessionsResponse = {
@@ -80,6 +102,7 @@ export type ToolResultMessagePart = {
 		tool_name: string;
 		result: unknown;
 		is_error: boolean;
+		metadata?: Record<string, unknown>;
 	};
 };
 
@@ -121,12 +144,16 @@ export type ChumpState = {
 	commands_run: string[];
 	notes: string[];
 	read_files?: Record<string, { size: number; sha256: string }>;
+	file_diffs?: Record<string, { added: number; removed: number }>;
+	change_records?: ChangeRecord[];
 };
 
-export type AgentStateResponse = {
-	agent_id: string;
-	state: ChumpState;
-};
+export type AgentStateResponse =
+	| ChumpState
+	| {
+			agent_id?: string;
+			state: ChumpState;
+	  };
 
 export type ChumpStatus = {
 	agent_id: string;

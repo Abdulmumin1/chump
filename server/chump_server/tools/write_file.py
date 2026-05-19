@@ -20,7 +20,7 @@ async def write_file(
 def bind_write_file(
     guard: WorkspaceGuard,
     wrap_tool,
-    note_file,
+    record_file_changes,
     require_fresh_read,
     remember_file_read,
 ):
@@ -37,17 +37,19 @@ def bind_write_file(
             style = before_snapshot.style if before_snapshot else _default_text_style()
             normalized_content = content.replace("\r\n", "\n").replace("\r", "\n")
             write_text_snapshot(file_path, normalized_content, style)
-            await note_file(path)
+            
+            diff_meta = _diff_metadata(
+                path,
+                before,
+                normalized_content,
+                kind="update" if before_snapshot else "add",
+            )
+            await record_file_changes([diff_meta])
             await remember_file_read(path, file_path)
             return (
                 f"Wrote {path} ({len(content)} bytes)",
                 {
-                    "diff": _diff_metadata(
-                        path,
-                        before,
-                        normalized_content,
-                        kind="update" if before_snapshot else "add",
-                    )
+                    "diff": diff_meta
                 },
             )
 

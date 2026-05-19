@@ -37,7 +37,7 @@ async def apply_patch(
 def bind_apply_patch(
     guard: WorkspaceGuard,
     wrap_tool,
-    note_file,
+    record_file_changes,
     require_fresh_read,
     remember_file_read,
 ):
@@ -183,24 +183,23 @@ def bind_apply_patch(
                 if kind == "delete":
                     assert isinstance(file_path, Path)
                     file_path.unlink()
-                    await note_file(path)
                     continue
 
                 target = move_to if isinstance(move_to, Path) else file_path
                 assert isinstance(target, Path)
                 assert isinstance(after, str)
                 write_text_snapshot(target, after, style)
-                await note_file(path)
 
                 if move_to and isinstance(move_to, Path):
                     assert isinstance(file_path, Path)
                     file_path.unlink()
                     move_to_path = item.get("move_to_path")
                     if isinstance(move_to_path, str):
-                        await note_file(move_to_path)
                         await remember_file_read(move_to_path, move_to)
                 else:
                     await remember_file_read(path, target)
+
+            await record_file_changes(file_diffs)
 
             touched_count = len(file_diffs)
             summary = "file" if touched_count == 1 else "files"

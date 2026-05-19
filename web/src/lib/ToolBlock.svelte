@@ -3,6 +3,11 @@
     import { tick } from "svelte";
     import { DIFFS_TAG_NAME, FileDiff, processPatch } from "@pierre/diffs";
     import "../../node_modules/@pierre/diffs/dist/components/web-components.js";
+    import {
+        getDocumentTheme,
+        observeDocumentTheme,
+        type AppTheme,
+    } from "$lib/theme";
 
     let { block, expanded, onToggle } = $props<{
         block: any;
@@ -49,6 +54,14 @@
     let diffInstances: FileDiff[] = [];
     let showFullDiff = $state(false);
     let diffExpanded = $state(false);
+    let appTheme = $state<AppTheme>(getDocumentTheme());
+
+    $effect(() => {
+        if (!browser) return;
+        return observeDocumentTheme((theme) => {
+            appTheme = theme;
+        });
+    });
 
     type StructuredDiffChange = {
         type: "add" | "remove";
@@ -64,9 +77,17 @@
         added: number;
         removed: number;
         changes?: StructuredDiffChange[];
+        lines?: string[];
         truncated: boolean;
         shownChanges?: number;
         totalChanges?: number;
+    };
+
+    type StructuredDiffRow = {
+        kind: "add" | "remove" | "context" | "meta";
+        oldLine: number | null;
+        newLine: number | null;
+        text: string;
     };
 
     function readStructuredDiffChange(
@@ -105,6 +126,11 @@
                   .map(readStructuredDiffChange)
                   .filter((c): c is StructuredDiffChange => c !== null)
             : undefined;
+        const lines = Array.isArray(diff.lines)
+            ? diff.lines.filter(
+                  (line): line is string => typeof line === "string",
+              )
+            : undefined;
         const kind = ["add", "update", "delete", "move"].includes(
             String(diff.kind),
         )
@@ -118,6 +144,7 @@
             added: diff.added,
             removed: diff.removed,
             changes,
+            lines,
             truncated: diff.truncated === true,
             shownChanges:
                 typeof diff.shown_changes === "number"
@@ -175,6 +202,86 @@
             instance.cleanUp();
         }
         diffInstances = [];
+    }
+
+    function buildStructuredDiffRows(diff: StructuredDiff): StructuredDiffRow[] {
+        if (diff.lines && diff.lines.length > 0) {
+            return buildStructuredRowsFromLines(diff.lines);
+        }
+
+        return (diff.changes ?? []).map((change) => ({
+            kind: change.type,
+            oldLine: change.oldLine,
+            newLine: change.newLine,
+            text: change.text.length > 0 ? change.text : " ",
+        }));
+    }
+
+    function buildStructuredRowsFromLines(lines: string[]): StructuredDiffRow[] {
+        const rows: StructuredDiffRow[] = [];
+        const hunkRe = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+        let oldLine = 1;
+        let newLine = 1;
+
+        for (const line of lines) {
+            if (line.startsWith("@@")) {
+                const match = hunkRe.exec(line);
+                if (match) {
+                    oldLine = Number.parseInt(match[1] ?? "1", 10);
+                    newLine = Number.parseInt(match[2] ?? "1", 10);
+                }
+                rows.push({
+                    kind: "meta",
+                    oldLine: null,
+                    newLine: null,
+                    text: line,
+                });
+                continue;
+            }
+
+            if (line.startsWith("\\")) {
+                rows.push({
+                    kind: "meta",
+                    oldLine: null,
+                    newLine: null,
+                    text: line,
+                });
+                continue;
+            }
+
+            if (line.startsWith("+")) {
+                rows.push({
+                    kind: "add",
+                    oldLine: null,
+                    newLine,
+                    text: line.slice(1) || " ",
+                });
+                newLine += 1;
+                continue;
+            }
+
+            if (line.startsWith("-")) {
+                rows.push({
+                    kind: "remove",
+                    oldLine,
+                    newLine: null,
+                    text: line.slice(1) || " ",
+                });
+                oldLine += 1;
+                continue;
+            }
+
+            rows.push({
+                kind: "context",
+                oldLine,
+                newLine,
+                text: line.startsWith(" ") ? line.slice(1) || " " : line || " ",
+            });
+            oldLine += 1;
+            newLine += 1;
+        }
+
+        return rows;
     }
 
     function makeSyntheticWritePatch(
@@ -392,8 +499,8 @@
         const limit = typeof args.limit === "number" ? args.limit : null;
         if (offset === null && limit === null) return "";
         const parts: string[] = [];
-        if (offset !== null) parts.push(`offset=${offset}`);
-        if (limit !== null) parts.push(`limit=${limit}`);
+        if (offset !== null) parts.push(`L${offset}`);
+        if (limit !== null) parts.push(`+${limit}`);
         return parts.join(" ");
     });
 
@@ -537,6 +644,7 @@
     });
 
     $effect(() => {
+        appTheme;
         if (!browser || !shouldRenderDiff || !diffExpanded) {
             return () => {
                 cleanupDiffs();
@@ -555,8 +663,11 @@
                 }
 
                 const instance = new FileDiff({
-                    theme: "pierre-dark",
-                    themeType: "system",
+                    theme: {
+                        dark: "pierre-dark",
+                        light: "pierre-light",
+                    },
+                    themeType: appTheme,
                     diffStyle: "unified",
                     diffIndicators: "bars",
                     hunkSeparators: "line-info-basic",
@@ -581,14 +692,14 @@
 {#if shouldRenderDiff}
     <div class="my-4 space-y-3">
         <button
-            class="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={() => {
                 diffExpanded = !diffExpanded;
             }}
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 <span
-                    class="font-mono text-[11px] font-semibold tracking-wide text-accent"
+                    class="font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
                     >{block.originalToolName === "write_file" ||
                     block.originalToolName === "create_file"
                         ? "Write file"
@@ -596,21 +707,21 @@
                 >
                 {#if diffFileNamesDisplay}
                     <span
-                        class="max-w-[300px] truncate font-mono text-[12px] text-text-secondary opacity-80"
+                        class="flex-1 min-w-0 truncate font-mono text-[11px] md:text-[12px] text-text-secondary"
                     >
                         {diffFileNamesDisplay}
                     </span>
                 {/if}
                 {#if totalAdded > 0 || totalRemoved > 0}
-                    <span class="text-[12px] font-mono">
+                    <span class="flex items-center gap-1.5 text-[11px] md:text-[12px] font-mono shrink-0 whitespace-nowrap">
                         <span class="text-text-success">+{totalAdded}</span>
-                        <span class="text-error"> -{totalRemoved}</span>
+                        <span class="text-error">-{totalRemoved}</span>
                     </span>
                 {/if}
             </div>
 
             <div
-                class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
+                class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-80 transition-opacity group-hover:opacity-100"
             >
                 <svg
                     class="h-4 w-4 transition-transform duration-200 {diffExpanded
@@ -657,33 +768,49 @@
                             >
                         </div>
                         <div class="overflow-x-auto">
-                            {#each diff.changes ?? [] as change (`${change.type}-${change.oldLine ?? ""}-${change.newLine ?? ""}-${change.text}`)}
-                                <div
-                                    class="flex text-[12px] font-mono leading-relaxed {change.type ===
-                                    'add'
-                                        ? 'bg-bg-toast-ok'
-                                        : 'bg-bg-toast-err'}"
-                                >
-                                    <span
-                                        class="w-12 flex-shrink-0 select-none px-2 py-0.5 text-right text-text-tertiary"
-                                        >{change.type === "add"
-                                            ? (change.newLine ?? "")
-                                            : (change.oldLine ?? "")}</span
+                            {#each buildStructuredDiffRows(diff) as row (`${row.kind}-${row.oldLine ?? ""}-${row.newLine ?? ""}-${row.text}`)}
+                                {#if row.kind === "meta"}
+                                    <div
+                                        class="px-3 py-0.5 text-[12px] font-mono text-text-tertiary"
                                     >
-                                    <span
-                                        class="w-6 flex-shrink-0 px-1 py-0.5 text-center {change.type ===
+                                        {row.text}
+                                    </div>
+                                {:else}
+                                    <div
+                                        class="grid min-w-max grid-cols-[3.5rem_3.5rem_2rem_minmax(0,1fr)] text-[12px] font-mono leading-relaxed {row.kind ===
                                         'add'
-                                            ? 'text-text-success'
-                                            : 'text-error'}"
-                                        >{change.type === "add"
-                                            ? "+"
-                                            : "-"}</span
+                                            ? 'bg-bg-toast-ok'
+                                            : row.kind === 'remove'
+                                              ? 'bg-bg-toast-err'
+                                              : 'bg-bg-code-block'}"
                                     >
-                                    <span
-                                        class="px-1 py-0.5 whitespace-pre text-text-main"
-                                        >{change.text}</span
-                                    >
-                                </div>
+                                        <span
+                                            class="select-none px-2 py-0.5 text-right text-text-tertiary"
+                                            >{row.oldLine ?? ""}</span
+                                        >
+                                        <span
+                                            class="select-none px-2 py-0.5 text-right text-text-tertiary"
+                                            >{row.newLine ?? ""}</span
+                                        >
+                                        <span
+                                            class="px-1 py-0.5 text-center {row.kind ===
+                                            'add'
+                                                ? 'text-text-success'
+                                                : row.kind === 'remove'
+                                                  ? 'text-error'
+                                                  : 'text-text-tertiary'}"
+                                            >{row.kind === "add"
+                                                ? "+"
+                                                : row.kind === "remove"
+                                                  ? "-"
+                                                  : " "}</span
+                                        >
+                                        <span
+                                            class="px-1 py-0.5 whitespace-pre text-text-main"
+                                            >{row.text}</span
+                                        >
+                                    </div>
+                                {/if}
                             {/each}
                             {#if diff.truncated}
                                 <div
@@ -707,25 +834,37 @@
                             ? "2000px"
                             : undefined}
                     >
-                        <svelte:element
-                            this={DIFFS_TAG_NAME}
-                            bind:this={diffHosts[index]}
-                            class="block"
-                        />
-                    </div>
-                {/each}
+                            <svelte:element
+                                this={DIFFS_TAG_NAME}
+                                bind:this={diffHosts[index]}
+                                class="block diff-mobile-scale"
+                            />
+                        </div>
+                    {/each}
             {:else if effectiveDiffPatch}
                 <pre
-                    class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[12px] font-mono text-text-warning"
-                    style:max-height={shouldClampDiff && !showFullDiff
-                        ? "2000px"
-                        : undefined}>{effectiveDiffPatch}</pre>
+                        class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[10px] md:text-[12px] font-mono text-text-warning"
+                        style:max-height={shouldClampDiff && !showFullDiff
+                            ? "2000px"
+                            : undefined}>{effectiveDiffPatch}</pre>
             {/if}
+
+<style>
+    .diff-mobile-scale {
+        font-size: 10px;
+    }
+
+    @media (min-width: 768px) {
+        .diff-mobile-scale {
+            font-size: 12px;
+        }
+    }
+</style>
 
             {#if shouldClampDiff && !showFullDiff}
                 <div class="px-1">
                     <button
-                        class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
+                        class="text-[12px] font-mono text-text-highlight transition-colors hover:text-text-secondary"
                         onclick={() => {
                             showFullDiff = true;
                         }}
@@ -736,7 +875,7 @@
             {:else if shouldClampDiff && showFullDiff}
                 <div class="px-1">
                     <button
-                        class="text-[12px] font-mono text-accent transition-colors hover:text-accent"
+                        class="text-[12px] font-mono text-text-highlight transition-colors hover:text-text-secondary"
                         onclick={() => {
                             showFullDiff = false;
                         }}
@@ -761,68 +900,68 @@
 {:else}
     <div class="my-0.5">
         <button
-            class="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[11px] font-semibold tracking-wide text-accent"
+                        class="font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
                         >$</span
                     >
                     <span
-                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[11px] text-text-secondary"
+                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[11px] text-text-main"
                         >{(block.toolName || "").replace("$ ", "")}</span
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
                         >Read file</span
                     >
                     <span
-                        class="truncate font-mono text-[10px] text-text-secondary opacity-90"
+                        class="flex-1 min-w-0 truncate font-mono text-[10px] md:text-[11px] text-text-secondary"
                         >{block.toolName !== block.originalToolName
                             ? truncatePath(block.toolName)
                             : ""}</span
                     >
                     {#if readFileRange}
                         <span
-                            class="font-mono text-[11px] text-text-tertiary opacity-70"
+                            class="shrink-0 font-mono text-[10px] md:text-[11px] text-text-tertiary opacity-70 whitespace-nowrap"
                             >{readFileRange}</span
                         >
                     {/if}
                 {:else if block.originalToolName === "apply_patch"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
                         >Edited</span
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary opacity-80"
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
                             >{truncatePath(block.toolName)}</span
                         >
                     {/if}
                 {:else if block.originalToolName === "write_file" || block.originalToolName === "create_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
                         >Write file</span
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary opacity-80"
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
                             >{truncatePath(block.toolName)}</span
                         >
                     {/if}
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-wide text-accent"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
                         >{block.originalToolName ||
                             block.toolName ||
                             "tool"}</span
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary opacity-80"
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
                             >{block.toolName}</span
                         >
                     {/if}
@@ -830,7 +969,7 @@
             </div>
 
             <div
-                class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-60 transition-opacity group-hover:opacity-100"
+                class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-80 transition-opacity group-hover:opacity-100"
             >
                 <svg
                     class="h-4 w-4 transition-transform duration-200 {expanded

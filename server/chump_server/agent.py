@@ -100,6 +100,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 "updated_at": now,
                 "last_user_goal": None,
                 "files_touched": [],
+                "file_diffs": {},
+                "change_records": [],
                 "read_files": {},
                 "commands_run": [],
                 "notes": [],
@@ -160,6 +162,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self.clear()
         await self.update_state(
             last_user_goal=None,
+            files_touched=[],
+            file_diffs={},
+            change_records=[],
             read_files={},
             updated_at=now,
             usage_summary=self._usage_summary,

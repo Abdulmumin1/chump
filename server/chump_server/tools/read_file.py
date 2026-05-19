@@ -23,7 +23,6 @@ async def read_file(
 def bind_read_file(
     guard: WorkspaceGuard,
     wrap_tool,
-    note_file,
     remember_file_read,
     resolve_read_context,
 ):
@@ -40,7 +39,6 @@ def bind_read_file(
             if not file_path.exists():
                 raise SafetyError(f"file does not exist: {path}")
 
-            await note_file(path)
             snapshot = read_text_snapshot(file_path)
             await remember_file_read(path, file_path)
             lines = snapshot.text.splitlines()

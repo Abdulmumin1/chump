@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { writeOutput } from "./terminal.ts";
+import { armOsc11ResponseFilter } from "./terminal-query.ts";
 
 const STYLE_RESET = "\x1b[0m";
 
@@ -853,9 +854,12 @@ export type FileEditChange = {
 
 export function renderFileEditDiff(diff: FileEditDiff): string {
   const header = `${muted("•")} ${bold(fg(palette.editHeader, renderEditVerb(diff)))} ${foreground(renderEditTarget(diff))} ${success(`(+${diff.added}`)} ${danger(`-${diff.removed})`)}`;
-  const lines = diff.changes
-    ? diff.changes.map((change) => renderDiffChange(change))
-    : renderDiffLinesWithNumbers(diff.lines ?? []);
+  const lines =
+    diff.lines && diff.lines.length > 0
+      ? renderDiffLinesWithNumbers(diff.lines)
+      : diff.changes
+        ? diff.changes.map((change) => renderDiffChange(change))
+        : [];
   if (diff.truncated) {
     const detail =
       typeof diff.shownChanges === "number" &&
@@ -921,7 +925,12 @@ function renderDiffLinesWithNumbers(lines: string[]): string[] {
         oldLine = Number.parseInt(m[1] ?? "1", 10);
         newLine = Number.parseInt(m[2] ?? "1", 10);
       }
-      continue; // skip rendering the @@ header itself
+      out.push(muted(line));
+      continue;
+    }
+    if (line.startsWith("\\")) {
+      out.push(muted(line));
+      continue;
     }
     if (line.startsWith("+")) {
       const content = line.slice(1) || " ";
@@ -946,10 +955,10 @@ function renderDiffLinesWithNumbers(lines: string[]): string[] {
     } else {
       // context line (space-prefixed or bare)
       const content = line.startsWith(" ") ? line.slice(1) : line;
+      const num = `${newLine}`.padStart(4, " ");
+      out.push(`${muted(num)} ${muted("  ")}${foreground(content.length > 0 ? content : " ")}`);
       oldLine += 1;
       newLine += 1;
-      // don't render context lines — keep output compact
-      void content;
     }
   }
 
@@ -1057,17 +1066,16 @@ function isLightTerminal(): boolean {
   }
 
   // OSC 11 query: ask the terminal for its background color synchronously.
-  // Only attempt when stdin/stdout are both TTYs (interactive terminal).
+  // We also arm a temporary stdin-side filter for the response in case some
+  // terminals leak the OSC bytes back through the normal input stream.
   if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
 
   try {
     const wasRaw = process.stdin.isRaw;
     process.stdin.setRawMode(true);
-    // Send OSC 11 query: ESC ] 11 ; ? ESC \
+    armOsc11ResponseFilter(300);
     process.stdout.write("\x1b]11;?\x1b\\");
 
-    // Read response bytes synchronously. Open /dev/tty as a fresh fd so we can
-    // use O_NONBLOCK without disturbing the process stdin fd.
     const ttyFd = fs.openSync(
       "/dev/tty",
       fs.constants.O_RDONLY | fs.constants.O_NONBLOCK,
@@ -1081,7 +1089,6 @@ function isLightTerminal(): boolean {
         try {
           n = fs.readSync(ttyFd, buf, 0, buf.length, null);
         } catch (e: unknown) {
-          // EAGAIN (no data yet) — spin until deadline
           if ((e as NodeJS.ErrnoException).code === "EAGAIN") continue;
           break;
         }
@@ -1096,7 +1103,6 @@ function isLightTerminal(): boolean {
 
     process.stdin.setRawMode(wasRaw);
 
-    // Parse rgb:RRRR/GGGG/BBBB (16-bit components)
     const match = /rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/.exec(
       response,
     );
@@ -1104,7 +1110,6 @@ function isLightTerminal(): boolean {
       const r = Number.parseInt(match[1], 16);
       const g = Number.parseInt(match[2], 16);
       const b = Number.parseInt(match[3], 16);
-      // Scale to 8-bit if needed (16-bit components are 4 hex digits)
       const scale = match[1].length > 2 ? 257 : 1;
       const luminance =
         (0.299 * (r / scale) + 0.587 * (g / scale) + 0.114 * (b / scale)) / 255;
