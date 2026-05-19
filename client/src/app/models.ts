@@ -20,6 +20,42 @@ const CODEX_MODELS = new Set([
   "gpt-5-codex",
 ]);
 
+const SUPPORTED_MODELS: Record<string, Set<string>> = {
+  codex: new Set(CODEX_MODELS),
+  openai: new Set([
+    "gpt-5.5",
+    "gpt-5.4-pro",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.3-codex",
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-codex",
+  ]),
+  chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+  google: new Set([
+    "gemini-3.1-pro-preview",
+    "gemini-3-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash-lite",
+  ]),
+  anthropic: new Set(["claude-sonnet-4-20250514"]),
+  workers_ai: new Set([
+    "@cf/zai-org/glm-4.7-flash",
+    "@cf/nvidia/nemotron-3-120b-a12b",
+    "@cf/moonshotai/kimi-k2.5",
+    "@cf/moonshotai/kimi-k2.6",
+  ]),
+  deepseek: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+};
+
 const FALLBACK_MODELS: Record<string, ModelProvider> = {
   codex: {
     id: "codex",
@@ -96,11 +132,6 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         id: "gpt-5.2-pro",
         name: "GPT-5.2 Pro",
         reasoning: true,
-      },
-      "gpt-5.2-chat-latest": {
-        id: "gpt-5.2-chat-latest",
-        name: "GPT-5.2 Chat",
-        reasoning: false,
       },
       "gpt-5.1": { id: "gpt-5.1", name: "GPT-5.1", reasoning: true },
       "gpt-5": { id: "gpt-5", name: "GPT-5", reasoning: true },
@@ -409,6 +440,9 @@ function isUsableChatModel(provider: string, model: ModelInfo): boolean {
   if (!model.id) {
     return false;
   }
+  if (!SUPPORTED_MODELS[provider]?.has(model.id)) {
+    return false;
+  }
   if (
     (provider === "openai" || provider === "codex") &&
     !model.id.startsWith("gpt-5")
@@ -429,7 +463,20 @@ function isUsableChatModel(provider: string, model: ModelInfo): boolean {
   ) {
     return false;
   }
+  if (
+    /(image|imagen|gpt-image|dall-e|flux|sdxl|stable-diffusion|midjourney|recraft|tts|whisper|transcribe|vision-preview)/u.test(
+      lower,
+    )
+  ) {
+    return false;
+  }
+  if (model.reasoning !== true) {
+    return false;
+  }
   if (model.modalities?.output && !model.modalities.output.includes("text")) {
+    return false;
+  }
+  if (model.modalities?.output?.includes("image")) {
     return false;
   }
   return true;
@@ -476,8 +523,6 @@ function modelRank(provider: string, model: string): number {
       "@cf/moonshotai/kimi-k2.5",
       "@cf/zai-org/glm-4.7-flash",
       "@cf/nvidia/nemotron-3-120b-a12b",
-      "@cf/openai/gpt-oss-120b",
-      "@cf/qwen/qwen2.5-coder-32b-instruct",
     ],
     deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
   };
