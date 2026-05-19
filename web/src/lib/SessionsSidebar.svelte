@@ -48,15 +48,8 @@
         }
     });
 
-    let currentTranslate = $derived(() => {
-        if (isDragging) {
-            return Math.min(0, Math.max(-240, (open ? 0 : -240) + dragOffset));
-        }
-        return open ? 0 : -240;
-    });
-    let currentOpacity = $derived(() => {
-        return (currentTranslate() + 240) / 240;
-    });
+    let currentTranslate = $derived(isDragging ? Math.min(0, Math.max(-240, (open ? 0 : -240) + dragOffset)) : (open ? 0 : -240));
+    let currentOpacity = $derived((currentTranslate + 240) / 240);
 </script>
 
 <aside
@@ -65,8 +58,8 @@
     class:duration-200={!isDragging}
     class:ease-in-out={!isDragging}
     aria-hidden={!open && !isDragging}
-    style:transform="translateX({currentTranslate()}px)"
-    style:opacity={currentOpacity()}
+    style:transform="translateX({currentTranslate}px)"
+    style:opacity={currentOpacity}
     style:visibility={open || isDragging ? 'visible' : 'hidden'}
 >
     <div

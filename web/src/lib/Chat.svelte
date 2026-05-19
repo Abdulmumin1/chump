@@ -189,10 +189,15 @@
     let dragDirectionLocked = $state(false);
 
     function handleTouchStart(e: TouchEvent) {
+        // Don't intercept touches on code blocks or horizontally scrollable areas
+        if (e.target instanceof Element && e.target.closest('pre, code, [class*="overflow-x"]')) {
+            return;
+        }
+
         const x = e.touches[0].clientX;
         const y = e.touches[1] ? null : e.touches[0].clientY;
-        // If closed, only allow drag from left edge (e.g. < 40px)
-        if (!sidebarOpen && x > 40) return;
+        // If closed, allow swipe from the left half of the screen to avoid Android's edge-swipe "back" gesture
+        if (!sidebarOpen && x > window.innerWidth / 2) return;
         
         touchStartX = x;
         touchStartY = y;
@@ -221,6 +226,7 @@
                 } else {
                     // Horizontal drag, lock it
                     dragDirectionLocked = true;
+                    e.preventDefault();
                 }
             } else {
                 // Not enough movement to lock, still update X to avoid jump later
@@ -230,6 +236,10 @@
         }
         
         touchCurrentX = currentX;
+        
+        if (dragDirectionLocked) {
+            e.preventDefault();
+        }
     }
 
     function handleTouchEnd() {
@@ -260,6 +270,22 @@
     let dragOffset = $derived((touchCurrentX !== null && touchStartX !== null) ? touchCurrentX - touchStartX : 0);
     let sidebarTranslate = $derived(isDraggingSidebar ? Math.min(0, Math.max(-240, (sidebarOpen ? 0 : -240) + dragOffset)) : (sidebarOpen ? 0 : -240));
     let sidebarProgress = $derived((sidebarTranslate + 240) / 240);
+
+    function swipeable(node: HTMLElement) {
+        node.addEventListener('touchstart', handleTouchStart, { passive: true });
+        node.addEventListener('touchmove', handleTouchMove, { passive: false });
+        node.addEventListener('touchend', handleTouchEnd, { passive: true });
+        node.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+        
+        return {
+            destroy() {
+                node.removeEventListener('touchstart', handleTouchStart);
+                node.removeEventListener('touchmove', handleTouchMove);
+                node.removeEventListener('touchend', handleTouchEnd);
+                node.removeEventListener('touchcancel', handleTouchEnd);
+            }
+        };
+    }
 
     async function openConnectModal() {
         connectModalOpen = true;
@@ -1845,9 +1871,7 @@
 
 <div
     class="flex h-[100dvh] bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
-    ontouchstart={handleTouchStart}
-    ontouchmove={handleTouchMove}
-    ontouchend={handleTouchEnd}
+    use:swipeable
 >
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1855,7 +1879,7 @@
         class="fixed inset-0 z-20 bg-black/10"
         style:opacity={sidebarProgress}
         style:backdrop-filter="blur({sidebarProgress * 1}px)"
-        style:pointer-events={sidebarOpen || isDraggingSidebar ? "auto" : "none"}
+        style:pointer-events={sidebarOpen || sidebarProgress > 0 ? "auto" : "none"}
         class:transition-all={!isDraggingSidebar}
         class:duration-200={!isDraggingSidebar}
         onclick={closeSidebar}
