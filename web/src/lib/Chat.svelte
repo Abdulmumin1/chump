@@ -107,6 +107,25 @@
     let composerText = $state("");
     let composerAttachments = $state<ChatAttachment[]>([]);
     let isConnecting = $state(false);
+
+    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinnerFrame = $state(0);
+    let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+    $effect(() => {
+        if (isConnecting) {
+            spinnerFrame = 0;
+            spinnerTimer = setInterval(() => {
+                spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
+            }, 80);
+        } else {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+            spinnerTimer = null;
+        }
+        return () => {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+        };
+    });
+
     let isLoadingSession = $state(false);
     let isSending = $state(false);
     let connectionError = $state("");
@@ -2049,9 +2068,17 @@
                                 void connectToServer();
                             }}
                             disabled={!canConnect || isConnecting}
-                            class="bg-accent text-text-on-accent h-6 px-2.5 rounded-sm text-[11px] font-bold transition-all active:scale-[0.95] disabled:opacity-30"
+                            class="bg-accent text-text-on-accent h-6 px-2.5 rounded-sm text-[11px] font-bold transition-all active:scale-[0.95] disabled:opacity-70 flex items-center justify-center min-w-[60px]"
                         >
-                            {isConnecting ? "..." : "Connect"}
+                            {#if isConnecting}
+                                <span class="flex items-center gap-1.5" aria-live="polite">
+                                    <span class="font-mono text-[14px]" aria-hidden="true"
+                                        >{spinnerFrames[spinnerFrame]}</span
+                                    >
+                                </span>
+                            {:else}
+                                Connect
+                            {/if}
                         </button>
                     </div>
                     
