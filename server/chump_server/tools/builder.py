@@ -20,6 +20,8 @@ from .web_fetch import bind_web_fetch
 from .website import bind_website
 from .skill import bind_skill
 
+MAX_CHANGE_RECORDS = 200
+
 
 def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
     guard = WorkspaceGuard(config.workspace_root)
@@ -76,11 +78,41 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
             log(f"error {name}: {exc}")
             raise
 
-    async def note_file(path: str) -> None:
+    def _as_int(value: object) -> int:
+        return value if isinstance(value, int) else 0
+
+    async def record_file_changes(diffs: list[dict[str, object]]) -> None:
+        if not diffs:
+            return
+
         files_touched = list(agent.state.get("files_touched", []))
-        if path not in files_touched:
-            files_touched.append(path)
-            await agent.update_state(files_touched=files_touched)
+        file_diffs = dict(agent.state.get("file_diffs", {}))
+        change_records = list(agent.state.get("change_records", []))
+
+        for diff in diffs:
+            path = diff.get("path")
+            if not isinstance(path, str) or not path:
+                continue
+
+            if path not in files_touched:
+                files_touched.append(path)
+
+            source_path = diff.get("source_path")
+            if isinstance(source_path, str) and source_path and source_path not in files_touched:
+                files_touched.append(source_path)
+
+            current = file_diffs.get(path, {"added": 0, "removed": 0})
+            file_diffs[path] = {
+                "added": _as_int(current.get("added")) + _as_int(diff.get("added")),
+                "removed": _as_int(current.get("removed")) + _as_int(diff.get("removed")),
+            }
+            change_records.append(dict(diff))
+
+        await agent.update_state(
+            files_touched=files_touched,
+            file_diffs=file_diffs,
+            change_records=change_records[-MAX_CHANGE_RECORDS:],
+        )
 
     async def note_command(command: str) -> None:
         commands_run = list(agent.state.get("commands_run", []))
@@ -129,7 +161,6 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
     read_file = bind_read_file(
         guard=guard,
         wrap_tool=wrap_tool,
-        note_file=note_file,
         remember_file_read=remember_file_read,
         resolve_read_context=resolve_read_context,
     )
@@ -137,7 +168,7 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
     write_file = bind_write_file(
         guard=guard,
         wrap_tool=wrap_tool,
-        note_file=note_file,
+        record_file_changes=record_file_changes,
         require_fresh_read=require_fresh_read,
         remember_file_read=remember_file_read,
     )
@@ -145,7 +176,7 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
     apply_patch = bind_apply_patch(
         guard=guard,
         wrap_tool=wrap_tool,
-        note_file=note_file,
+        record_file_changes=record_file_changes,
         require_fresh_read=require_fresh_read,
         remember_file_read=remember_file_read,
     )
