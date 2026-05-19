@@ -38,6 +38,24 @@
         isDragging?: boolean;
     }>();
 
+    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinnerFrame = $state(0);
+    let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+    $effect(() => {
+        if (isConnecting) {
+            spinnerFrame = 0;
+            spinnerTimer = setInterval(() => {
+                spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
+            }, 80);
+        } else {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+            spinnerTimer = null;
+        }
+        return () => {
+            if (spinnerTimer) clearInterval(spinnerTimer);
+        };
+    });
+
     let isConnected = $derived(!!health);
     let serverDisplay = $derived(() => {
         try {
@@ -183,7 +201,16 @@
                             d="M13 10V3L4 14h7v7l9-11h-7z"
                         ></path></svg
                     >
-                    <span class="text-[11px] text-text-secondary">{isConnecting ? "..." : "Connect"}</span>
+                    <span class="text-[11px] text-text-secondary flex items-center gap-1.5">
+                        {#if isConnecting}
+                            <span class="font-mono text-[13px]" aria-hidden="true"
+                                >{spinnerFrames[spinnerFrame]}</span
+                            >
+                            Connecting...
+                        {:else}
+                            Connect
+                        {/if}
+                    </span>
                 </button>
             {/if}
         </div>
