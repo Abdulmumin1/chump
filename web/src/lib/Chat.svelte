@@ -179,6 +179,88 @@
     function closeSidebar() {
         sidebarOpen = false;
     }
+
+    // Swipe gesture logic
+    let touchStartX = $state<number | null>(null);
+    let touchStartY = $state<number | null>(null);
+    let touchCurrentX = $state<number | null>(null);
+    let touchStartTime = $state<number>(0);
+    let isDraggingSidebar = $state(false);
+    let dragDirectionLocked = $state(false);
+
+    function handleTouchStart(e: TouchEvent) {
+        const x = e.touches[0].clientX;
+        const y = e.touches[1] ? null : e.touches[0].clientY;
+        // If closed, only allow drag from left edge (e.g. < 40px)
+        if (!sidebarOpen && x > 40) return;
+        
+        touchStartX = x;
+        touchStartY = y;
+        touchCurrentX = x;
+        touchStartTime = Date.now();
+        isDraggingSidebar = true;
+        dragDirectionLocked = false;
+    }
+
+    function handleTouchMove(e: TouchEvent) {
+        if (!isDraggingSidebar || touchStartX === null) return;
+        
+        const currentX = e.touches[0].clientX;
+        const currentY = e.touches[0].clientY;
+        
+        if (!dragDirectionLocked && touchStartY !== null) {
+            const dx = Math.abs(currentX - touchStartX);
+            const dy = Math.abs(currentY - touchStartY);
+            
+            // If moved more than 10px, lock direction
+            if (dx > 10 || dy > 10) {
+                if (dy > dx) {
+                    // Vertical scroll, cancel drag
+                    isDraggingSidebar = false;
+                    return;
+                } else {
+                    // Horizontal drag, lock it
+                    dragDirectionLocked = true;
+                }
+            } else {
+                // Not enough movement to lock, still update X to avoid jump later
+                touchCurrentX = currentX;
+                return;
+            }
+        }
+        
+        touchCurrentX = currentX;
+    }
+
+    function handleTouchEnd() {
+        if (!isDraggingSidebar || touchStartX === null || touchCurrentX === null) return;
+        
+        if (!dragDirectionLocked) {
+            // Never crossed the movement threshold, treat as tap or cancel
+            isDraggingSidebar = false;
+            return;
+        }
+        
+        const deltaX = touchCurrentX - touchStartX;
+        const velocity = deltaX / Math.max(1, Date.now() - touchStartTime);
+        
+        let shouldOpen = sidebarOpen;
+        if (!sidebarOpen) {
+            if (deltaX > 60 || velocity > 0.3) shouldOpen = true;
+        } else {
+            if (deltaX < -60 || velocity < -0.3) shouldOpen = false;
+        }
+        
+        sidebarOpen = shouldOpen;
+        isDraggingSidebar = false;
+        touchStartX = null;
+        touchCurrentX = null;
+    }
+
+    let dragOffset = $derived((touchCurrentX !== null && touchStartX !== null) ? touchCurrentX - touchStartX : 0);
+    let sidebarTranslate = $derived(isDraggingSidebar ? Math.min(0, Math.max(-240, (sidebarOpen ? 0 : -240) + dragOffset)) : (sidebarOpen ? 0 : -240));
+    let sidebarProgress = $derived((sidebarTranslate + 240) / 240);
+
     async function openConnectModal() {
         connectModalOpen = true;
         closeSidebar();
@@ -1763,16 +1845,21 @@
 
 <div
     class="flex h-[100dvh] bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
+    ontouchstart={handleTouchStart}
+    ontouchmove={handleTouchMove}
+    ontouchend={handleTouchEnd}
 >
-    {#if sidebarOpen}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-            class="fixed inset-0 z-20 bg-black/10 backdrop-blur-[1px]"
-            transition:fade={{ duration: 200 }}
-            onclick={closeSidebar}
-        ></div>
-    {/if}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="fixed inset-0 z-20 bg-black/10"
+        style:opacity={sidebarProgress}
+        style:backdrop-filter="blur({sidebarProgress * 1}px)"
+        style:pointer-events={sidebarOpen || isDraggingSidebar ? "auto" : "none"}
+        class:transition-all={!isDraggingSidebar}
+        class:duration-200={!isDraggingSidebar}
+        onclick={closeSidebar}
+    ></div>
 
     <SessionsSidebar
         {sessions}
@@ -1793,12 +1880,20 @@
         {sessionTitle}
         {formatDate}
         open={sidebarOpen}
+        {dragOffset}
+        isDragging={isDraggingSidebar}
     />
 
     <!-- Center: Chat/Editor Area -->
     <main
-        class="flex-1 flex flex-col bg-bg-surface relative min-w-0 h-[100dvh] transition-all duration-200 ease-out"
-        style={sidebarOpen ? "transform: translateX(40px); overflow: hidden; border-radius: 12px; box-shadow: 0 0 0 1px var(--border-subtle);" : ""}
+        class="flex-1 flex flex-col bg-bg-surface relative min-w-0 h-[100dvh]"
+        class:transition-all={!isDraggingSidebar}
+        class:duration-200={!isDraggingSidebar}
+        class:ease-out={!isDraggingSidebar}
+        style:transform="translateX({sidebarProgress * 40}px)"
+        style:overflow={sidebarProgress > 0 ? "hidden" : ""}
+        style:border-radius="{sidebarProgress * 12}px"
+        style:box-shadow={sidebarProgress > 0 ? "0 0 0 1px var(--border-subtle)" : ""}
     >
         <!-- Top Fade overlay for scrolling under floating header -->
         <div
@@ -1899,9 +1994,9 @@
 {#if connectModalOpen}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <button
+    <div
         class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay/60 backdrop-blur-[2px] p-4 w-full h-full border-none cursor-default"
-        transition:fade={{ duration: 150 }} onclick={closeConnectModal} aria-label="Close modal"
+        transition:fade={{ duration: 150 }} onclick={closeConnectModal}
     >
         <div
             class="flex w-full max-w-[300px] flex-col overflow-hidden rounded-lg border border-border-default bg-bg-surface shadow-2xl"
@@ -1983,7 +2078,7 @@
                 {/if}
             </div>
         </div>
-    </button>
+    </div>
  {/if}
 
 <Toasts bind:toasts />
@@ -1992,9 +2087,9 @@
 {#if modelPickerOpen}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <button
+    <div
         class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-bg-overlay/60 backdrop-blur-[2px] w-full h-full border-none cursor-default"
-        transition:fade={{ duration: 150 }} onclick={closeModelPicker} aria-label="Close modal"
+        transition:fade={{ duration: 150 }} onclick={closeModelPicker}
     >
         <div
             class="flex max-h-[65vh] w-full flex-col overflow-hidden rounded-t-2xl border-x border-t border-border-subtle bg-bg-elevated md:max-w-md md:rounded-[12px] md:border"
@@ -2104,7 +2199,7 @@
             <!-- Bottom safe area spacer for mobile -->
             <div class="h-6 md:hidden bg-bg-elevated"></div>
         </div>
-    </button>
+    </div>
  {/if}
 
 <style>

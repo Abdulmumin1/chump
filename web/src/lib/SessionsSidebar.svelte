@@ -16,6 +16,8 @@
         sessionTitle,
         formatDate,
         open = false,
+        dragOffset = 0,
+        isDragging = false,
     } = $props<{
         sessions: Array<any>;
         activeSessionId: string;
@@ -32,6 +34,8 @@
         sessionTitle: (session: any) => string;
         formatDate: (value: number | null) => string;
         open?: boolean;
+        dragOffset?: number;
+        isDragging?: boolean;
     }>();
 
     let isConnected = $derived(!!health);
@@ -43,14 +47,27 @@
             return serverUrl || "—";
         }
     });
+
+    let currentTranslate = $derived(() => {
+        if (isDragging) {
+            return Math.min(0, Math.max(-240, (open ? 0 : -240) + dragOffset));
+        }
+        return open ? 0 : -240;
+    });
+    let currentOpacity = $derived(() => {
+        return (currentTranslate() + 240) / 240;
+    });
 </script>
 
 <aside
-    class="{open
-        ? 'translate-x-0 opacity-100'
-        : '-translate-x-full opacity-0'} fixed inset-y-0 left-0 w-[240px] flex flex-col bg-bg-surface-alt border-r border-border-subtle flex-shrink-0 z-30 transition-all duration-200 ease-in-out"
-    aria-hidden={!open}
-    style:visibility={open ? 'visible' : 'hidden'}
+    class="fixed inset-y-0 left-0 w-[240px] flex flex-col bg-bg-surface-alt border-r border-border-subtle flex-shrink-0 z-30"
+    class:transition-all={!isDragging}
+    class:duration-200={!isDragging}
+    class:ease-in-out={!isDragging}
+    aria-hidden={!open && !isDragging}
+    style:transform="translateX({currentTranslate()}px)"
+    style:opacity={currentOpacity()}
+    style:visibility={open || isDragging ? 'visible' : 'hidden'}
 >
     <div
         class="p-2 flex items-center"
