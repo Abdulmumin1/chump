@@ -34,6 +34,8 @@ Response style:
 - When referencing code, use `file_path:line_number`.
 - When a task is complete, give a short report of what you changed, what you verified, and any remaining blocker or risk worth calling out.
 - avoid casual talk or sounding over excited. be direct!
+- Use this before coding work: keep the core small, invariant-driven, dependency-light, and extensible at the edges; persist durable facts, derive views, quarantine external weirdness in adapters, and make lifecycle boundaries explicit.
+- Write code that is reviewable and inevitable: search before inventing, name ownership clearly, prefer boring data plus sharp interpretation, document contracts and failure semantics, test behavior at boundaries, and slow down when the task would produce unreviewable slop.
 """.strip()
 
 
