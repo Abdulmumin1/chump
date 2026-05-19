@@ -76,6 +76,7 @@
         onEditSteering,
         onCommand,
         onAbort,
+        onScrollToBottom,
     } = $props<{
         composerText: string;
         composerAttachments: ChatAttachment[];
@@ -98,6 +99,7 @@
         onEditSteering: (index: number) => void;
         onCommand: (command: string, args: string) => void | Promise<void>;
         onAbort: () => void;
+        onScrollToBottom?: () => void;
     }>();
 
     let textareaElement = $state<HTMLTextAreaElement | null>(null);
@@ -459,6 +461,16 @@
     ondragover={handleDragOver}
     ondrop={handleDrop}
 >
+    {#if onScrollToBottom}
+        <!-- Scroll to bottom float -->
+        <div class="absolute left-1/2 -top-10 -translate-x-1/2 z-30 transition-opacity opacity-80 hover:opacity-100">
+            <button onclick={onScrollToBottom} class="inline-flex items-center gap-1 rounded-[9px] border border-border-default bg-bg-elevated px-2.5 py-1 text-[11px] text-text-secondary transition-all hover:border-border-hover hover:bg-bg-hover hover:text-text-main">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+                Scroll to bottom
+            </button>
+        </div>
+    {/if}
+
     {#if isDraggingOver}
         <div class="absolute inset-0 z-20 bg-accent/10 border-2 border-dashed border-accent rounded-lg flex items-center justify-center pointer-events-none">
             <span class="text-accent text-sm font-medium">Drop images here</span>
@@ -497,7 +509,7 @@
             <div class="space-y-2 mb-2 w-full px-1">
                 {#each steeringQueue as item, index (`${index}-${item.content}`)}
                     <div
-                        class="group flex items-center gap-2 border border-border-default bg-bg-code/95 px-3 py-2 rounded-[8px]"
+                        class="group flex items-center gap-2 rounded-[7px] border border-border-default bg-bg-code/95 px-2.5 py-1.5"
                     >
                         <span
                             class="text-[10px] font-mono font-bold uppercase tracking-[0.18em] text-text-tertiary"
@@ -510,7 +522,7 @@
                         <button
                             type="button"
                             aria-label="Delete queued steering"
-                            class="flex h-7 w-7 items-center justify-center rounded-[6px] text-text-tertiary hover:bg-border-hover hover:text-error"
+                            class="flex h-6 w-6 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-border-hover hover:text-error"
                             onclick={() => onDeleteSteering(index)}
                         >
                             <svg
@@ -529,7 +541,7 @@
                         <button
                             type="button"
                             aria-label="Edit queued steering"
-                            class="flex h-7 w-7 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-border-hover hover:text-accent"
+                            class="flex h-6 w-6 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-border-hover hover:text-text-highlight"
                             onclick={() => onEditSteering(index)}
                         >
                             <svg
@@ -557,9 +569,10 @@
             {/if}
         </div>
         <div
-            class="bg-bg-code border border-border-default rounded-[8px] flex flex-col focus-within:border-border-hover"
+            class="flex flex-col rounded-[8px] border border-border-default bg-bg-code focus-within:border-border-hover"
         >
             <textarea
+                aria-label="Message the agent"
                 bind:this={textareaElement}
                 bind:value={composerText}
             rows="2"
@@ -567,11 +580,11 @@
             onkeydown={handleKeydown}
             oninput={handleInput}
             onpaste={handlePaste}
-            class="w-full bg-transparent border-none rounded-t-[8px] px-3 md:px-4 py-2.5 md:py-3 text-base text-text-secondary focus:outline-none resize-none min-h-[52px] md:min-h-[60px] max-h-[200px] md:max-h-[300px] placeholder:text-text-muted"
+            class="w-full resize-none rounded-t-[8px] border-none bg-transparent px-3 md:px-4 py-2 md:py-2.5 text-base text-text-secondary placeholder:text-text-muted focus:outline-none min-h-[48px] md:min-h-[56px] max-h-[200px] md:max-h-[300px]"
         ></textarea>
 
         <div
-            class="flex justify-between items-center px-2 md:px-3 py-1.5 md:py-2 border-t border-border-default rounded-b-[8px]"
+            class="flex items-center justify-between rounded-b-[8px] border-t border-border-default px-2 md:px-3 py-1.5"
         >
             <div class="flex items-center gap-2">
                 <button
@@ -596,7 +609,7 @@
                     <span
                         class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
                     >
-                        <span class="text-accent font-mono text-[15px]"
+                        <span class="font-mono text-[15px] text-text-highlight"
                             >{spinnerFrames[spinnerFrame]}</span
                         >
                         Working...
@@ -630,7 +643,7 @@
                         aria-label={isSending
                             ? "Queue message"
                             : "Send message"}
-                        class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-bg-code text-text-tertiary hover:bg-bg-code hover:text-text-secondary rounded-[6px] disabled:opacity-50"
+                        class="flex h-7 w-7 items-center justify-center rounded-[6px] border border-transparent bg-bg-elevated text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50 md:h-8 md:w-8"
                         onclick={onSend}
                         disabled={!canSend || (isCommand && !hasAttachments)}
                     >
@@ -693,7 +706,7 @@
             {/if}
             {#if currentModel}
                 <button
-                    class="text-[10px] md:text-[11px] font-mono text-text-muted hover:text-accent truncate text-left"
+                    class="truncate text-left font-mono text-[10px] md:text-[11px] text-text-muted transition-colors hover:text-text-highlight"
                     onclick={() => onCommand("__open_model_picker", "")}
                     type="button"
                 >
@@ -712,7 +725,7 @@
             >
                 {#each suggestions as suggestion, index (suggestion.command)}
                     <button
-                        class="w-full text-left px-4 py-2.5 flex items-center gap-3 {index ===
+                        class="flex w-full items-center gap-3 px-4 py-2 text-left {index ===
                         selectedIndex
                             ? 'bg-bg-elevated'
                             : 'hover:bg-bg-elevated/50'}"
@@ -721,7 +734,7 @@
                         type="button"
                     >
                         <span
-                            class="text-[13px] font-mono text-accent min-w-[140px]"
+                            class="min-w-[140px] font-mono text-[13px] text-text-highlight"
                             >{suggestion.label}</span
                         >
                         <span class="text-[12px] text-text-tertiary"
@@ -729,7 +742,7 @@
                         >
                         {#if suggestion.kind === "model" && suggestion.label === currentModel}
                             <span
-                                class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-accent-bg text-text-inverse"
+                                class="ml-auto rounded-full bg-accent-bg px-1.5 py-0.5 text-[10px] text-text-highlight"
                                 >active</span
                             >
                         {/if}

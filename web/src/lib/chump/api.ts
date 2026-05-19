@@ -3,6 +3,7 @@ import type {
 	AgentEventLogResponse,
 	AgentMessagesResponse,
 	AgentStateResponse,
+	ChumpState,
 	ChumpHealth,
 	ChumpStatus,
 	SessionSummary,
@@ -33,8 +34,9 @@ export async function getStatus(serverUrl: string, agentId: string): Promise<Chu
 	return await invokeAction<ChumpStatus>(serverUrl, agentId, 'status');
 }
 
-export async function getState(serverUrl: string, agentId: string): Promise<AgentStateResponse> {
-	return await fetchJson<AgentStateResponse>(`${buildAgentUrl(serverUrl, agentId)}/state`);
+export async function getState(serverUrl: string, agentId: string): Promise<ChumpState> {
+	const response = await fetchJson<AgentStateResponse>(`${buildAgentUrl(serverUrl, agentId)}/state`);
+	return normalizeStateResponse(response);
 }
 
 export async function getMessages(serverUrl: string, agentId: string): Promise<AgentMessagesResponse> {
@@ -350,6 +352,13 @@ async function fetchJson<T>(url: string): Promise<T> {
 		throw new Error(await readErrorResponse(response));
 	}
 	return (await response.json()) as T;
+}
+
+function normalizeStateResponse(response: AgentStateResponse): ChumpState {
+	if (response && typeof response === 'object' && 'state' in response) {
+		return response.state;
+	}
+	return response as ChumpState;
 }
 
 function buildAgentUrl(serverUrl: string, agentId: string): string {
