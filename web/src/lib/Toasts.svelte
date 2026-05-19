@@ -18,7 +18,7 @@
 	{#each toasts as toast (toast.id)}
 		<button
 			onclick={() => remove(toast.id)}
-			class="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-lg border text-[13px] transition-all duration-200 opacity-0 animate-toast-in
+			class="pointer-events-auto flex items-center gap-2 rounded-[9px] border px-3 py-2 text-[13px] transition-all duration-200 opacity-0 animate-toast-in
 				{toast.type === 'error' ? 'bg-bg-toast-err border-error/30 text-error' : 
 				 toast.type === 'success' ? 'bg-bg-toast-ok border-success/30 text-text-success' : 
 				 'bg-bg-code border-border-default text-text-secondary'}"

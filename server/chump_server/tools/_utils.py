@@ -11,6 +11,7 @@ from typing import Literal
 from ..patch_tool import TextStyle
 
 DEFAULT_DIFF_CHANGE_LIMIT = 400
+DEFAULT_DIFF_LINE_LIMIT = 600
 DEFAULT_DIFF_TEXT_BUDGET = 32_000
 
 
@@ -27,10 +28,18 @@ def _preview(value: str, limit: int = 160) -> str:
     return compact[: limit - 3] + "..."
 
 
-def _multiline_preview(value: str, limit: int = 4000) -> str:
-    if len(value) <= limit:
-        return value
-    return value[: limit - 16] + " ...[truncated]"
+def _multiline_preview(
+    value: str, limit: int = 4000, max_lines: int = 5
+) -> str:
+    lines = value.splitlines()
+    line_truncated = len(lines) > max_lines
+    visible = "\n".join(lines[:max_lines])
+    if len(visible) > limit:
+        visible = visible[: limit - 16] + " ...[truncated]"
+        line_truncated = False
+    if line_truncated:
+        return visible + "\n...[truncated]"
+    return visible
 
 
 def _result_metadata(value: str, limit: int = 160) -> dict[str, object]:
@@ -57,6 +66,12 @@ def _diff_metadata(
     changes = _diff_changes(before_lines, after_lines)
     added = sum(1 for change in changes if change["type"] == "add")
     removed = sum(1 for change in changes if change["type"] == "remove")
+    lines, lines_truncated = _diff_lines(
+        before_lines,
+        after_lines,
+        limit=DEFAULT_DIFF_LINE_LIMIT,
+        text_budget=text_budget,
+    )
 
     visible_changes: list[dict[str, int | str | None]] = []
     visible_text = 0
@@ -70,7 +85,7 @@ def _diff_metadata(
         visible_changes.append(change)
         visible_text += text_size
 
-    truncated = len(visible_changes) < len(changes)
+    truncated = len(visible_changes) < len(changes) or lines_truncated
     return {
         "path": path,
         "kind": kind,
@@ -78,6 +93,7 @@ def _diff_metadata(
         "added": added,
         "removed": removed,
         "changes": visible_changes,
+        "lines": lines,
         "truncated": truncated,
         "shown_changes": len(visible_changes),
         "total_changes": len(changes),
@@ -104,6 +120,46 @@ def _diff_changes(
                 for index in range(new_start, new_end)
             )
     return changes
+
+
+def _diff_lines(
+    before_lines: list[str],
+    after_lines: list[str],
+    *,
+    limit: int,
+    text_budget: int,
+    context: int = 2,
+) -> tuple[list[str], bool]:
+    raw_lines = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile="before",
+            tofile="after",
+            n=context,
+            lineterm="",
+        )
+    )
+    body = [
+        line
+        for line in raw_lines
+        if not line.startswith("--- ") and not line.startswith("+++ ")
+    ]
+    if not body:
+        return [], False
+
+    visible_lines: list[str] = []
+    visible_text = 0
+    for line in body:
+        line_size = max(1, len(line))
+        over_limit = len(visible_lines) >= limit
+        over_budget = bool(visible_lines) and visible_text + line_size > text_budget
+        if over_limit or over_budget:
+            break
+        visible_lines.append(line)
+        visible_text += line_size
+
+    return visible_lines, len(visible_lines) < len(body)
 
 
 def _line_change(

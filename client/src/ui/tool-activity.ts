@@ -17,6 +17,7 @@ export class ToolActivityRenderer {
   }> = [];
 
   private activity = false;
+  private compactToolRunActive = false;
 
   constructor(writeLine: (value?: string) => void) {
     this.writeLine = writeLine;
@@ -48,16 +49,12 @@ export class ToolActivityRenderer {
       toolName === "web_fetch" ||
       toolName === "website"
     ) {
-      // For these tools the result early-returns on success, so the call
-      // render IS the final visible piece — add a trailing blank so the
-      // next content (assistant text, next tool, etc.) doesn't butt up
-      // against it.
-      this.writeLine(`\n${renderToolDone(label, renderedArgs)}`);
-      this.writeLine("");
+      this.writeCompactToolLine(renderToolDone(label, renderedArgs));
       this.activity = true;
       this.pendingTools.push({ name: toolName, args: renderedArgs });
       return;
     }
+    this.compactToolRunActive = false;
     // For apply_patch and write_file/create_file, render the diff from args
     // immediately (used during replay from stored messages where result metadata
     // is not available). The matching result render will skip via the
@@ -95,7 +92,13 @@ export class ToolActivityRenderer {
         : compactJson(payload);
     const visiblePreview = userFacingToolPreview(toolName, ok, preview);
     if (toolName === "bash") {
-      this.writeLine(renderCommandOutput(ok, truncatePreview(visiblePreview, 4000)));
+      this.compactToolRunActive = false;
+      this.writeLine(
+        renderCommandOutput(
+          ok,
+          truncateMultilinePreview(visiblePreview, 4000, 5),
+        ),
+      );
       this.writeLine("");
       this.activity = true;
       return;
@@ -109,6 +112,7 @@ export class ToolActivityRenderer {
         toolName === "replace_in_file" ||
         toolName === "apply_patch")
     ) {
+      this.compactToolRunActive = false;
       this.takePendingTool(toolName);
       // Structured metadata diffs are authoritative — always render them.
       // (During live streaming, this replaces the args-based pre-render.)
@@ -133,17 +137,19 @@ export class ToolActivityRenderer {
         toolName === "web_fetch" ||
         toolName === "website")
     ) {
-      // Call already rendered its "done" line AND a trailing blank.
+      // Call already rendered its final compact line.
       return;
     }
 
     if (ok === "ok" && pending) {
+      this.compactToolRunActive = false;
       this.writeLine(`\n${renderToolDone(label, pending.args)}`);
       this.writeLine("");
       this.activity = true;
       return;
     }
 
+    this.compactToolRunActive = false;
     this.writeLine(`\n${renderToolResult(ok, label, visiblePreview)}`);
     this.writeLine("");
     this.activity = true;
@@ -160,6 +166,11 @@ export class ToolActivityRenderer {
     }
     const [tool] = this.pendingTools.splice(index, 1);
     return tool ?? null;
+  }
+
+  private writeCompactToolLine(line: string): void {
+    this.writeLine(this.compactToolRunActive ? line : `\n${line}`);
+    this.compactToolRunActive = true;
   }
 }
 
@@ -502,4 +513,22 @@ function userFacingToolPreview(
     return firstLine;
   }
   return preview;
+}
+
+function truncateMultilinePreview(
+  value: string,
+  limit: number,
+  maxLines: number,
+): string {
+  const lines = value.split("\n");
+  const lineTruncated = lines.length > maxLines;
+  let visible = lines.slice(0, maxLines).join("\n");
+  if (visible.length > limit) {
+    visible = truncatePreview(visible, limit);
+    return visible;
+  }
+  if (lineTruncated) {
+    return `${visible}\n...[truncated]`;
+  }
+  return visible;
 }

@@ -115,6 +115,17 @@ class ChumpServer(AgentServer):
             active_meta = self._agents.get(session_id)
             created_at = state.get("created_at") if isinstance(state, dict) else None
             updated_at = state.get("updated_at") if isinstance(state, dict) else None
+            file_diffs = state.get("file_diffs") if isinstance(state, dict) else None
+            total_added = 0
+            total_removed = 0
+            if isinstance(file_diffs, dict):
+                for value in file_diffs.values():
+                    if not isinstance(value, dict):
+                        continue
+                    added = value.get("added")
+                    removed = value.get("removed")
+                    total_added += added if isinstance(added, int) else 0
+                    total_removed += removed if isinstance(removed, int) else 0
             sessions.append(
                 {
                     "id": session_id,
@@ -133,6 +144,8 @@ class ChumpServer(AgentServer):
                     ),
                     "last_activity": active_meta.last_activity if active_meta else None,
                     "connections": active_meta.connection_count if active_meta else 0,
+                    "total_added": total_added,
+                    "total_removed": total_removed,
                 }
             )
         sessions.sort(

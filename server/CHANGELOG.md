@@ -1,5 +1,12 @@
 # chump-server
 
+## 0.0.21
+
+- Track per-file diff stats and structured change records in agent/session state.
+- Surface session-wide added/removed totals in `/sessions` responses.
+- Improve tool result metadata with unified diff lines for richer UI rendering.
+- Enforce fresh `read_file` checks before write/apply_patch mutations and clear edit previews.
+
 ## 0.0.20
 
 - Support for tracking and syncing usage data for context limits with client

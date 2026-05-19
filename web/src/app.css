@@ -25,19 +25,20 @@
     --text-tertiary: #9a948a;
     --text-muted: #a19a8f;
     --text-inverse: #3a3530;
-    --text-on-accent: #faf9f7;
+    --text-on-accent: #111111;
     --text-success: #5a9a5a;
     --text-error: #c0685c;
     --text-code: #4a453d;
     --text-warning: #a07860;
+    --text-highlight: #7f8932;
 
     --border-default: #e6e2dd;
     --border-subtle: #e8e5e0;
     --border-hover: #e0dcd7;
 
-    --accent: #7b8a3f;
-    --accent-hover: #8a9a4a;
-    --accent-bg: #f0f2e5;
+    --accent: #e4f222;
+    --accent-hover: #d6e51f;
+    --accent-bg: rgba(228, 242, 34, 0.16);
 
     --success: #5a9a5a;
     --error: #c0685c;
@@ -71,19 +72,20 @@
     --text-tertiary: #858585;
     --text-muted: #8a8a96;
     --text-inverse: #f4f4f5;
-    --text-on-accent: #18181a;
+    --text-on-accent: #111111;
     --text-success: #7ee787;
     --text-error: #f48771;
     --text-code: #e4e4e7;
     --text-warning: #ce9178;
+    --text-highlight: #d3de63;
 
     --border-default: #28282a;
     --border-subtle: #242426;
     --border-hover: #38383a;
 
-    --accent: #b8dd35;
-    --accent-hover: #c4e63f;
-    --accent-bg: #3a4515;
+    --accent: #e4f222;
+    --accent-hover: #edf75a;
+    --accent-bg: rgba(228, 242, 34, 0.18);
 
     --success: #7ee787;
     --error: #f48771;
@@ -125,6 +127,7 @@
     --color-text-error: var(--text-error);
     --color-text-code: var(--text-code);
     --color-text-warning: var(--text-warning);
+    --color-text-highlight: var(--text-highlight);
 
     --color-border-default: var(--border-default);
     --color-border-subtle: var(--border-subtle);
@@ -178,4 +181,22 @@ input, textarea, select { font-size: 16px; }
 
 .overflow-y-auto, .overflow-x-auto {
     -webkit-overflow-scrolling: touch;
+}
+
+@layer components {
+    .button-primary {
+        @apply inline-flex items-center justify-center gap-2 rounded-[10px] bg-accent px-4 py-2 text-[13px] font-medium text-text-on-accent transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent;
+    }
+
+    .button-secondary {
+        @apply inline-flex items-center justify-center gap-2 rounded-[9px] border border-border-default bg-bg-elevated px-3 py-1.5 text-[13px] font-medium text-text-secondary transition-colors hover:border-border-hover hover:bg-bg-hover hover:text-text-main;
+    }
+
+    .button-tertiary {
+        @apply inline-flex items-center justify-center gap-2 rounded-[8px] px-2.5 py-1.5 text-[13px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-main;
+    }
+
+    .icon-button {
+        @apply flex items-center justify-center rounded-[8px] border border-border-subtle bg-bg-elevated/20 text-text-tertiary backdrop-blur-sm transition-all hover:border-border-hover hover:bg-bg-hover hover:text-text-secondary;
+    }
 }

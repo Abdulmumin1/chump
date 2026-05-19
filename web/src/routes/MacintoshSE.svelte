@@ -7,20 +7,20 @@
 >
     <!-- Mac Body -->
     <div
-        class="w-full h-[90%] bg-[#ccd2b8] rounded-t-xl rounded-b shadow-[0_20px_50px_rgba(123,138,63,0.15)] flex flex-col p-4 md:p-5 relative z-10"
-        style="box-shadow: inset 1px 2px 4px rgba(255,255,255,0.6), inset -2px -4px 6px rgba(0,0,0,0.05), 0 20px 40px rgba(123,138,63,0.2);"
+        class="w-full h-[90%] bg-[#e5f0b4] rounded-t-xl rounded-b flex flex-col p-4 md:p-5 relative z-10"
+        style="box-shadow: inset 1px 2px 4px rgba(255,255,255,0.6), inset -2px -4px 6px rgba(0,0,0,0.05), 0 20px 40px rgba(228, 242, 34, 0.2);"
     >
         <!-- Screen Bezel -->
         <div class="w-full h-[55%] relative mt-1">
             <!-- Bezel sloped frame using borders -->
             <div
                 class="absolute inset-0 border-t-[18px] border-b-[24px] border-l-[22px] border-r-[22px] rounded-[14px]"
-                style="border-top-color: #b5be9c; border-bottom-color: #dce0cf; border-left-color: #c2c9ab; border-right-color: #c2c9ab;"
+                style="border-top-color: #d4e29e; border-bottom-color: #f1f7d5; border-left-color: #dee9af; border-right-color: #dee9af;"
             ></div>
 
             <!-- The CRT Screen -->
             <div
-                class="absolute top-[18px] bottom-[24px] left-[22px] right-[22px] bg-[#7b8a3f] rounded-lg shadow-[inset_0_0_25px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center overflow-hidden z-10 font-mono text-[7px] sm:text-[8px] md:text-[10px] text-[#e8ecd8] p-2 sm:p-3"
+                class="absolute top-[18px] bottom-[24px] left-[22px] right-[22px] bg-accent rounded-lg shadow-[inset_0_0_25px_rgba(0,0,0,0.15)] flex flex-col items-center justify-center overflow-hidden z-10 font-mono text-[7px] sm:text-[8px] md:text-[10px] text-text-on-accent p-2 sm:p-3"
             >
                 <div
                     class="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] bg-gradient-to-br from-white/10 to-transparent rotate-45 transform origin-center pointer-events-none z-0"
@@ -35,7 +35,7 @@
                         <div class="mt-1 opacity-70">
                             >rewrite this in rust. no mistakes
                         </div>
-                        <div class="mt-1 opacity-70 animate-pulse">_</div>
+                        <div class="mt-1 opacity-100 animate-pulse">_</div>
                     {:else if selectedTab === "WEB"}
                         <div
                             class="w-full h-full border border-current/20 rounded flex flex-col overflow-hidden bg-current/10 shadow-sm"
@@ -115,9 +115,7 @@
                             </div>
                         </div>
                     {:else if selectedTab === "SERVER"}
-                        <div
-                            class="mt-1 opacity-70 text-[5px] sm:text-[6px] md:text-[8px] font-mono"
-                        >
+                        <div class="mt-1 opacity-100 text-[5px] sm:text-[6px] md:text-[8px] font-mono">
                             [2024-05-16] INFO: bound to :3000
                         </div>
                         <div
@@ -220,10 +218,8 @@
         class="w-[94%] h-[10%] bg-[#c2c9ab] rounded-b-md shadow-md flex mt-[-1px] z-0 overflow-hidden relative"
         style="box-shadow: inset 0 4px 6px rgba(0,0,0,0.1);"
     >
-        <!-- Brightness Icon Placeholder -->
-        <div
-            class="absolute left-3 top-1/2 -translate-y-1/2 text-[#7b8a3f] opacity-60 w-3 h-3 z-10 bg-[#c2c9ab] pl-0.5"
-        >
+        <!-- Brightness Icon -->
+            <div class="absolute left-3 top-1/2 -translate-y-1/2 text-text-on-accent opacity-60 w-3 h-3 z-10 bg-[#dee9af] pl-0.5 rounded-full">
             <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -237,7 +233,7 @@
         <!-- Ribs -->
         <div class="absolute inset-0 flex justify-between px-1">
             {#each Array(50) as _}
-                <div class="h-full w-[1px] bg-[#a8b38d] opacity-50"></div>
+                <div class="h-full w-[1px] bg-[#cddb98] opacity-60"></div>
             {/each}
         </div>
     </div>

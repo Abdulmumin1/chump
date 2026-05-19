@@ -166,6 +166,30 @@ export async function ensureServerTarget(
   };
 }
 
+export async function recoverManagedServer(
+  workspaceRoot: string,
+  previousUrl: string | null = null,
+): Promise<{
+  started: boolean;
+  metadata: ManagedServerMetadata;
+}> {
+  return await withWorkspaceLock(workspaceRoot, async () => {
+    const existing = await readManagedServerMetadata(workspaceRoot);
+    if (
+      existing &&
+      await isServerHealthy(existing.url) &&
+      await managedServerIsReusable(existing)
+    ) {
+      return { started: false, metadata: existing };
+    }
+
+    const preferredPort =
+      existing && (!previousUrl || existing.url === previousUrl) ? existing.port : null;
+    const metadata = await spawnManagedServer(workspaceRoot, preferredPort);
+    return { started: true, metadata };
+  });
+}
+
 export async function startServerCommand(workspaceRoot: string): Promise<{
   started: boolean;
   metadata: ManagedServerMetadata;
@@ -232,7 +256,7 @@ async function ensureManagedServer(workspaceRoot: string): Promise<{
       await stopManagedServer(workspaceRoot);
     }
 
-    const metadata = await spawnManagedServer(workspaceRoot);
+    const metadata = await spawnManagedServer(workspaceRoot, existing?.port ?? null);
     return { started: true, metadata };
   });
 }
@@ -307,8 +331,11 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
   });
 }
 
-async function spawnManagedServer(workspaceRoot: string): Promise<ManagedServerMetadata> {
-  const port = await findAvailablePort();
+async function spawnManagedServer(
+  workspaceRoot: string,
+  preferredPort: number | null = null,
+): Promise<ManagedServerMetadata> {
+  const port = await resolveManagedServerPort(preferredPort);
   const command = resolveServerCommand();
   const paths = getWorkspaceStatePaths(workspaceRoot);
   await mkdir(paths.dataDir, { recursive: true });
@@ -530,6 +557,31 @@ async function findAvailablePort(): Promise<number> {
       });
     });
     server.on("error", reject);
+  });
+}
+
+async function resolveManagedServerPort(preferredPort: number | null): Promise<number> {
+  if (preferredPort !== null && await isPortAvailable(preferredPort)) {
+    return preferredPort;
+  }
+  return await findAvailablePort();
+}
+
+async function isPortAvailable(port: number): Promise<boolean> {
+  return await new Promise<boolean>((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => {
+      resolve(false);
+    });
+    server.listen(port, "127.0.0.1", () => {
+      server.close((error) => {
+        if (error) {
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      });
+    });
   });
 }
 
