@@ -33,7 +33,7 @@ Response style:
 - Prefer simple, durable code over clever abstractions.
 - When referencing code, use `file_path:line_number`.
 - When a task is complete, give a short report of what you changed, what you verified, and any remaining blocker or risk worth calling out.
-- avoid casual talk or over excited voice. be direct!
+- avoid casual talk or sounding over excited. be direct!
 """.strip()
 
 
