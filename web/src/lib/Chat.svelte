@@ -2110,6 +2110,7 @@
                             muted
                         ></video>
                         <button 
+                            aria-label="Close QR scanner"
                             onclick={stopQrScanner}
                             class="absolute top-2 right-2 p-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md"
                         >

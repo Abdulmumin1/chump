@@ -375,6 +375,7 @@
             <div class="flex items-center gap-2.5 text-text-tertiary">
                 <button 
                     class="hover:text-text-secondary transition-colors"
+                    aria-label="Search changes"
                     onclick={() => {
                         const input = document.getElementById('changes-search');
                         input?.focus();
@@ -400,6 +401,7 @@
             {#if searchQuery}
                 <button 
                     class="absolute right-2 text-text-tertiary hover:text-text-main"
+                    aria-label="Clear search"
                     onclick={() => searchQuery = ""}
                 >
                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -479,16 +481,21 @@
     <div
         class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay/60 p-0 md:p-4 backdrop-blur-[2px]"
         onclick={closeModal}
+        role="presentation"
     >
         <div
             class="flex h-full w-full md:h-[min(900px,calc(100vh-4rem))] md:w-[min(1500px,calc(100vw-4rem))] overflow-hidden rounded-none md:rounded-xl bg-bg-surface text-text-main"
             onclick={(event) => event.stopPropagation()}
+            role="dialog"
+            tabindex="-1"
+            aria-label="Workspace Changes"
         >
             <div class="flex w-full md:w-72 flex-shrink-0 flex-col border-r border-border-subtle bg-bg-surface-alt {selectedPath ? 'hidden md:flex' : 'flex'}">
                 <div class="flex items-center justify-between px-4 py-4 md:py-3 border-b border-border-subtle">
                     <span class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">Changes</span>
                 <button
                     type="button"
+                    aria-label="Close modal"
                     class="rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
                     onclick={closeModal}
                 >
@@ -527,6 +534,7 @@
                 <div class="flex items-center gap-3 min-w-0">
                     <button 
                         class="md:hidden p-1 -ml-2 text-text-tertiary active:bg-bg-hover rounded-full"
+                        aria-label="Back to file list"
                         onclick={() => selectedPath = null}
                     >
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
