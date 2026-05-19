@@ -5,6 +5,7 @@
 ### Patch Changes
 
 - Added Gemini 3.5 Flash model support with accurate token limits, updated model catalog merging, and updated web UI tool headers to cleanly display loaded skills.
+- Implemented robust self-reconnecting background event streams with an idle/keepalive watchdog to eliminate random CLI hangs and stuck spinners on network drops or connection stalls.
 
 ## 0.0.21
 

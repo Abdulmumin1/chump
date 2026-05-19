@@ -6,32 +6,108 @@ export async function openEventStream(
     onEvent: (event: SseEvent) => void;
     onError?: (error: Error) => void;
   },
+  options: {
+    reconnectDelayMs?: number;
+    idleTimeoutMs?: number;
+  } = {},
 ): Promise<() => void> {
-  const controller = new AbortController();
+  const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
+  // Server sends `: keepalive` comments every 30s. If we go ~60s without any
+  // bytes, tear the connection down and reconnect.
+  const idleTimeoutMs = options.idleTimeoutMs ?? 60000;
+  let closed = false;
+  let lastEventId = 0;
+  let controller: AbortController | null = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const response = await fetch(`${buildAgentUrl(config)}/events`, {
-    signal: controller.signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`event stream failed with ${response.status}`);
-  }
-
-  void consumeSse(response, handlers.onEvent).catch((error: unknown) => {
-    if (controller.signal.aborted) {
-      return;
+  const armIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
     }
-    handlers.onError?.(
-      error instanceof Error ? error : new Error(String(error)),
-    );
-  });
+    idleTimer = setTimeout(() => {
+      controller?.abort();
+    }, idleTimeoutMs);
+  };
 
-  return () => controller.abort();
+  const clearIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const connect = async (): Promise<void> => {
+    while (!closed) {
+      controller = new AbortController();
+      armIdleTimer();
+      try {
+        const urlStr = `${buildAgentUrl(config)}/events`;
+        const requestUrl = new URL(urlStr);
+        if (lastEventId > 0) {
+          requestUrl.searchParams.set("last_event_id", String(lastEventId));
+        }
+
+        const response = await fetch(requestUrl.toString(), {
+          signal: controller.signal,
+          headers: {
+            accept: "text/event-stream",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`event stream failed with ${response.status}`);
+        }
+
+        await consumeSse(
+          response,
+          (event) => {
+            if (event.id) {
+              const parsed = Number(event.id);
+              if (Number.isFinite(parsed)) {
+                lastEventId = parsed;
+              }
+            }
+            handlers.onEvent(event);
+          },
+          armIdleTimer,
+        );
+      } catch (error) {
+        if (closed) {
+          break;
+        }
+        // Aborted is a deliberate restart (e.g. idle watchdog), don't trigger onError
+        if (controller && !controller.signal.aborted) {
+          handlers.onError?.(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      } finally {
+        clearIdleTimer();
+      }
+
+      if (closed) {
+        break;
+      }
+
+      await delay(reconnectDelayMs);
+    }
+  };
+
+  void connect();
+
+  return () => {
+    closed = true;
+    clearIdleTimer();
+    controller?.abort();
+  };
 }
 
 export async function consumeSse(
   response: Response,
   onEvent: (event: SseEvent) => void,
+  onActivity?: () => void,
 ): Promise<void> {
   if (!response.body) {
     throw new Error("response body is not readable");
@@ -46,6 +122,8 @@ export async function consumeSse(
     if (done) {
       break;
     }
+
+    onActivity?.();
 
     buffer += decoder.decode(value, { stream: true });
 
