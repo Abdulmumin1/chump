@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.23
+
+- Alignment with client v0.0.23 release.
+
 ## 0.0.22
 
 - Add Gemini 3.5 Flash model support and configure its input/output token limits.

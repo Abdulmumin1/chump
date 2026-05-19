@@ -18,7 +18,7 @@ import { getWorkspaceStatePaths } from "./state-paths.ts";
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 10_000;
-const SERVER_WAIT_MS = 15_000;
+const SERVER_WAIT_MS = 30_000;
 const DEFAULT_MANAGED_IDLE_TIMEOUT_SECONDS = 30;
 
 export function parseCliArgs(argv: string[]): CliOptions {
@@ -374,6 +374,11 @@ async function spawnManagedServer(
     try {
       await waitForHealthyServer(metadata.url, SERVER_WAIT_MS);
     } catch (error) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Ignore kill errors
+      }
       throw new Error(
         `server failed to start at ${metadata.url}; inspect ${paths.logPath}`,
         { cause: error },

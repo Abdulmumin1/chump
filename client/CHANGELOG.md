@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.23
+
+### Patch Changes
+
+- Fixed a startup issue where the background server might take slightly longer than 15 seconds to start on the very first run (due to database initialization or slow disks), causing the client to crash with a timeout but leave a leaked server process running in the background. Increased the startup wait time to 30 seconds and ensured any failed server process is cleanly killed.
+
 ## 0.0.22
 
 ### Patch Changes
