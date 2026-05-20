@@ -211,6 +211,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
             self._pending_steering_events.append(
                 {
                     "content": message,
+                    "display_content": build_user_display_content(
+                        message, attachments or []
+                    ),
                     "attachments": summarize_attachments(attachments or []),
                     "steered": True,
                 }
@@ -369,6 +372,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "user_message",
             {
                 "content": message,
+                "display_content": build_user_display_content(
+                    message, attachments or []
+                ),
                 "attachments": summarize_attachments(attachments or []),
             },
         )
@@ -786,6 +792,20 @@ def build_user_content(
             parts.append(image_attachment_part(attachment))
 
     return parts
+
+
+def build_user_display_content(
+    message: str,
+    attachments: list[dict[str, Any]],
+) -> str:
+    display = message.rstrip()
+    for attachment in attachments:
+        if not is_image_attachment(attachment):
+            continue
+        label = image_attachment_label(attachment)
+        if label and label not in display:
+            display = f"{display} {label}".strip()
+    return display
 
 
 def append_text_part(parts: list[TextPart | ImagePart], text: str) -> None:

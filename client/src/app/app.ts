@@ -1435,7 +1435,11 @@ function steeringQueueSubmissions(payload: Record<string, unknown>): PromptSubmi
       continue;
     }
     const value = item as Record<string, unknown>;
-    const text = typeof value.content === "string" ? value.content : "";
+    const text = typeof value.display_content === "string"
+      ? value.display_content
+      : typeof value.content === "string"
+        ? value.content
+        : "";
     const attachments = Array.isArray(value.attachments) ? value.attachments : [];
     submissions.push({
       text,

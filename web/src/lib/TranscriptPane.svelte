@@ -1,4 +1,5 @@
 <script lang="ts">
+    import PixelGridShader from "./PixelGridShader.svelte";
     import ToolBlock from "$lib/ToolBlock.svelte";
     import MarkdownText from "$lib/MarkdownText.svelte";
     import UserMessage from "$lib/UserMessage.svelte";
@@ -63,13 +64,29 @@
             : ''}"
     >
         {#if transcript.length === 0}
+            {#if !health}
+                <!-- Bounded Absolute Dither wave Background at the bottom 1/3 of the screen -->
+                <div class="absolute bottom-0 left-0 right-0 h-[33%] w-full z-0 overflow-hidden pointer-events-none select-none">
+                    <PixelGridShader 
+                        shape="wave" 
+                        matrix="bayer8" 
+                        pxSize={3} 
+                        speed={0.1} 
+                        amplitude={0.16} 
+                        frequency={0.7} 
+                        colorFg="#e4f222"
+                        flipped={true}
+                    />
+                </div>
+            {/if}
+
             <div
-                class="flex flex-col items-center justify-center min-h-[40vh] text-center px-4 mt-8"
+                class="flex flex-col items-center justify-center min-h-[50vh] text-center px-4 mt-8 relative z-10"
             >
                 <img
                     src="/favicon.svg"
                     alt="Chump logo"
-                    class="w-24 h-24 mb-6"
+                    class="w-24 h-24 mb-6 select-none"
                 />
                 {#if !health}
                     <h1
@@ -77,13 +94,12 @@
                     >
                         Co' Connect to a server
                     </h1>
-                    <p class="text-[14px] text-text-tertiary max-w-md mb-6">
-                        Connect to your local or remote chump server to start
-                        building.
+                    <p class="text-[14px] text-text-tertiary max-w-md mb-6 leading-relaxed">
+                        Connect to your local or remote chump server to start building.
                     </p>
                     {#if onOpenConnectModal}
                         <button
-                            class="button-primary flex items-center justify-center gap-2 min-w-[120px]"
+                            class="button-primary flex items-center justify-center gap-2 min-w-[120px] cursor-pointer"
                             onclick={onOpenConnectModal}
                             disabled={isConnecting}
                         >

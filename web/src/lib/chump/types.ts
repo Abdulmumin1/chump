@@ -182,6 +182,7 @@ export type ChumpStatus = {
 
 export type SteeringQueueItem = {
 	content: string;
+	display_content?: string;
 	attachments?: Array<Record<string, unknown>>;
 	steered?: boolean;
 };
