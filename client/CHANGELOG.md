@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.25
+
+### Patch Changes
+
+- Improve attachment-aware user message rendering across synced transcripts and shared chat surfaces.
+
 ## 0.0.24
 
 ### Patch Changes

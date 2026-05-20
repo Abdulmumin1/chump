@@ -1,5 +1,6 @@
 <script lang="ts">
     import ThemeToggle from "$lib/ThemeToggle.svelte";
+    import DitherIdenticon from "$lib/DitherIdenticon.svelte";
     let {
         sessions,
         activeSessionId,
@@ -127,13 +128,16 @@
                     onclick={() => onSelectSession(session.id)}
                 >
                     <div class="flex justify-between items-center w-full">
-                        <span
-                            class="text-[13px] truncate pr-2 {session.id ===
-                            activeSessionId
-                                ? 'font-medium'
-                                : ''}"
-                            >{sessionTitle(session)}</span
-                        >
+                        <div class="flex items-center gap-2 truncate pr-2">
+                            <DitherIdenticon seed={session.id} class="w-4 h-4 rounded-full overflow-hidden flex-shrink-0" />
+                            <span
+                                class="text-[13px] truncate {session.id ===
+                                activeSessionId
+                                    ? 'font-medium'
+                                    : ''}"
+                                >{sessionTitle(session)}</span
+                            >
+                        </div>
                         {#if session.active || session.connections > 0}
                             <span
                                 class="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0"

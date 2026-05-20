@@ -1,6 +1,7 @@
 <script lang="ts">
     import { browser } from "$app/environment";
     import { tick } from "svelte";
+    import { slide } from "svelte/transition";
     import { DIFFS_TAG_NAME, FileDiff, processPatch } from "@pierre/diffs";
     import "../../node_modules/@pierre/diffs/dist/components/web-components.js";
     import {
@@ -744,6 +745,7 @@
             {#if hasStructuredDiffs}
                 {#each effectiveStructuredDiffs as diff (diff.path)}
                     <div
+                        transition:slide={{ duration: 200 }}
                         class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
                     >
                     <div
@@ -829,6 +831,7 @@
             {:else if diffFiles.length > 0}
                 {#each diffFiles as file, index (`${file.name}-${index}`)}
                     <div
+                        transition:slide={{ duration: 200 }}
                         class="overflow-hidden rounded-[8px] border border-border-default bg-bg-code-block"
                         style:max-height={shouldClampDiff && !showFullDiff
                             ? "2000px"
@@ -843,6 +846,7 @@
                     {/each}
             {:else if effectiveDiffPatch}
                 <pre
+                        transition:slide={{ duration: 200 }}
                         class="overflow-x-auto rounded-[8px] border border-border-default bg-bg-code-block p-4 text-[10px] md:text-[12px] font-mono text-text-warning"
                         style:max-height={shouldClampDiff && !showFullDiff
                             ? "2000px"
@@ -862,7 +866,7 @@
 </style>
 
             {#if shouldClampDiff && !showFullDiff}
-                <div class="px-1">
+                <div transition:slide={{ duration: 200 }} class="px-1">
                     <button
                         class="text-[12px] font-mono text-text-highlight transition-colors hover:text-text-secondary"
                         onclick={() => {
@@ -873,7 +877,7 @@
                     </button>
                 </div>
             {:else if shouldClampDiff && showFullDiff}
-                <div class="px-1">
+                <div transition:slide={{ duration: 200 }} class="px-1">
                     <button
                         class="text-[12px] font-mono text-text-highlight transition-colors hover:text-text-secondary"
                         onclick={() => {
@@ -886,7 +890,10 @@
             {/if}
 
             {#if block.hasResult}
-                <div class="px-1 text-[12px] font-mono text-text-tertiary">
+                <div
+                    transition:slide={{ duration: 200 }}
+                    class="px-1 text-[12px] font-mono text-text-tertiary"
+                >
                     Result
                     <span class="ml-2 text-text-secondary"
                         >{typeof block.result === "string"
@@ -1001,6 +1008,7 @@
 
         {#if expanded}
             <div
+                transition:slide={{ duration: 200 }}
                 class="mt-1.5 mb-3 overflow-hidden rounded-[6px] border border-border-default bg-bg-code-block"
             >
                 <div class="overflow-x-auto bg-bg-code-block p-4">

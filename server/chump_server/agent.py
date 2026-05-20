@@ -804,12 +804,21 @@ def summarize_attachments(attachments: list[dict[str, Any]]) -> list[dict[str, s
     return [
         {
             "type": "image",
+            "label": image_attachment_label(attachment),
             "filename": str(attachment.get("filename") or "image"),
             "mime": str(attachment.get("mime") or "application/octet-stream"),
         }
         for attachment in attachments
         if is_image_attachment(attachment)
     ]
+
+
+def image_attachment_label(attachment: dict[str, Any]) -> str:
+    label = str(attachment.get("label") or "").strip()
+    if label:
+        return label
+    filename = str(attachment.get("filename") or "image")
+    return f"[Image: {filename}]"
 
 
 def is_image_attachment(attachment: Any) -> bool:

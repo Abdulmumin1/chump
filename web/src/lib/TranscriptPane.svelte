@@ -1,7 +1,9 @@
 <script lang="ts">
     import ToolBlock from "$lib/ToolBlock.svelte";
     import MarkdownText from "$lib/MarkdownText.svelte";
+    import UserMessage from "$lib/UserMessage.svelte";
     import { marked } from "marked";
+    import { slide } from "svelte/transition";
 
     let {
         transcript,
@@ -50,8 +52,16 @@
     });
 </script>
 
-<div class="flex-1 overflow-y-auto p-4 md:p-8" bind:this={transcriptElement}>
-    <div class="max-w-4xl mx-auto flex flex-col gap-6">
+<div
+    class="flex-1 overflow-y-auto p-4 md:p-8"
+    bind:this={transcriptElement}
+    style="mask-image: linear-gradient(to bottom, transparent 0, black 80px, black 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 80px, black 100%);"
+>
+    <div
+        class="max-w-4xl mx-auto flex flex-col gap-6 {transcript.length > 0
+            ? 'pt-10 md:pt-12'
+            : ''}"
+    >
         {#if transcript.length === 0}
             <div
                 class="flex flex-col items-center justify-center min-h-[40vh] text-center px-4 mt-8"
@@ -78,7 +88,9 @@
                             disabled={isConnecting}
                         >
                             {#if isConnecting}
-                                <span class="font-mono text-[14px]" aria-hidden="true"
+                                <span
+                                    class="font-mono text-[14px]"
+                                    aria-hidden="true"
                                     >{spinnerFrames[spinnerFrame]}</span
                                 >
                                 Connecting...
@@ -112,14 +124,10 @@
 
         {#each transcript as item, itemIndex (item.id)}
             {#if item.role === "user"}
-                <div class="self-end max-w-[85%] md:max-w-[75%]">
-                    <div
-                        class="user-bubble bg-bg-elevated px-3 py-1.5 text-[12px] text-text-inverse leading-relaxed whitespace-pre-wrap break-words"
-                    >
-                        {item.blocks
-                            .map((b: { text: string }) => b.text)
-                            .join("")}
-                    </div>
+                <div
+                    class="self-end w-full flex justify-end max-w-[85%] md:max-w-[75%]"
+                >
+                    <UserMessage blocks={item.blocks} />
                 </div>
             {:else if item.role === "reasoning"}
                 <div class="min-w-0 w-full">
@@ -181,6 +189,7 @@
                                 </button>
                                 {#if expandedReasoning[`${item.id}-${index}`] ?? (isSending && itemIndex === transcript.length - 1)}
                                     <div
+                                        transition:slide={{ duration: 200 }}
                                         class="reasoning-marked overflow-hidden break-words p-2 text-[12px] text-text-secondary"
                                     >
                                         {@html marked(block.text)}
@@ -244,12 +253,9 @@
     :global(.reasoning-marked code) {
         white-space: pre-wrap;
         word-break: break-word;
+        overflow-wrap: anywhere;
     }
     :global(.reasoning-marked p) {
         word-break: break-word;
-    }
-
-    .user-bubble {
-        border-radius: 10px;
     }
 </style>

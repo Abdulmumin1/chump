@@ -62,7 +62,7 @@ import {
   renderWorkedFor,
 } from "../ui/render.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
-import { TranscriptRenderer } from "../ui/transcript.ts";
+import { TranscriptRenderer, userMessageDisplayFromPayload } from "../ui/transcript.ts";
 import {
   ensureServerTarget,
   parseCliArgs,
@@ -810,7 +810,7 @@ class LiveSyncTracker {
   }
 
   suppressUserMessage(payload: Record<string, unknown>): boolean {
-    const content = typeof payload.content === "string" ? payload.content.trim() : "";
+    const content = userMessageDisplayFromPayload(payload).trim();
     if (!content) {
       return true;
     }

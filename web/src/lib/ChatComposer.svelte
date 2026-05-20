@@ -17,8 +17,10 @@
 
     function fileToAttachment(file: File): Promise<ChatAttachment> {
         return new Promise((resolve, reject) => {
-            const ext = "." + (file.name.split(".").pop()?.toLowerCase() ?? "png");
-            const mime = IMAGE_MIME_BY_EXTENSION[ext] ?? file.type ?? "image/png";
+            const ext =
+                "." + (file.name.split(".").pop()?.toLowerCase() ?? "png");
+            const mime =
+                IMAGE_MIME_BY_EXTENSION[ext] ?? file.type ?? "image/png";
             const reader = new FileReader();
             reader.onload = () => {
                 const dataUrl = reader.result as string;
@@ -36,7 +38,10 @@
         });
     }
 
-    async function blobToAttachment(blob: Blob, filename: string): Promise<ChatAttachment> {
+    async function blobToAttachment(
+        blob: Blob,
+        filename: string,
+    ): Promise<ChatAttachment> {
         const ext = "." + (filename.split(".").pop()?.toLowerCase() ?? "png");
         const mime = IMAGE_MIME_BY_EXTENSION[ext] ?? blob.type ?? "image/png";
         return new Promise((resolve, reject) => {
@@ -232,7 +237,10 @@
     async function addFiles(files: FileList | File[]) {
         const newAttachments: ChatAttachment[] = [];
         for (const file of files) {
-            if (file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(file.name)) {
+            if (
+                file.type.startsWith("image/") ||
+                /\.(png|jpe?g|webp|gif)$/i.test(file.name)
+            ) {
                 try {
                     const attachment = await fileToAttachment(file);
                     newAttachments.push(attachment);
@@ -261,15 +269,25 @@
             for (const item of imageItems) {
                 const blob = item.getAsFile();
                 if (blob) {
-                    const ext = item.type === "image/png" ? ".png"
-                        : item.type === "image/jpeg" ? ".jpg"
-                        : item.type === "image/webp" ? ".webp"
-                        : item.type === "image/gif" ? ".gif"
-                        : ".png";
+                    const ext =
+                        item.type === "image/png"
+                            ? ".png"
+                            : item.type === "image/jpeg"
+                              ? ".jpg"
+                              : item.type === "image/webp"
+                                ? ".webp"
+                                : item.type === "image/gif"
+                                  ? ".gif"
+                                  : ".png";
                     const filename = `clipboard${ext}`;
-                    blobToAttachment(blob, filename).then((attachment) => {
-                        composerAttachments = [...composerAttachments, attachment];
-                    }).catch(() => {});
+                    blobToAttachment(blob, filename)
+                        .then((attachment) => {
+                            composerAttachments = [
+                                ...composerAttachments,
+                                attachment,
+                            ];
+                        })
+                        .catch(() => {});
                 }
             }
         }
@@ -463,23 +481,44 @@
 >
     {#if onScrollToBottom}
         <!-- Scroll to bottom float -->
-        <div class="absolute left-1/2 -top-10 -translate-x-1/2 z-30 transition-opacity opacity-80 hover:opacity-100">
-            <button onclick={onScrollToBottom} class="inline-flex items-center gap-1 rounded-[9px] border border-border-default bg-bg-elevated px-2.5 py-1 text-[11px] text-text-secondary transition-all hover:border-border-hover hover:bg-bg-hover hover:text-text-main">
-                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+        <div
+            class="absolute left-1/2 -top-10 -translate-x-1/2 z-30 transition-opacity opacity-80 hover:opacity-100"
+        >
+            <button
+                onclick={onScrollToBottom}
+                class="inline-flex items-center gap-1 rounded-[9px] border border-border-default bg-bg-elevated px-2.5 py-1 text-[11px] text-text-secondary transition-all hover:border-border-hover hover:bg-bg-hover hover:text-text-main"
+            >
+                <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                    ><path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                    ></path></svg
+                >
                 Scroll to bottom
             </button>
         </div>
     {/if}
-
     {#if isDraggingOver}
-        <div class="absolute inset-0 z-20 bg-accent/10 border-2 border-dashed border-accent rounded-lg flex items-center justify-center pointer-events-none">
-            <span class="text-accent text-sm font-medium">Drop images here</span>
+        <div
+            class="absolute inset-0 z-20 bg-accent/10 border-2 border-dashed border-accent rounded-lg flex items-center justify-center pointer-events-none"
+        >
+            <span class="text-accent text-sm font-medium">Drop images here</span
+            >
         </div>
     {/if}
     {#if hasAttachments}
         <div class="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
             {#each composerAttachments as attachment, index (attachment.filename + index)}
-                <div class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-default bg-bg-code flex-shrink-0">
+                <div
+                    class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-default bg-bg-code flex-shrink-0"
+                >
                     <img
                         src={attachmentThumbSrc(attachment)}
                         alt="Preview of {attachment.filename}"
@@ -491,11 +530,23 @@
                         class="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-bg-surface/80 text-text-tertiary hover:bg-error hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
                         onclick={() => removeAttachment(index)}
                     >
-                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        <svg
+                            class="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"
+                            ></path>
                         </svg>
                     </button>
-                    <span class="absolute bottom-0 left-0 right-0 text-[8px] text-text-inverse bg-black/50 truncate px-1 leading-relaxed">
+                    <span
+                        class="absolute bottom-0 left-0 right-0 text-[8px] text-text-inverse bg-black/50 truncate px-1 leading-relaxed"
+                    >
                         {attachment.filename}
                     </span>
                 </div>
@@ -567,107 +618,131 @@
         <!-- Context label and gap -->
         <div class="self-end min-h-[20px] flex items-center pr-1 md:pr-2">
             {#if contextUsageLabel}
-                <span class="text-[10px] md:text-[11px] font-mono text-text-muted select-none">{contextUsageLabel}</span>
+                <span
+                    class="text-[10px] md:text-[11px] font-mono text-text-muted select-none"
+                    >{contextUsageLabel}</span
+                >
             {/if}
         </div>
+
         <div
-            class="flex flex-col rounded-[8px] border border-border-default bg-bg-code focus-within:border-border-hover"
+            class="flex flex-col rounded-[8px] border border-border-default bg-bg-code focus-within:border-border-hover relative group"
         >
+            <img
+                src="/favicon.svg"
+                alt="Chump logo"
+                class="w-12 h-12 mb-6 absolute top-0 left-0 group-hover:-top-9 transition-all duration-300 -z-10"
+            />
+
             <textarea
                 aria-label="Message the agent"
                 bind:this={textareaElement}
                 bind:value={composerText}
-            rows="2"
-            placeholder="Message the agent..."
-            onkeydown={handleKeydown}
-            oninput={handleInput}
-            onpaste={handlePaste}
-            class="w-full resize-none rounded-t-[8px] border-none bg-transparent px-3 md:px-4 py-2 md:py-2.5 text-base text-text-secondary placeholder:text-text-muted focus:outline-none min-h-[48px] md:min-h-[56px] max-h-[200px] md:max-h-[300px]"
-        ></textarea>
+                rows="2"
+                placeholder="Message the agent..."
+                onkeydown={handleKeydown}
+                oninput={handleInput}
+                onpaste={handlePaste}
+                class="w-full resize-none rounded-t-[8px] border-none bg-transparent px-3 md:px-4 py-2 md:py-2.5 text-md text-text-secondary placeholder:text-text-muted focus:outline-none min-h-[48px] md:min-h-[56px] max-h-[200px] md:max-h-[300px]"
+            ></textarea>
 
-        <div
-            class="flex items-center justify-between rounded-b-[8px] border-t border-border-default px-2 md:px-3 py-1.5"
-        >
-            <div class="flex items-center gap-2">
-                <button
-                    type="button"
-                    aria-label="Attach image"
-                    class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated rounded-[6px] transition-colors"
-                    onclick={openFilePicker}
-                >
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                    </svg>
-                </button>
-                <input
-                    bind:this={fileInputElement}
-                    type="file"
-                    aria-label="Upload images"
-                    accept={ACCEPTED_IMAGE_TYPES}
-                    multiple
-                    class="hidden"
-                    onchange={handleFileInputChange}
-                />
-                {#if isSending}
-                    <span
-                        class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
-                        aria-live="polite"
-                    >
-                        <span class="font-mono text-[15px] text-text-highlight" aria-hidden="true"
-                            >{spinnerFrames[spinnerFrame]}</span
-                        >
-                        Working...
-                    </span>
-                {:else if !composerText.trim() && !hasAttachments}
-                    <CommandMenu
-                        {models}
-                        {currentModel}
-                        {currentThinking}
-                        {onCommand}
-                    />
-                {/if}
-            </div>
-            <div class="flex items-center gap-2">
-                <span
-                    class="text-[11px] md:text-[12px] font-medium text-text-muted mr-1 md:mr-2 tracking-wide hidden sm:inline"
-                    >⌘ Enter</span
-                >
-                {#if isSending && !composerText.trim() && !hasAttachments}
+            <div
+                class="flex items-center justify-between rounded-b-[8px] border-t border-border-default px-2 md:px-3 py-1.5"
+            >
+                <div class="flex items-center gap-2">
                     <button
-                        aria-label="Abort"
-                        class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-error/20 hover:bg-error/30 text-error rounded-[6px]"
-                        onclick={onAbort}
-                    >
-                        <span
-                            class="w-3 h-3 md:w-3.5 md:h-3.5 rounded-sm bg-error"
-                        ></span>
-                    </button>
-                {:else}
-                    <button
-                        aria-label={isSending
-                            ? "Queue message"
-                            : "Send message"}
-                        class="flex h-7 w-7 items-center justify-center rounded-[6px] border border-transparent bg-bg-elevated text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50 md:h-8 md:w-8"
-                        onclick={onSend}
-                        disabled={!canSend || (isCommand && !hasAttachments)}
+                        type="button"
+                        aria-label="Attach image"
+                        class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated rounded-[6px] transition-colors"
+                        onclick={openFilePicker}
                     >
                         <svg
-                            class="w-3.5 h-3.5 md:w-4 md:h-4"
+                            class="w-4 h-4"
                             fill="none"
                             viewBox="0 0 24 24"
-                            aria-hidden="true"
                             stroke="currentColor"
-                            ><path
+                            aria-hidden="true"
+                        >
+                            <path
                                 stroke-linecap="round"
                                 stroke-linejoin="round"
                                 stroke-width="2"
-                                d="M14 5l7 7m0 0l-7 7m7-7H3"
-                            ></path></svg
-                        >
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                            ></path>
+                        </svg>
                     </button>
-                {/if}
+                    <input
+                        bind:this={fileInputElement}
+                        type="file"
+                        aria-label="Upload images"
+                        accept={ACCEPTED_IMAGE_TYPES}
+                        multiple
+                        class="hidden"
+                        onchange={handleFileInputChange}
+                    />
+                    {#if isSending}
+                        <span
+                            class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
+                            aria-live="polite"
+                        >
+                            <span
+                                class="font-mono text-[15px] text-text-highlight"
+                                aria-hidden="true"
+                                >{spinnerFrames[spinnerFrame]}</span
+                            >
+                            Working...
+                        </span>
+                    {:else if !composerText.trim() && !hasAttachments}
+                        <CommandMenu
+                            {models}
+                            {currentModel}
+                            {currentThinking}
+                            {onCommand}
+                        />
+                    {/if}
+                </div>
+                <div class="flex items-center gap-2">
+                    <span
+                        class="text-[11px] md:text-[12px] font-medium text-text-muted mr-1 md:mr-2 tracking-wide hidden sm:inline"
+                        >⌘ Enter</span
+                    >
+                    {#if isSending && !composerText.trim() && !hasAttachments}
+                        <button
+                            aria-label="Abort"
+                            class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-error/20 hover:bg-error/30 text-error rounded-[6px]"
+                            onclick={onAbort}
+                        >
+                            <span
+                                class="w-3 h-3 md:w-3.5 md:h-3.5 rounded-sm bg-error"
+                            ></span>
+                        </button>
+                    {:else}
+                        <button
+                            aria-label={isSending
+                                ? "Queue message"
+                                : "Send message"}
+                            class="flex h-7 w-7 items-center justify-center rounded-[6px] border border-transparent bg-bg-elevated text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50 md:h-8 md:w-8"
+                            onclick={onSend}
+                            disabled={!canSend ||
+                                (isCommand && !hasAttachments)}
+                        >
+                            <svg
+                                class="w-3.5 h-3.5 md:w-4 md:h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                                stroke="currentColor"
+                                ><path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M14 5l7 7m0 0l-7 7m7-7H3"
+                                ></path></svg
+                            >
+                        </button>
+                    {/if}
+                </div>
             </div>
-        </div>
         </div>
     </div>
 
@@ -693,7 +768,14 @@
             >
             <span class="truncate">{workspaceRoot || "—"}</span>
             {#if gitBranch}
-                <svg aria-label="Git branch" role="img" class="w-3.5 h-3.5 text-text-muted opacity-50 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg
+                    aria-label="Git branch"
+                    role="img"
+                    class="w-3.5 h-3.5 text-text-muted opacity-50 ml-1.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
                     <line x1="6" x2="6" y1="3" y2="15"></line>
                     <circle cx="18" cy="6" r="3"></circle>
                     <circle cx="6" cy="18" r="3"></circle>
@@ -714,7 +796,9 @@
             {#if currentModel}
                 <button
                     class="truncate text-left font-mono text-[10px] md:text-[11px] text-text-muted transition-colors hover:text-text-highlight"
-                    aria-label="Current model: {shortenModel(currentModel)}. Click to change."
+                    aria-label="Current model: {shortenModel(
+                        currentModel,
+                    )}. Click to change."
                     onclick={() => onCommand("__open_model_picker", "")}
                     type="button"
                 >
