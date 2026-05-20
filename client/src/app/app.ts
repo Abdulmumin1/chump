@@ -1127,7 +1127,7 @@ async function handleSlashCommand(
         getStatus(config),
         getState(config),
       ]);
-      writeOutput(`${renderMuted(renderSessionStatusSummary(config, status, state))}\n`);
+      writeOutput(`${renderSessionStatusSummary(config, status, state)}\n`);
       break;
     }
     case "sessions": {
@@ -1378,34 +1378,38 @@ function renderSessionStatusSummary(
   status: ChumpStatus,
   state: import("../core/types.ts").ChumpState,
 ): string {
-  const parts: string[] = [];
-  parts.push(`server ${config.serverUrl}`);
-  parts.push(`session ${config.agentId}`);
-  parts.push(`model ${status.provider}/${status.model}`);
+  const rows: Array<[label: string, value: string]> = [
+    ["server", config.serverUrl],
+    ["session", config.agentId],
+    ["model", `${status.provider}/${status.model}`],
+  ];
   if (status.git_branch) {
-    parts.push(`branch ${status.git_branch}`);
+    rows.push(["branch", status.git_branch]);
   }
 
   const changedFiles = Array.isArray(state.files_touched) ? state.files_touched.length : 0;
   const { added, removed } = summarizeFileDiffs(state.file_diffs);
   if (changedFiles > 0 || added > 0 || removed > 0) {
-    const changedSummary = [`files ${changedFiles}`];
+    const changedSummary = [`${changedFiles} files`];
     if (added > 0) {
       changedSummary.push(`+${added}`);
     }
     if (removed > 0) {
       changedSummary.push(`-${removed}`);
     }
-    parts.push(changedSummary.join(" "));
+    rows.push(["changes", changedSummary.join("  ")]);
   } else {
-    parts.push("files 0");
+    rows.push(["changes", "0 files"]);
   }
 
   if (status.message_count > 0) {
-    parts.push(`messages ${status.message_count}`);
+    rows.push(["messages", `${status.message_count}`]);
   }
 
-  return parts.join(" · ");
+  const labelWidth = Math.max(...rows.map(([label]) => label.length));
+  return rows
+    .map(([label, value]) => `${renderAccent(label.padEnd(labelWidth, " "))}  ${renderMuted(value)}`)
+    .join("\n");
 }
 
 function summarizeFileDiffs(

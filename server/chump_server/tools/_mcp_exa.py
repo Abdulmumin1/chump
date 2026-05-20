@@ -32,8 +32,15 @@ def call_exa_tool(tool: str, arguments: dict[str, object], timeout: int) -> str 
         },
         method="POST",
     )
+    import ssl
+    ssl_context = None
     try:
-        with urlopen(request, timeout=timeout) as response:
+        import certifi
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    try:
+        with urlopen(request, timeout=timeout, context=ssl_context) as response:
             body = response.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
         raise SafetyError(f"website failed: HTTP {exc.code}") from exc

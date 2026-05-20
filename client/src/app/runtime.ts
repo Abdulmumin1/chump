@@ -355,6 +355,7 @@ async function spawnManagedServer(
         CHUMP_MANAGED_SERVER_IDLE_TIMEOUT: managedIdleTimeoutSeconds(),
       },
       stdio: ["ignore", logFd, logFd],
+      windowsHide: true,
     });
     child.unref();
 

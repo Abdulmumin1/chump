@@ -7,7 +7,7 @@ from ai_query.types import AbortError
 
 from ..config import ChumpConfig
 from ..safety import WorkspaceGuard, validate_command
-from ._utils import _terminate_process, _truncate
+from ._utils import _terminate_process, _truncate_command_output
 
 
 @tool(description="Run a shell command inside the workspace.")
@@ -88,7 +88,7 @@ def bind_bash(
                 if abort_task:
                     abort_task.cancel()
 
-            output = _truncate((stdout + stderr).decode().strip())
+            output = _truncate_command_output((stdout + stderr).decode().strip())
             if process.returncode != 0:
                 raise RuntimeError(
                     output or f"command failed with exit code {process.returncode}"

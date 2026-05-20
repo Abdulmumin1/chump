@@ -7,7 +7,13 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.patch_tool import AddFilePatch, UpdateFilePatch, parse_patch
-from chump_server.tools._utils import DEFAULT_DIFF_CHANGE_LIMIT, _diff_metadata
+from chump_server.tools._utils import (
+    BASH_OUTPUT_BYTE_LIMIT,
+    BASH_OUTPUT_LINE_LIMIT,
+    DEFAULT_DIFF_CHANGE_LIMIT,
+    _diff_metadata,
+    _truncate_command_output,
+)
 
 
 class DiffMetadataTests(unittest.TestCase):
@@ -34,6 +40,35 @@ class DiffMetadataTests(unittest.TestCase):
         self.assertEqual(diff["shown_changes"], DEFAULT_DIFF_CHANGE_LIMIT)
         self.assertEqual(diff["total_changes"], line_count * 2)
         self.assertEqual(len(diff["changes"]), DEFAULT_DIFF_CHANGE_LIMIT)
+
+
+class CommandOutputTruncationTests(unittest.TestCase):
+    def test_small_command_output_is_not_truncated(self) -> None:
+        output = "\n".join(f"line {index}" for index in range(10))
+        self.assertEqual(_truncate_command_output(output), output)
+
+    def test_command_output_keeps_last_lines(self) -> None:
+        output = "\n".join(f"line {index}" for index in range(BASH_OUTPUT_LINE_LIMIT + 25))
+
+        truncated = _truncate_command_output(output)
+
+        self.assertIn("command output truncated", truncated)
+        self.assertIn(
+            f"showing last {BASH_OUTPUT_LINE_LIMIT} of {BASH_OUTPUT_LINE_LIMIT + 25} lines",
+            truncated,
+        )
+        self.assertNotIn("line 0", truncated)
+        self.assertIn(f"line {BASH_OUTPUT_LINE_LIMIT + 24}", truncated)
+
+    def test_command_output_respects_byte_limit(self) -> None:
+        line = "x" * (BASH_OUTPUT_BYTE_LIMIT // 2)
+        output = "\n".join([line, line, line])
+
+        truncated = _truncate_command_output(output)
+
+        self.assertIn("command output truncated", truncated)
+        self.assertIn(f"showing last {BASH_OUTPUT_BYTE_LIMIT}", truncated)
+        self.assertLessEqual(len(truncated.encode("utf-8")), BASH_OUTPUT_BYTE_LIMIT + 256)
 
 
 class PatchParserTests(unittest.TestCase):

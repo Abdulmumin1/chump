@@ -1,5 +1,12 @@
 # chump-agent
 
+## 0.0.24
+
+### Patch Changes
+
+- - Hide background/managed server and browser command prompt windows on Windows platforms to prevent unexpected console windows from opening or flashing.
+  - Configure safe fallback SSL verification context using `certifi` for transport clients to prevent `SSLCertVerificationError` on macOS.
+
 ## 0.0.23
 
 ### Patch Changes

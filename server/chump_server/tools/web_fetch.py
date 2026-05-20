@@ -94,8 +94,15 @@ def _fetch_web_content(
             ),
         },
     )
+    import ssl
+    ssl_context = None
     try:
-        with urlopen(request, timeout=timeout) as response:
+        import certifi
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    try:
+        with urlopen(request, timeout=timeout, context=ssl_context) as response:
             raw = response.read(MAX_WEB_FETCH_BYTES + 1)
             if len(raw) > MAX_WEB_FETCH_BYTES:
                 raise SafetyError("response too large (exceeds 5MB limit)")

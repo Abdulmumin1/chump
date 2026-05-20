@@ -13,12 +13,54 @@ from ..patch_tool import TextStyle
 DEFAULT_DIFF_CHANGE_LIMIT = 400
 DEFAULT_DIFF_LINE_LIMIT = 600
 DEFAULT_DIFF_TEXT_BUDGET = 32_000
+BASH_OUTPUT_LINE_LIMIT = 300
+BASH_OUTPUT_BYTE_LIMIT = 50 * 1024
 
 
 def _truncate(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
         return value
     return value[: limit - 20] + "\n...[truncated]"
+
+
+def _truncate_command_output(
+    value: str,
+    *,
+    max_lines: int = BASH_OUTPUT_LINE_LIMIT,
+    max_bytes: int = BASH_OUTPUT_BYTE_LIMIT,
+) -> str:
+    total_bytes = len(value.encode("utf-8"))
+    lines = value.splitlines()
+    total_lines = len(lines)
+
+    if total_lines <= max_lines and total_bytes <= max_bytes:
+        return value
+
+    tail_lines = lines[-max_lines:] if lines else []
+    visible = "\n".join(tail_lines)
+    visible_bytes = len(visible.encode("utf-8"))
+
+    if visible_bytes > max_bytes:
+        truncated_bytes = visible.encode("utf-8")[-max_bytes:]
+        visible = truncated_bytes.decode("utf-8", errors="ignore")
+        first_newline = visible.find("\n")
+        if first_newline != -1:
+            visible = visible[first_newline + 1 :]
+
+    visible_lines = visible.splitlines()
+    shown_lines = len(visible_lines)
+    notices: list[str] = []
+    if total_lines > shown_lines:
+        notices.append(f"showing last {shown_lines} of {total_lines} lines")
+    if total_bytes > max_bytes:
+        notices.append(f"showing last {min(max_bytes, total_bytes)} of {total_bytes} bytes")
+
+    notice = "...[command output truncated"
+    if notices:
+        notice += f": {'; '.join(notices)}"
+    notice += "]"
+
+    return f"{notice}\n\n{visible}" if visible else notice
 
 
 def _preview(value: str, limit: int = 160) -> str:

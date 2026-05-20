@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.24
+
+- Configure fallback SSL verification context using `certifi` for web fetch and exa website search tools to prevent `SSLCertVerificationError` on macOS.
+- Alignment with client v0.0.24 release.
+
 ## 0.0.23
 
 - Alignment with client v0.0.23 release.
