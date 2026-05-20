@@ -97,6 +97,7 @@
         contextUsageLabel: string | null;
         steeringQueue: Array<{
             content: string;
+            display_content?: string;
             attachments?: Array<Record<string, unknown>>;
         }>;
         onSend: () => void;
@@ -454,9 +455,10 @@
 
     function steeringLabel(item: {
         content: string;
+        display_content?: string;
         attachments?: Array<Record<string, unknown>>;
     }): string {
-        const text = item.content.trim();
+        const text = (item.display_content || item.content).trim();
         if (text) return text;
         const count = item.attachments?.length ?? 0;
         return `${count} attachment${count === 1 ? "" : "s"}`;

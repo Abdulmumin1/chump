@@ -214,19 +214,7 @@ export function userMessageDisplayFromPayload(payload: Record<string, unknown>):
     return display;
   }
 
-  const content = typeof payload.content === "string" ? payload.content : "";
-  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-  let rendered = content;
-
-  for (const attachment of attachments) {
-    const label = attachmentDisplayLabel(attachment);
-    if (!label || rendered.includes(label)) {
-      continue;
-    }
-    rendered = appendDisplayImageMarker(rendered, label);
-  }
-
-  return rendered;
+  return typeof payload.content === "string" ? payload.content : "";
 }
 
 function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent[] {

@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.26
+
+- Add explicit `display_content` for user and steering payloads so clients preserve attachment-aware message text without reconstructing it heuristically.
+- Alignment with client v0.0.26 release.
+
 ## 0.0.25
 
 - Add stable labels to summarized image attachments so clients can reconstruct mixed text/image user messages more accurately.

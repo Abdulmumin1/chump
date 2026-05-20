@@ -107,7 +107,11 @@
     let messages = $state<StoredMessage[]>([]);
     let activity = $state<ActivityItem[]>([]);
     let steeringQueue = $state<
-        Array<{ content: string; attachments?: Array<Record<string, unknown>> }>
+        Array<{
+            content: string;
+            display_content?: string;
+            attachments?: Array<Record<string, unknown>>;
+        }>
     >([]);
     let composerText = $state("");
     let composerAttachments = $state<ChatAttachment[]>([]);
@@ -1111,6 +1115,7 @@
 
     function parseSteeringQueue(payload: Record<string, unknown>): Array<{
         content: string;
+        display_content?: string;
         attachments?: Array<Record<string, unknown>>;
     }> {
         const items = Array.isArray(payload.items) ? payload.items : [];
@@ -1120,6 +1125,7 @@
             )
             .map((item) => ({
                 content: asString(item.content),
+                display_content: asString(item.display_content) || undefined,
                 attachments: Array.isArray(item.attachments)
                     ? item.attachments.filter(
                           (attachment): attachment is Record<string, unknown> =>
@@ -1131,7 +1137,9 @@
             }))
             .filter(
                 (item) =>
-                    item.content.trim() || (item.attachments?.length ?? 0) > 0,
+                    item.display_content?.trim() ||
+                    item.content.trim() ||
+                    (item.attachments?.length ?? 0) > 0,
             );
     }
 
@@ -1326,7 +1334,8 @@
     function buildUserMessageContentFromPayload(
         payload: Record<string, unknown>,
     ): StoredMessage["content"] {
-        const text = asString(payload.content);
+        const text =
+            asString(payload.display_content) || asString(payload.content);
         const attachments = Array.isArray(payload.attachments)
             ? payload.attachments.filter(
                   (attachment): attachment is Record<string, unknown> =>
@@ -1966,6 +1975,10 @@
     }
 
     function userMessageActivityDetail(payload: Record<string, unknown>): string {
+        const display = asString(payload.display_content);
+        if (display) {
+            return display;
+        }
         const content = buildUserMessageContentFromPayload(payload);
         if (typeof content === "string") {
             return content;

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.26
+
+### Patch Changes
+
+- Preserve attachment-aware user message display text across steering queues, synced transcripts, and web chat empty-state polish.
+
 ## 0.0.25
 
 ### Patch Changes
