@@ -6,6 +6,7 @@
     import SessionsSidebar from "$lib/SessionsSidebar.svelte";
     import TranscriptPane from "$lib/TranscriptPane.svelte";
     import ChatComposer from "$lib/ChatComposer.svelte";
+    import DitherIdenticon from "$lib/DitherIdenticon.svelte";
     import Toasts from "$lib/Toasts.svelte";
     import WorkspaceState from "$lib/WorkspaceState.svelte";
 
@@ -52,6 +53,10 @@
         hasResult?: boolean;
         isDiff?: boolean;
         diffContent?: string;
+        imageSrc?: string;
+        mediaType?: string;
+        label?: string;
+        filename?: string;
     };
 
     type TranscriptMessage = {
@@ -859,13 +864,15 @@
     }
 
     async function submitPrompt(): Promise<void> {
-        const text =
-            composerText.trim() || (composerAttachments.length > 0 ? " " : "");
-        if ((!text && composerAttachments.length === 0) || !serverUrl) {
+        const trimmedText = composerText.trim();
+        const attachments = composerAttachments;
+        const message =
+            trimmedText ||
+            (attachments.length > 0 ? "See attached image." : "");
+        if ((!message && attachments.length === 0) || !serverUrl) {
             return;
         }
 
-        const attachments = composerAttachments;
         const sessionId = await ensureActiveSession();
         if (!sessionId) {
             return;
@@ -878,12 +885,13 @@
                 const result = await steerCurrentTurn(
                     serverUrl,
                     sessionId,
-                    text || "See attached image.",
+                    message,
                     attachments,
                 );
                 actionNotice = result.status;
             } catch (error) {
-                composerText = text;
+                composerText = trimmedText;
+                composerAttachments = attachments;
                 connectionError = toErrorMessage(error);
             }
             return;
@@ -897,7 +905,7 @@
             await streamChat(
                 serverUrl,
                 sessionId,
-                text || "See attached image.",
+                message,
                 attachments,
                 activeRequestController.signal,
             );
@@ -1143,9 +1151,9 @@
         const next = [...source];
 
         if (type === "user_message") {
-            const text = asString(data.content);
-            if (text) {
-                next.push({ role: "user", content: text });
+            const content = buildUserMessageContentFromPayload(data);
+            if (content) {
+                next.push({ role: "user", content });
             }
             return next;
         }
@@ -1313,6 +1321,108 @@
         }
 
         return {};
+    }
+
+    function buildUserMessageContentFromPayload(
+        payload: Record<string, unknown>,
+    ): StoredMessage["content"] {
+        const text = asString(payload.content);
+        const attachments = Array.isArray(payload.attachments)
+            ? payload.attachments.filter(
+                  (attachment): attachment is Record<string, unknown> =>
+                      Boolean(attachment && typeof attachment === "object"),
+              )
+            : [];
+
+        if (attachments.length === 0) {
+            return text;
+        }
+
+        const imageAttachments = attachments.filter(
+            (attachment) => attachment.type === "image",
+        );
+        if (imageAttachments.length === 0) {
+            return text;
+        }
+
+        const parts: MessagePart[] = [];
+        let remaining = text;
+        const used = new Set<number>();
+
+        while (remaining) {
+            let nextMatch:
+                | {
+                      position: number;
+                      index: number;
+                      attachment: Record<string, unknown>;
+                      label: string;
+                  }
+                | null = null;
+
+            for (const [index, attachment] of imageAttachments.entries()) {
+                if (used.has(index)) continue;
+                const label = attachmentSummaryLabel(attachment);
+                if (!label) continue;
+                const position = remaining.indexOf(label);
+                if (position === -1) continue;
+                if (!nextMatch || position < nextMatch.position) {
+                    nextMatch = { position, index, attachment, label };
+                }
+            }
+
+            if (!nextMatch) {
+                pushTextPart(parts, remaining);
+                remaining = "";
+                break;
+            }
+
+            pushTextPart(parts, remaining.slice(0, nextMatch.position));
+            parts.push(imageAttachmentSummaryPart(nextMatch.attachment));
+            used.add(nextMatch.index);
+            remaining = remaining.slice(
+                nextMatch.position + nextMatch.label.length,
+            );
+        }
+
+        for (const [index, attachment] of imageAttachments.entries()) {
+            if (!used.has(index)) {
+                parts.push(imageAttachmentSummaryPart(attachment));
+            }
+        }
+
+        return parts.length > 0 ? parts : text;
+    }
+
+    function pushTextPart(parts: MessagePart[], text: string): void {
+        if (!text) return;
+        parts.push({ type: "text", text });
+    }
+
+    function imageAttachmentSummaryPart(
+        attachment: Record<string, unknown>,
+    ): MessagePart {
+        const mime = asString(attachment.mime);
+        const filename = asString(attachment.filename);
+        const label = attachmentSummaryLabel(attachment);
+        return {
+            type: "image",
+            media_type: mime || undefined,
+            filename: filename || undefined,
+            label: label || undefined,
+        };
+    }
+
+    function attachmentSummaryLabel(attachment: Record<string, unknown>): string {
+        const label = asString(attachment.label).trim();
+        if (label) {
+            return label;
+        }
+        const filename = asString(attachment.filename).trim();
+        if (filename) {
+            return `[Image: ${filename}]`;
+        }
+        const mime = asString(attachment.mime).trim();
+        return mime ? `[Image · ${mime}]` : "[Image]";
     }
 
     function toErrorMessage(error: unknown): string {
@@ -1635,9 +1745,19 @@
         }
         if (kind === "image") {
             const mediaType = asString(candidate.media_type);
+            const imageSrc = asString(candidate.image);
+            const filename = asString(candidate.filename);
+            const label = asString(candidate.label);
             return {
                 kind: "image",
-                text: mediaType ? `image · ${mediaType}` : "image",
+                text:
+                    label ||
+                    filename ||
+                    (mediaType ? `image · ${mediaType}` : "image"),
+                imageSrc: imageSrc || undefined,
+                mediaType: mediaType || undefined,
+                filename: filename || undefined,
+                label: label || undefined,
             };
         }
         return { kind: "text", text: stringifyValue(part) };
@@ -1751,9 +1871,19 @@
             }
             if (kind === "image") {
                 const mediaType = asString(candidate.media_type);
+                const imageSrc = asString(candidate.image);
+                const filename = asString(candidate.filename);
+                const label = asString(candidate.label);
                 blocks.push({
                     kind: "image",
-                    text: mediaType ? `image · ${mediaType}` : "image",
+                    text:
+                        label ||
+                        filename ||
+                        (mediaType ? `image · ${mediaType}` : "image"),
+                    imageSrc: imageSrc || undefined,
+                    mediaType: mediaType || undefined,
+                    filename: filename || undefined,
+                    label: label || undefined,
                 });
                 continue;
             }
@@ -1773,7 +1903,7 @@
         }
 
         if (type === "user_message") {
-            const content = asString(payload.content);
+            const content = userMessageActivityDetail(payload);
             return {
                 id: `${id}`,
                 label: payload.steered === true ? "Steer" : "User",
@@ -1833,6 +1963,34 @@
         }
 
         return null;
+    }
+
+    function userMessageActivityDetail(payload: Record<string, unknown>): string {
+        const content = buildUserMessageContentFromPayload(payload);
+        if (typeof content === "string") {
+            return content;
+        }
+
+        return content
+            .map((part) => {
+                const candidate = part as Record<string, unknown>;
+                if (candidate.type === "text") {
+                    return asString(candidate.text);
+                }
+                if (candidate.type === "image") {
+                    return (
+                        asString(candidate.label) ||
+                        asString(candidate.filename) ||
+                        (asString(candidate.media_type)
+                            ? `[Image · ${asString(candidate.media_type)}]`
+                            : "[Image]")
+                    );
+                }
+                return stringifyValue(part);
+            })
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
     }
 
     function hasDiffMetadata(
@@ -1971,6 +2129,12 @@
                     ></path></svg
                 >
             </button>
+            {#if activeSessionId}
+                <div class="pointer-events-auto hidden md:flex items-center gap-2 text-[13px] font-medium text-text-secondary bg-bg-elevated/50 backdrop-blur border border-border-subtle rounded-full px-3 py-1">
+                    <DitherIdenticon seed={activeSessionId} class="w-4 h-4 rounded-full overflow-hidden flex-shrink-0" />
+                    <span class="truncate max-w-[200px]">{activeSessionId}</span>
+                </div>
+            {/if}
             <div class="flex items-center gap-2 pointer-events-none">
                 <button
                     aria-label="Create new session"

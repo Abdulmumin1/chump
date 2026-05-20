@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.25
+
+- Add stable labels to summarized image attachments so clients can reconstruct mixed text/image user messages more accurately.
+- Alignment with client v0.0.25 release.
+
 ## 0.0.24
 
 - Configure fallback SSL verification context using `certifi` for web fetch and exa website search tools to prevent `SSLCertVerificationError` on macOS.

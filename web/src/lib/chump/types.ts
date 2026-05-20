@@ -110,6 +110,8 @@ export type ImageMessagePart = {
 	type: 'image';
 	image?: string;
 	media_type?: string;
+	label?: string;
+	filename?: string;
 };
 
 export type UnknownMessagePart = {

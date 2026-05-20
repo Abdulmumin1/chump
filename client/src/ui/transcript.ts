@@ -117,7 +117,7 @@ export class TranscriptRenderer {
 
   private renderUserMessage(payload: Record<string, unknown>): void {
     if (payload.steered === true) {
-      const content = typeof payload.content === "string" ? payload.content : "";
+      const content = userMessageDisplayFromPayload(payload);
       if (content.trim()) {
         this.hooks.onSteeringAccepted?.(content);
       }
@@ -125,7 +125,7 @@ export class TranscriptRenderer {
     if (this.hooks.onUserMessage?.(payload)) {
       return;
     }
-    const content = typeof payload.content === "string" ? payload.content : "";
+    const content = userMessageDisplayFromPayload(payload);
     if (content.trim()) {
       writeOutputLine(renderUserMessage(content));
     }
@@ -168,7 +168,7 @@ export function transcriptEventsFromStoredMessages(messages: StoredMessage[]): T
   const events: TranscriptEvent[] = [];
   for (const message of messages) {
     if (message.role === "user") {
-      const content = extractTextContent(message.content).trim();
+      const content = userMessageDisplayFromContent(message.content).trim();
       if (content) {
         events.push({ type: "user_message", payload: { content } });
       }
@@ -206,6 +206,27 @@ export function renderStoredMessageFallback(content: unknown): string {
   }
 
   return String(content);
+}
+
+export function userMessageDisplayFromPayload(payload: Record<string, unknown>): string {
+  const display = typeof payload.display_content === "string" ? payload.display_content : "";
+  if (display.trim()) {
+    return display;
+  }
+
+  const content = typeof payload.content === "string" ? payload.content : "";
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  let rendered = content;
+
+  for (const attachment of attachments) {
+    const label = attachmentDisplayLabel(attachment);
+    if (!label || rendered.includes(label)) {
+      continue;
+    }
+    rendered = appendDisplayImageMarker(rendered, label);
+  }
+
+  return rendered;
 }
 
 function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent[] {
@@ -279,6 +300,89 @@ function extractTextContent(content: unknown): string {
   }
 
   return "";
+}
+
+function userMessageDisplayFromContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  let rendered = "";
+  for (const part of content) {
+    const text = readTextPart(part);
+    if (text !== null) {
+      rendered = appendDisplayText(rendered, text);
+      continue;
+    }
+
+    const imageLabel = imagePartDisplayLabel(part);
+    if (imageLabel) {
+      rendered = appendDisplayImageMarker(rendered, imageLabel);
+    }
+  }
+
+  return rendered;
+}
+
+function attachmentDisplayLabel(attachment: unknown): string {
+  if (!attachment || typeof attachment !== "object") {
+    return "";
+  }
+
+  const value = attachment as Record<string, unknown>;
+  const label = typeof value.label === "string" ? value.label.trim() : "";
+  if (label) {
+    return label;
+  }
+
+  const filename = typeof value.filename === "string" ? value.filename.trim() : "";
+  if (filename) {
+    return `[Image: ${filename}]`;
+  }
+
+  const mime = typeof value.mime === "string"
+    ? value.mime.trim()
+    : typeof value.media_type === "string"
+      ? value.media_type.trim()
+      : "";
+  return mime ? `[Image · ${mime}]` : "[Image]";
+}
+
+function imagePartDisplayLabel(part: unknown): string {
+  if (!part || typeof part !== "object") {
+    return "";
+  }
+
+  const value = part as Record<string, unknown>;
+  if (value.type !== "image") {
+    return "";
+  }
+
+  return attachmentDisplayLabel(value);
+}
+
+function appendDisplayText(rendered: string, text: string): string {
+  if (!text) {
+    return rendered;
+  }
+  if (rendered && rendered.endsWith("]") && !/^\s/u.test(text)) {
+    return `${rendered} ${text}`;
+  }
+  return `${rendered}${text}`;
+}
+
+function appendDisplayImageMarker(rendered: string, label: string): string {
+  if (!label) {
+    return rendered;
+  }
+  if (!rendered) {
+    return label;
+  }
+  return /[\s\n]$/u.test(rendered) ? `${rendered}${label}` : `${rendered} ${label}`;
 }
 
 function readReasoningPart(part: unknown): string | null {

@@ -45,6 +45,14 @@
         color: var(--text-code);
     }
 
+    :global(.markdown-body :not(pre) > code) {
+        white-space: break-spaces;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+    }
+
     :global(.markdown-body pre) {
         margin: 0 0 1rem 0;
         padding: 0.9rem 1rem;
@@ -60,6 +68,13 @@
         padding: 0;
         border-radius: 0;
         color: inherit;
+    }
+
+    :global(.markdown-body p),
+    :global(.markdown-body li),
+    :global(.markdown-body blockquote) {
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
 
     :global(.markdown-body ul),
@@ -101,5 +116,83 @@
         margin: 1rem 0;
         border: 0;
         border-top: 1px solid var(--border-default);
+    }
+
+    :global(.markdown-body table) {
+        display: block;
+        width: calc(100% + 2rem);
+        margin: 1.5rem -1rem;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-collapse: separate;
+        border-spacing: 0;
+        border: 1px solid var(--border-default);
+        border-radius: 8px;
+    }
+
+    @media (min-width: 768px) {
+        :global(.markdown-body table) {
+            width: calc(100% + 4rem);
+            margin-left: -2rem;
+            margin-right: -2rem;
+        }
+    }
+
+    :global(.markdown-body table::-webkit-scrollbar) {
+        height: 6px;
+    }
+
+    :global(.markdown-body table::-webkit-scrollbar-track) {
+        background: transparent;
+    }
+
+    :global(.markdown-body table::-webkit-scrollbar-thumb) {
+        background: var(--border-default);
+        border-radius: 3px;
+    }
+
+    :global(.markdown-body table::-webkit-scrollbar-thumb:hover) {
+        background: var(--border-hover);
+    }
+
+    :global(.markdown-body th) {
+        background: var(--bg-surface-alt);
+        color: var(--text-inverse);
+        font-weight: 600;
+        text-align: left;
+        padding: 0.65rem 0.95rem;
+        border-bottom: 2px solid var(--border-default);
+        font-size: 0.88em;
+    }
+
+    :global(.markdown-body td) {
+        padding: 0.65rem 0.95rem;
+        border-bottom: 1px solid var(--border-subtle);
+        color: var(--text-secondary);
+        font-size: 0.88em;
+    }
+
+    :global(.markdown-body tr:nth-child(even)) {
+        background: var(--bg-surface-alt);
+    }
+
+    :global(.markdown-body tr:last-child td) {
+        border-bottom: none;
+    }
+
+    :global(.markdown-body th:first-child) {
+        border-top-left-radius: 7px;
+    }
+
+    :global(.markdown-body th:last-child) {
+        border-top-right-radius: 7px;
+    }
+
+    :global(.markdown-body tr:last-child td:first-child) {
+        border-bottom-left-radius: 7px;
+    }
+
+    :global(.markdown-body tr:last-child td:last-child) {
+        border-bottom-right-radius: 7px;
     }
 </style>
