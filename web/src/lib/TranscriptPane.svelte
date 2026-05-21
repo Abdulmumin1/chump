@@ -1,10 +1,10 @@
 <script lang="ts">
-    import PixelGridShader from "./PixelGridShader.svelte";
-    import ToolBlock from "$lib/ToolBlock.svelte";
-    import MarkdownText from "$lib/MarkdownText.svelte";
     import UserMessage from "$lib/UserMessage.svelte";
-    import { marked } from "marked";
-    import { slide } from "svelte/transition";
+    import AssistantTranscriptItem from "$lib/chat/transcript/AssistantTranscriptItem.svelte";
+    import ReasoningTranscriptItem from "$lib/chat/transcript/ReasoningTranscriptItem.svelte";
+    import TranscriptEmptyState from "$lib/chat/transcript/TranscriptEmptyState.svelte";
+    import type { TranscriptMessage } from "$lib/chat/types";
+    import type { ChumpHealth } from "$lib/chump/types";
 
     let {
         transcript,
@@ -16,11 +16,11 @@
         onToggleBlock,
         onToggleReasoning,
         reasoningSummary,
-        health,
-        activeSessionId,
+        health = null,
+        activeSessionId = "",
         onOpenConnectModal,
     } = $props<{
-        transcript: Array<any>;
+        transcript: TranscriptMessage[];
         transcriptElement: HTMLDivElement | null;
         isSending: boolean;
         isConnecting?: boolean;
@@ -29,28 +29,10 @@
         onToggleBlock: (id: string) => void;
         onToggleReasoning: (id: string) => void;
         reasoningSummary: (text: string) => string;
-        health?: any;
+        health?: ChumpHealth | null;
         activeSessionId?: string;
         onOpenConnectModal?: () => void;
     }>();
-
-    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spinnerFrame = $state(0);
-    let spinnerTimer: ReturnType<typeof setInterval> | null = null;
-    $effect(() => {
-        if (isConnecting) {
-            spinnerFrame = 0;
-            spinnerTimer = setInterval(() => {
-                spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
-            }, 80);
-        } else {
-            if (spinnerTimer) clearInterval(spinnerTimer);
-            spinnerTimer = null;
-        }
-        return () => {
-            if (spinnerTimer) clearInterval(spinnerTimer);
-        };
-    });
 </script>
 
 <div
@@ -64,78 +46,12 @@
             : ''}"
     >
         {#if transcript.length === 0}
-            {#if !health}
-                <!-- Bounded Absolute Dither wave Background at the bottom 1/3 of the screen -->
-                <div class="absolute bottom-0 left-0 right-0 h-[33%] w-full z-0 overflow-hidden pointer-events-none select-none">
-                    <PixelGridShader 
-                        shape="wave" 
-                        matrix="bayer8" 
-                        pxSize={3} 
-                        speed={0.1} 
-                        amplitude={0.16} 
-                        frequency={0.7} 
-                        colorFg="#e4f222"
-                        flipped={true}
-                    />
-                </div>
-            {/if}
-
-            <div
-                class="flex flex-col items-center justify-center min-h-[50vh] text-center px-4 mt-8 relative z-10"
-            >
-                <img
-                    src="/favicon.svg"
-                    alt="Chump logo"
-                    class="w-24 h-24 mb-6 select-none"
-                />
-                {#if !health}
-                    <h1
-                        class="text-[18px] md:text-[20px] font-medium text-text-main mb-2"
-                    >
-                        Co' Connect to a server
-                    </h1>
-                    <p class="text-[14px] text-text-tertiary max-w-md mb-6 leading-relaxed">
-                        Connect to your local or remote chump server to start building.
-                    </p>
-                    {#if onOpenConnectModal}
-                        <button
-                            class="button-primary flex items-center justify-center gap-2 min-w-[120px] cursor-pointer"
-                            onclick={onOpenConnectModal}
-                            disabled={isConnecting}
-                        >
-                            {#if isConnecting}
-                                <span
-                                    class="font-mono text-[14px]"
-                                    aria-hidden="true"
-                                    >{spinnerFrames[spinnerFrame]}</span
-                                >
-                                Connecting...
-                            {:else}
-                                Connect now
-                            {/if}
-                        </button>
-                    {/if}
-                {:else if !activeSessionId}
-                    <h1
-                        class="text-[18px] md:text-[20px] font-medium text-text-main mb-2"
-                    >
-                        Start a session
-                    </h1>
-                    <p class="text-[14px] text-text-tertiary max-w-md">
-                        Type your first message below, or create a new session
-                        to get started.
-                    </p>
-                {:else}
-                    <h1
-                        class="text-[18px] md:text-[20px] font-medium text-text-main mb-2"
-                    >
-                        Wh' What are we building?
-                    </h1>
-                    <p class="text-[14px] text-text-tertiary max-w-md">
-                        I'm ready. Describe a task or ask a question.
-                    </p>
-                {/if}
-            </div>
+            <TranscriptEmptyState
+                {health}
+                {activeSessionId}
+                {isConnecting}
+                {onOpenConnectModal}
+            />
         {/if}
 
         {#each transcript as item, itemIndex (item.id)}
@@ -146,132 +62,22 @@
                     <UserMessage blocks={item.blocks} />
                 </div>
             {:else if item.role === "reasoning"}
-                <div class="min-w-0 w-full">
-                    {#each item.blocks as block, index (`${item.id}-${index}`)}
-                        {#if (block.kind === "text" || block.kind === "reasoning") && block.text.trim()}
-                            <div
-                                class="p-2 transition-colors hover:bg-bg-code-block/60 min-w-0"
-                            >
-                                <button
-                                    class="flex w-full min-w-0 items-center justify-between gap-4 text-left focus:outline-none"
-                                    onclick={() =>
-                                        onToggleReasoning(
-                                            `${item.id}-${index}`,
-                                        )}
-                                >
-                                    <div
-                                        class="mb-2 flex min-w-0 items-center gap-3 text-text-secondary"
-                                    >
-                                        <svg
-                                            class="h-5 w-5 flex-shrink-0 text-text-highlight"
-                                            aria-hidden="true"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            ><path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="1.7"
-                                                d="M9.663 17h4.673M12 3c-3.866 0-7 3.134-7 7 0 2.252 1.064 4.255 2.716 5.537.513.398.86 1.005.984 1.643L9 19h6l.3-1.82c.124-.638.47-1.245.984-1.643A6.972 6.972 0 0019 10c0-3.866-3.134-7-7-7z"
-                                            ></path></svg
-                                        >
-                                        <span
-                                            class="min-w-0 break-words text-[14px] font-medium tracking-tight text-text-secondary"
-                                            >{reasoningSummary(
-                                                block.text,
-                                            )}</span
-                                        >
-                                    </div>
-                                    <svg
-                                        class="h-4 w-4 flex-shrink-0 text-text-tertiary transition-transform duration-200 {(expandedReasoning[
-                                            `${item.id}-${index}`
-                                        ] ??
-                                        (isSending &&
-                                            itemIndex ===
-                                                transcript.length - 1))
-                                            ? 'rotate-180'
-                                            : '-rotate-90'}"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        aria-hidden="true"
-                                        stroke="currentColor"
-                                        ><path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2"
-                                            d="M19 9l-7 7-7-7"
-                                        ></path></svg
-                                    >
-                                </button>
-                                {#if expandedReasoning[`${item.id}-${index}`] ?? (isSending && itemIndex === transcript.length - 1)}
-                                    <div
-                                        transition:slide={{ duration: 200 }}
-                                        class="reasoning-marked overflow-hidden break-words p-2 text-[12px] text-text-secondary"
-                                    >
-                                        {@html marked(block.text)}
-                                    </div>
-                                {/if}
-                            </div>
-                        {/if}
-                    {/each}
-                </div>
+                <ReasoningTranscriptItem
+                    {item}
+                    {itemIndex}
+                    transcriptLength={transcript.length}
+                    {expandedReasoning}
+                    {isSending}
+                    {onToggleReasoning}
+                    {reasoningSummary}
+                />
             {:else}
-                <div
-                    class="flex flex-col gap-2 min-w-0 {item.live
-                        ? 'opacity-90'
-                        : ''}"
-                >
-                    {#each item.blocks as block, index (`${item.id}-${index}`)}
-                        {#if block.kind === "text" && block.text.trim()}
-                            <div class="px-2">
-                                <MarkdownText text={block.text} />
-                            </div>
-                        {:else if block.kind === "tool-call" || block.kind === "tool-result"}
-                            <ToolBlock
-                                {block}
-                                expanded={expandedBlocks[`${item.id}-${index}`]}
-                                onToggle={() =>
-                                    onToggleBlock(`${item.id}-${index}`)}
-                            />
-                        {:else if block.kind === "image"}
-                            <div
-                                class="p-3 bg-bg-code border border-border-default rounded-md text-[12px] text-text-tertiary inline-flex items-center gap-2 w-fit"
-                            >
-                                <svg
-                                    class="w-4 h-4"
-                                    aria-hidden="true"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    ><path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                                    ></path></svg
-                                >
-                                {block.text}
-                            </div>
-                        {/if}
-                    {/each}
-                </div>
+                <AssistantTranscriptItem
+                    {item}
+                    {expandedBlocks}
+                    {onToggleBlock}
+                />
             {/if}
         {/each}
     </div>
 </div>
-
-<style>
-    :global(.reasoning-marked pre) {
-        white-space: pre-wrap;
-        word-break: break-word;
-        overflow-x: hidden;
-    }
-    :global(.reasoning-marked code) {
-        white-space: pre-wrap;
-        word-break: break-word;
-        overflow-wrap: anywhere;
-    }
-    :global(.reasoning-marked p) {
-        word-break: break-word;
-    }
-</style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import BrailleSpinner from "$lib/BrailleSpinner.svelte";
     import ThemeToggle from "$lib/ThemeToggle.svelte";
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
     let {
@@ -38,27 +39,8 @@
         dragOffset?: number;
         isDragging?: boolean;
     }>();
-
-    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spinnerFrame = $state(0);
-    let spinnerTimer: ReturnType<typeof setInterval> | null = null;
-    $effect(() => {
-        if (isConnecting) {
-            spinnerFrame = 0;
-            spinnerTimer = setInterval(() => {
-                spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
-            }, 80);
-        } else {
-            if (spinnerTimer) clearInterval(spinnerTimer);
-            spinnerTimer = null;
-        }
-        return () => {
-            if (spinnerTimer) clearInterval(spinnerTimer);
-        };
-    });
-
     let isConnected = $derived(!!health);
-    let serverDisplay = $derived(() => {
+    let serverDisplay = $derived.by(() => {
         try {
             const url = new URL(serverUrl);
             return url.host;
@@ -185,7 +167,7 @@
                 >
                     <span class="block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-success"></span>
                     <span class="text-[11px] font-medium text-text-tertiary group-hover:text-text-secondary truncate"
-                        >{serverDisplay()}</span
+                        >{serverDisplay}</span
                     >
                 </button>
             {:else}
@@ -207,9 +189,7 @@
                     >
                     <span class="text-[11px] text-text-secondary flex items-center gap-1.5">
                         {#if isConnecting}
-                            <span class="font-mono text-[13px]" aria-hidden="true"
-                                >{spinnerFrames[spinnerFrame]}</span
-                            >
+                            <BrailleSpinner class="font-mono text-[13px]" />
                             Connecting...
                         {:else}
                             Connect

@@ -2,6 +2,7 @@
     import { browser } from "$app/environment";
     import { tick } from "svelte";
     import { DIFFS_TAG_NAME, FileDiff, processPatch } from "@pierre/diffs";
+    // @ts-ignore side-effect web-component bundle is not typed
     import "../../node_modules/@pierre/diffs/dist/components/web-components.js";
     import type { ChangeRecord, ChumpState } from "$lib/chump/types";
     import {

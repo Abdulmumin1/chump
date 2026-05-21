@@ -1,71 +1,28 @@
 <script lang="ts">
     import { tick } from "svelte";
-    import CommandMenu from "./CommandMenu.svelte";
-
-    import type { ModelChoice } from "$lib/models";
+    import BrailleSpinner from "$lib/BrailleSpinner.svelte";
+    import CommandMenu from "$lib/CommandMenu.svelte";
+    import AttachmentTray from "$lib/chat/composer/AttachmentTray.svelte";
+    import CommandSuggestions from "$lib/chat/composer/CommandSuggestions.svelte";
+    import ComposerMetaBar from "$lib/chat/composer/ComposerMetaBar.svelte";
+    import QueuedSteeringList from "$lib/chat/composer/QueuedSteeringList.svelte";
+    import {
+        ACCEPTED_IMAGE_TYPES,
+        readClipboardItemsAsAttachments,
+        readFilesAsAttachments,
+    } from "$lib/chat/composer/attachments";
+    import {
+        buildComposerSuggestions,
+        type Suggestion,
+    } from "$lib/chat/composer/commands";
+    import { shortenModel } from "$lib/chat/helpers";
+    import type { SteeringQueueItem } from "$lib/chat/types";
     import type { ChatAttachment } from "$lib/chump/types";
-
-    const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".webp": "image/webp",
-        ".gif": "image/gif",
-    };
-
-    const ACCEPTED_IMAGE_TYPES = "image/png,image/jpeg,image/webp,image/gif";
-
-    function fileToAttachment(file: File): Promise<ChatAttachment> {
-        return new Promise((resolve, reject) => {
-            const ext =
-                "." + (file.name.split(".").pop()?.toLowerCase() ?? "png");
-            const mime =
-                IMAGE_MIME_BY_EXTENSION[ext] ?? file.type ?? "image/png";
-            const reader = new FileReader();
-            reader.onload = () => {
-                const dataUrl = reader.result as string;
-                const base64 = dataUrl.split(",")[1] ?? "";
-                resolve({
-                    type: "image",
-                    label: `[Image: ${file.name}]`,
-                    filename: file.name,
-                    mime,
-                    data: base64,
-                });
-            };
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(file);
-        });
-    }
-
-    async function blobToAttachment(
-        blob: Blob,
-        filename: string,
-    ): Promise<ChatAttachment> {
-        const ext = "." + (filename.split(".").pop()?.toLowerCase() ?? "png");
-        const mime = IMAGE_MIME_BY_EXTENSION[ext] ?? blob.type ?? "image/png";
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const dataUrl = reader.result as string;
-                const base64 = dataUrl.split(",")[1] ?? "";
-                resolve({
-                    type: "image",
-                    label: `[Image: ${filename}]`,
-                    filename,
-                    mime,
-                    data: base64,
-                });
-            };
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(blob);
-        });
-    }
+    import type { ModelChoice } from "$lib/models";
 
     let {
         composerText = $bindable(),
         composerAttachments = $bindable([]),
-        activeSessionId,
         canSend,
         isSending,
         models = [],
@@ -85,7 +42,6 @@
     } = $props<{
         composerText: string;
         composerAttachments: ChatAttachment[];
-        activeSessionId: string;
         canSend: boolean;
         isSending: boolean;
         models: ModelChoice[];
@@ -95,11 +51,7 @@
         gitBranch: string;
         reasoningInfo: { effort: string | null; budget: number | null } | null;
         contextUsageLabel: string | null;
-        steeringQueue: Array<{
-            content: string;
-            display_content?: string;
-            attachments?: Array<Record<string, unknown>>;
-        }>;
+        steeringQueue: SteeringQueueItem[];
         onSend: () => void;
         onDeleteSteering: (index: number) => void;
         onEditSteering: (index: number) => void;
@@ -115,188 +67,45 @@
     let isDraggingOver = $state(false);
     let dragCounter = 0;
 
-    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spinnerFrame = $state(0);
-    let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+    const suggestions = $derived(
+        buildComposerSuggestions(composerText, models, currentProvider),
+    );
+    const visible = $derived(suggestions.length > 0 && menuOpen);
+    const isCommand = $derived(composerText.trim().startsWith("/"));
+    const currentThinking = $derived(reasoningInfo?.effort ?? "");
+    const hasAttachments = $derived(composerAttachments.length > 0);
 
-    $effect(() => {
-        if (isSending) {
-            spinnerFrame = 0;
-            spinnerTimer = setInterval(() => {
-                spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
-            }, 80);
-        } else {
-            if (spinnerTimer) clearInterval(spinnerTimer);
-            spinnerTimer = null;
-        }
-        return () => {
-            if (spinnerTimer) clearInterval(spinnerTimer);
-        };
-    });
-
-    type Suggestion = {
-        label: string;
-        command: string;
-        description: string;
-        kind: "root" | "model" | "command";
-    };
-
-    const ROOT_COMMANDS: Suggestion[] = [
-        {
-            label: "/model",
-            command: "/model ",
-            description: "choose provider and model",
-            kind: "root",
-        },
-        {
-            label: "/thinking",
-            command: "/thinking ",
-            description: "choose reasoning level",
-            kind: "root",
-        },
-        {
-            label: "/clear",
-            command: "/clear",
-            description: "clear messages for current session",
-            kind: "command",
-        },
-        {
-            label: "/new",
-            command: "/new",
-            description: "start a fresh session",
-            kind: "command",
-        },
-    ];
-
-    const THINKING_PRESETS: Suggestion[] = [
-        {
-            label: "none",
-            command: "/thinking none",
-            description: "disable thinking",
-            kind: "command",
-        },
-        {
-            label: "low",
-            command: "/thinking low",
-            description: "small thinking budget",
-            kind: "command",
-        },
-        {
-            label: "high",
-            command: "/thinking high",
-            description: "larger thinking budget",
-            kind: "command",
-        },
-        {
-            label: "xhigh",
-            command: "/thinking xhigh",
-            description: "maximum thinking budget",
-            kind: "command",
-        },
-    ];
-
-    let suggestions = $derived.by(() => {
-        const text = composerText;
-        if (!text.startsWith("/")) return [];
-
-        const trimmed = text.trim();
-
-        if (/^\/model(?:\s|$)/.test(trimmed)) {
-            const query = trimmed.slice("/model".length).trim().toLowerCase();
-            return models
-                .filter(
-                    (m: ModelChoice) =>
-                        m.provider === currentProvider &&
-                        (!query ||
-                            m.label.toLowerCase().includes(query) ||
-                            m.description.toLowerCase().includes(query)),
-                )
-                .map((m: ModelChoice) => ({
-                    label: m.label,
-                    command: `/model ${m.label}`,
-                    description: m.description,
-                    kind: "model" as const,
-                }));
-        }
-
-        if (/^\/thinking(?:\s|$)/.test(trimmed)) {
-            const query = trimmed
-                .slice("/thinking".length)
-                .trim()
-                .toLowerCase();
-            return THINKING_PRESETS.filter(
-                (item) => !query || item.label.includes(query),
-            );
-        }
-
-        const hits = ROOT_COMMANDS.filter((c) => c.label.startsWith(trimmed));
-        return hits.length > 0 ? hits : trimmed === "/" ? ROOT_COMMANDS : [];
-    });
-
-    let visible = $derived(suggestions.length > 0 && menuOpen);
-
-    async function addFiles(files: FileList | File[]) {
-        const newAttachments: ChatAttachment[] = [];
-        for (const file of files) {
-            if (
-                file.type.startsWith("image/") ||
-                /\.(png|jpe?g|webp|gif)$/i.test(file.name)
-            ) {
-                try {
-                    const attachment = await fileToAttachment(file);
-                    newAttachments.push(attachment);
-                } catch {
-                    // skip files that fail to read
-                }
-            }
+    async function addAttachments(files: Iterable<File>) {
+        const newAttachments = await readFilesAsAttachments(files);
+        if (newAttachments.length === 0) {
+            return;
         }
         composerAttachments = [...composerAttachments, ...newAttachments];
     }
 
-    function handlePaste(event: ClipboardEvent) {
+    async function handlePaste(event: ClipboardEvent) {
         const items = event.clipboardData?.items;
         if (!items) return;
 
-        const imageItems: DataTransferItem[] = [];
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.type.startsWith("image/")) {
-                imageItems.push(item);
-            }
+        const imageItems = Array.from(items).filter((item) =>
+            item.type.startsWith("image/"),
+        );
+        if (imageItems.length === 0) {
+            return;
         }
 
-        if (imageItems.length > 0) {
-            event.preventDefault();
-            for (const item of imageItems) {
-                const blob = item.getAsFile();
-                if (blob) {
-                    const ext =
-                        item.type === "image/png"
-                            ? ".png"
-                            : item.type === "image/jpeg"
-                              ? ".jpg"
-                              : item.type === "image/webp"
-                                ? ".webp"
-                                : item.type === "image/gif"
-                                  ? ".gif"
-                                  : ".png";
-                    const filename = `clipboard${ext}`;
-                    blobToAttachment(blob, filename)
-                        .then((attachment) => {
-                            composerAttachments = [
-                                ...composerAttachments,
-                                attachment,
-                            ];
-                        })
-                        .catch(() => {});
-                }
-            }
+        event.preventDefault();
+        const newAttachments = await readClipboardItemsAsAttachments(imageItems);
+        if (newAttachments.length === 0) {
+            return;
         }
+
+        composerAttachments = [...composerAttachments, ...newAttachments];
     }
 
     function handleDragEnter(event: DragEvent) {
         event.preventDefault();
-        dragCounter++;
+        dragCounter += 1;
         if (event.dataTransfer?.types.includes("Files")) {
             isDraggingOver = true;
         }
@@ -304,7 +113,7 @@
 
     function handleDragLeave(event: DragEvent) {
         event.preventDefault();
-        dragCounter--;
+        dragCounter -= 1;
         if (dragCounter <= 0) {
             dragCounter = 0;
             isDraggingOver = false;
@@ -319,15 +128,17 @@
         event.preventDefault();
         isDraggingOver = false;
         dragCounter = 0;
+
         const files = event.dataTransfer?.files;
         if (files && files.length > 0) {
-            void addFiles(files);
+            void addAttachments(Array.from(files));
         }
     }
 
     function removeAttachment(index: number) {
         composerAttachments = composerAttachments.filter(
-            (_attachment: ChatAttachment, i: number) => i !== index,
+            (_attachment: ChatAttachment, attachmentIndex: number) =>
+                attachmentIndex !== index,
         );
     }
 
@@ -338,7 +149,7 @@
     function handleFileInputChange(event: Event) {
         const input = event.target as HTMLInputElement;
         if (input.files && input.files.length > 0) {
-            void addFiles(input.files);
+            void addAttachments(Array.from(input.files));
             input.value = "";
         }
     }
@@ -352,7 +163,6 @@
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
                 onSend();
-                return;
             }
             return;
         }
@@ -366,8 +176,7 @@
             case "ArrowUp":
                 event.preventDefault();
                 selectedIndex =
-                    (selectedIndex - 1 + suggestions.length) %
-                    suggestions.length;
+                    (selectedIndex - 1 + suggestions.length) % suggestions.length;
                 scrollSelectedIntoView();
                 break;
             case "Enter":
@@ -418,23 +227,23 @@
             return;
         }
         if (trimmed.startsWith("/model ")) {
-            const modelSpec = trimmed.slice("/model ".length).trim();
-            void onCommand("model", modelSpec);
+            void onCommand("model", trimmed.slice("/model ".length).trim());
             return;
         }
         if (trimmed.startsWith("/thinking ")) {
-            const mode = trimmed.slice("/thinking ".length).trim();
-            void onCommand("thinking", mode);
-            return;
+            void onCommand(
+                "thinking",
+                trimmed.slice("/thinking ".length).trim(),
+            );
         }
     }
 
     function scrollSelectedIntoView() {
         void tick().then(() => {
-            const el = document.querySelector(
+            const element = document.querySelector(
                 '[data-suggestion-selected="true"]',
             );
-            el?.scrollIntoView({ block: "nearest" });
+            element?.scrollIntoView({ block: "nearest" });
         });
     }
 
@@ -446,31 +255,6 @@
         menuOpen = true;
         selectedIndex = 0;
     }
-
-    function shortenModel(name: string): string {
-        const short = name.replace(/^workers_ai\/@cf\//, "");
-        const parts = short.split("/");
-        return parts.length > 1 ? parts.pop() || short : short;
-    }
-
-    function steeringLabel(item: {
-        content: string;
-        display_content?: string;
-        attachments?: Array<Record<string, unknown>>;
-    }): string {
-        const text = (item.display_content || item.content).trim();
-        if (text) return text;
-        const count = item.attachments?.length ?? 0;
-        return `${count} attachment${count === 1 ? "" : "s"}`;
-    }
-
-    function attachmentThumbSrc(attachment: ChatAttachment): string {
-        return `data:${attachment.mime};base64,${attachment.data}`;
-    }
-
-    let isCommand = $derived(composerText.trim().startsWith("/"));
-    let currentThinking = $derived(reasoningInfo?.effort ?? "");
-    let hasAttachments = $derived(composerAttachments.length > 0);
 </script>
 
 <div
@@ -482,7 +266,6 @@
     ondrop={handleDrop}
 >
     {#if onScrollToBottom}
-        <!-- Scroll to bottom float -->
         <div
             class="absolute left-1/2 -top-10 -translate-x-1/2 z-30 transition-opacity opacity-80 hover:opacity-100"
         >
@@ -507,117 +290,31 @@
             </button>
         </div>
     {/if}
+
     {#if isDraggingOver}
         <div
             class="absolute inset-0 z-20 bg-accent/10 border-2 border-dashed border-accent rounded-lg flex items-center justify-center pointer-events-none"
         >
-            <span class="text-accent text-sm font-medium">Drop images here</span
-            >
+            <span class="text-accent text-sm font-medium">Drop images here</span>
         </div>
     {/if}
+
     {#if hasAttachments}
-        <div class="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
-            {#each composerAttachments as attachment, index (attachment.filename + index)}
-                <div
-                    class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-default bg-bg-code flex-shrink-0"
-                >
-                    <img
-                        src={attachmentThumbSrc(attachment)}
-                        alt="Preview of {attachment.filename}"
-                        class="w-full h-full object-cover"
-                    />
-                    <button
-                        type="button"
-                        aria-label="Remove attachment"
-                        class="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-bg-surface/80 text-text-tertiary hover:bg-error hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                        onclick={() => removeAttachment(index)}
-                    >
-                        <svg
-                            class="w-3 h-3"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M6 18L18 6M6 6l12 12"
-                            ></path>
-                        </svg>
-                    </button>
-                    <span
-                        class="absolute bottom-0 left-0 right-0 text-[8px] text-text-inverse bg-black/50 truncate px-1 leading-relaxed"
-                    >
-                        {attachment.filename}
-                    </span>
-                </div>
-            {/each}
-        </div>
+        <AttachmentTray
+            attachments={composerAttachments}
+            onRemove={removeAttachment}
+        />
     {/if}
 
     <div class="max-w-4xl mx-auto relative z-10 flex flex-col w-full">
-        <!-- Steering Queue moved right above the input context container -->
         {#if steeringQueue.length > 0}
-            <div class="space-y-2 mb-2 w-full px-1">
-                {#each steeringQueue as item, index (`${index}-${item.content}`)}
-                    <div
-                        class="group flex items-center gap-2 rounded-[7px] border border-border-default bg-bg-code/95 px-2.5 py-1.5"
-                    >
-                        <span
-                            class="text-[10px] font-mono font-bold uppercase tracking-[0.18em] text-text-tertiary"
-                            >Queued</span
-                        >
-                        <span
-                            class="min-w-0 flex-1 truncate text-[13px] text-text-secondary"
-                            >{steeringLabel(item)}</span
-                        >
-                        <button
-                            type="button"
-                            aria-label="Delete queued steering"
-                            class="flex h-6 w-6 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-border-hover hover:text-error"
-                            onclick={() => onDeleteSteering(index)}
-                        >
-                            <svg
-                                class="h-3.5 w-3.5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                aria-hidden="true"
-                                stroke="currentColor"
-                                ><path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="1.8"
-                                    d="M6 7h12m-9 0V5h6v2m-8 0 1 12h8l1-12"
-                                ></path></svg
-                            >
-                        </button>
-                        <button
-                            type="button"
-                            aria-label="Edit queued steering"
-                            class="flex h-6 w-6 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-border-hover hover:text-text-highlight"
-                            onclick={() => onEditSteering(index)}
-                        >
-                            <svg
-                                class="h-3.5 w-3.5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                aria-hidden="true"
-                                stroke="currentColor"
-                                ><path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="1.8"
-                                    d="m16.8 4.8 2.4 2.4M4 20h4.5L19.2 9.3a1.7 1.7 0 0 0 0-2.4l-2.1-2.1a1.7 1.7 0 0 0-2.4 0L4 15.5V20Z"
-                                ></path></svg
-                            >
-                        </button>
-                    </div>
-                {/each}
-            </div>
+            <QueuedSteeringList
+                {steeringQueue}
+                onDelete={onDeleteSteering}
+                onEdit={onEditSteering}
+            />
         {/if}
 
-        <!-- Context label and gap -->
         <div class="self-end min-h-[20px] flex items-center pr-1 md:pr-2">
             {#if contextUsageLabel}
                 <span
@@ -687,11 +384,9 @@
                             class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
                             aria-live="polite"
                         >
-                            <span
+                            <BrailleSpinner
                                 class="font-mono text-[15px] text-text-highlight"
-                                aria-hidden="true"
-                                >{spinnerFrames[spinnerFrame]}</span
-                            >
+                            />
                             Working...
                         </span>
                     {:else if !composerText.trim() && !hasAttachments}
@@ -725,8 +420,7 @@
                                 : "Send message"}
                             class="flex h-7 w-7 items-center justify-center rounded-[6px] border border-transparent bg-bg-elevated text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50 md:h-8 md:w-8"
                             onclick={onSend}
-                            disabled={!canSend ||
-                                (isCommand && !hasAttachments)}
+                            disabled={!canSend || (isCommand && !hasAttachments)}
                         >
                             <svg
                                 class="w-3.5 h-3.5 md:w-4 md:h-4"
@@ -748,105 +442,20 @@
         </div>
     </div>
 
-    <div
-        class="max-w-4xl mx-auto flex items-center justify-between mt-1 md:mt-1.5 px-1"
-    >
-        <div
-            class="flex items-center gap-1.5 text-[10px] md:text-[11px] font-mono text-text-muted truncate max-w-[70%]"
-        >
-            <svg
-                aria-label="Workspace root"
-                class="w-3 h-3 flex-shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                role="img"
-                ><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                ></path></svg
-            >
-            <span class="truncate">{workspaceRoot || "—"}</span>
-            {#if gitBranch}
-                <svg
-                    aria-label="Git branch"
-                    role="img"
-                    class="w-3.5 h-3.5 text-text-muted opacity-50 ml-1.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                >
-                    <line x1="6" x2="6" y1="3" y2="15"></line>
-                    <circle cx="18" cy="6" r="3"></circle>
-                    <circle cx="6" cy="18" r="3"></circle>
-                    <path d="M18 9a9 9 0 0 1-9 9"></path>
-                </svg>
-                <span class="truncate ml-1">{gitBranch}</span>
-            {/if}
-        </div>
-        <div class="flex items-center gap-2 min-w-0">
-            {#if reasoningInfo?.effort}
-                <span
-                    class="text-[10px] md:text-[11px] font-mono text-text-muted truncate"
-                >
-                    {reasoningInfo.effort}{#if reasoningInfo.budget}
-                        · {reasoningInfo.budget.toLocaleString()} tok{/if}
-                </span>
-            {/if}
-            {#if currentModel}
-                <button
-                    class="truncate text-left font-mono text-[10px] md:text-[11px] text-text-muted transition-colors hover:text-text-highlight"
-                    aria-label="Current model: {shortenModel(
-                        currentModel,
-                    )}. Click to change."
-                    onclick={() => onCommand("__open_model_picker", "")}
-                    type="button"
-                >
-                    {shortenModel(currentModel)}
-                </button>
-            {/if}
-        </div>
-    </div>
+    <ComposerMetaBar
+        {workspaceRoot}
+        {gitBranch}
+        {currentModel}
+        {reasoningInfo}
+        {shortenModel}
+        onOpenModelPicker={() => onCommand("__open_model_picker", "")}
+    />
 
     {#if visible}
-        <div
-            class="absolute left-4 right-4 md:left-8 md:right-8 bottom-full mb-1 max-w-4xl mx-auto"
-        >
-            <div
-                class="bg-bg-code border border-border-default rounded-[8px] overflow-hidden max-h-[280px] overflow-y-auto"
-                role="listbox"
-                aria-label="Command suggestions"
-            >
-                {#each suggestions as suggestion, index (suggestion.command)}
-                    <button
-                        role="option"
-                        class="flex w-full items-center gap-3 px-4 py-2 text-left {index ===
-                        selectedIndex
-                            ? 'bg-bg-elevated'
-                            : 'hover:bg-bg-elevated/50'}"
-                        onclick={() => acceptSuggestion(suggestion)}
-                        data-suggestion-selected={index === selectedIndex}
-                        type="button"
-                        aria-selected={index === selectedIndex}
-                    >
-                        <span
-                            class="min-w-[140px] font-mono text-[13px] text-text-highlight"
-                            >{suggestion.label}</span
-                        >
-                        <span class="text-[12px] text-text-tertiary"
-                            >{suggestion.description}</span
-                        >
-                        {#if suggestion.kind === "model" && suggestion.label === currentModel}
-                            <span
-                                class="ml-auto rounded-full bg-accent-bg px-1.5 py-0.5 text-[10px] text-text-highlight"
-                                >active</span
-                            >
-                        {/if}
-                    </button>
-                {/each}
-            </div>
-        </div>
+        <CommandSuggestions
+            {suggestions}
+            {selectedIndex}
+            onSelect={acceptSuggestion}
+        />
     {/if}
 </div>
