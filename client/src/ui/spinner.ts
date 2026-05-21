@@ -1,11 +1,12 @@
 import { renderAccent, renderMuted } from "./render.ts";
+import { preferredSpinnerFrames } from "./terminal-capabilities.ts";
 
 export function createSpinner(onFrame: (frame: string | null) => void): {
   start: () => void;
   refresh: () => void;
   stop: () => void;
 } {
-  const frames = ["✶", "✸", "✹", "✺", "✹", "✷"];
+  const frames = preferredSpinnerFrames();
   const label = "Transmogrifying";
   let index = 0;
   let timer: NodeJS.Timeout | null = null;

@@ -342,9 +342,13 @@ async function spawnManagedServer(
 
   const logFd = openSync(paths.logPath, "a");
   try {
+    // On Windows, `detached: true` gives console children their own console
+    // window. Keep the child non-detached there so the managed server can run
+    // without opening a surprise PowerShell/cmd window; stdio is still routed
+    // to the log file and the child is unref'd below.
     const child = spawn(command.file, command.args, {
       cwd: workspaceRoot,
-      detached: true,
+      detached: process.platform !== "win32",
       env: {
         ...process.env,
         CHUMP_WORKSPACE_ROOT: workspaceRoot,

@@ -3,6 +3,8 @@
 import { installClientDiagnostics } from "./app/diagnostics.ts";
 import { runCli } from "./app/app.ts";
 
+process.title = "Chump Agent (CLI)";
+
 installClientDiagnostics();
 
 runCli().catch((error) => {

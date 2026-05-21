@@ -15,6 +15,7 @@ from .git_utils import get_git_branch
 from .agent import ChumpAgent
 from .config import ChumpConfig, load_config
 from .managed_idle import is_resume_gap
+from .process_title import set_process_title
 from .resources import ResourceCatalog
 
 
@@ -233,6 +234,7 @@ class ChumpServer(AgentServer):
 
 
 def main() -> None:
+    set_process_title("Chump Agent (Server)")
     config = load_config()
     resources = ResourceCatalog(config.workspace_root)
     if config.verbose:

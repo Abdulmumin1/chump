@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.27
+
+- Label the backend process as `Chump Agent (Server)` in process monitors where supported.
+- Add `setproctitle` to make the server process discoverable by name on macOS Activity Monitor and similar tools.
+- Alignment with client v0.0.27 release.
+
 ## 0.0.26
 
 - Add explicit `display_content` for user and steering payloads so clients preserve attachment-aware message text without reconstructing it heuristically.

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.27
+
+### Patch Changes
+
+- Improve Windows CLI resilience by avoiding detached managed-server console windows, using safer terminal rendering fallbacks, and labeling Chump CLI/server processes in system monitors.
+
 ## 0.0.26
 
 ### Patch Changes
