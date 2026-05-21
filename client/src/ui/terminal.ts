@@ -1,3 +1,5 @@
+import { supportsSynchronizedOutput } from "./terminal-capabilities.ts";
+
 export type DraftRenderer = {
   buildClear: () => string;
   buildRedraw: () => string;
@@ -9,6 +11,13 @@ let activeDraft: DraftRenderer | null = null;
 // CSI 2026 synchronized output sequences for atomic screen updates
 const SYNC_START = "\x1b[?2026h";
 const SYNC_END = "\x1b[?2026l";
+
+function synchronizedFrame(payload: string): string {
+  if (!supportsSynchronizedOutput()) {
+    return payload;
+  }
+  return `${SYNC_START}${payload}${SYNC_END}`;
+}
 
 // ---- write batching ----
 // During model streaming, writeOutput is called many times per second (once
@@ -54,7 +63,7 @@ function flushBatch(): void {
   if (payload && !payload.endsWith("\n")) {
     payload += "\n";
   }
-  process.stdout.write(`${SYNC_START}${clear}${payload}${redraw}${SYNC_END}`);
+  process.stdout.write(synchronizedFrame(`${clear}${payload}${redraw}`));
 }
 
 function scheduleFlush(): void {
@@ -108,7 +117,7 @@ export function clearTerminal(): void {
   }
   const clear = activeDraft.buildClear();
   const redraw = activeDraft.buildRedraw();
-  process.stdout.write(`${SYNC_START}${clear}\x1b[2J\x1b[3J\x1b[H${redraw}${SYNC_END}`);
+  process.stdout.write(synchronizedFrame(`${clear}\x1b[2J\x1b[3J\x1b[H${redraw}`));
 }
 
 // Run an action that needs the live draft cleared (e.g. when reading raw input

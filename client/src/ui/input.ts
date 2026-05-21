@@ -18,6 +18,7 @@ import {
   readImageAttachment,
 } from "./attachments.ts";
 import { hasPendingBatch, setActiveDraft } from "./terminal.ts";
+import { supportsStatusRowPatching, supportsSynchronizedOutput } from "./terminal-capabilities.ts";
 import { stripPendingOsc11Response } from "./terminal-query.ts";
 import { StdinBuffer } from "./stdin-buffer.ts";
 import {
@@ -48,6 +49,13 @@ const LARGE_PASTE_LINES = 3;
 // what we actually write.
 const SYNC_BEGIN = "\x1b[?2026h";
 const SYNC_END = "\x1b[?2026l";
+
+function synchronizedFrame(payload: string): string {
+  if (!supportsSynchronizedOutput()) {
+    return payload;
+  }
+  return `${SYNC_BEGIN}${payload}${SYNC_END}`;
+}
 
 export async function readPrompt(fallbackRl: Interface | null): Promise<string | null> {
   if (!input.isTTY) {
@@ -219,7 +227,7 @@ function createInteractivePromptReader(): {
 
   function clear(): void {
     const payload = buildClear();
-    if (payload) output.write(`${SYNC_BEGIN}${payload}${SYNC_END}`);
+    if (payload) output.write(synchronizedFrame(payload));
   }
 
   function buildRedraw(): string {
@@ -449,7 +457,7 @@ function createInteractivePromptReader(): {
     }
     const frame = buildRedraw();
     if (frame) {
-      output.write(`${SYNC_BEGIN}${frame}${SYNC_END}`);
+      output.write(synchronizedFrame(frame));
     }
   }
 
@@ -555,6 +563,9 @@ function createInteractivePromptReader(): {
   // and avoids the expensive `\x1b[J` clear-to-end that can confuse slow
   // terminals when issued rapidly.
   function buildStatusPatch(): string | null {
+    if (!supportsStatusRowPatching()) {
+      return null;
+    }
     if (closed || (!pendingResolve && !showIdlePromptFrame)) {
       return null;
     }
@@ -623,7 +634,7 @@ function createInteractivePromptReader(): {
     if (!patch) {
       return false;
     }
-    output.write(`${SYNC_BEGIN}${patch}${SYNC_END}`);
+    output.write(synchronizedFrame(patch));
     return true;
   }
 
@@ -699,7 +710,7 @@ function createInteractivePromptReader(): {
       forceRedraw = true;
       const frame = buildRedraw();
       if (frame) {
-        output.write(`${SYNC_BEGIN}${frame}${SYNC_END}`);
+        output.write(synchronizedFrame(frame));
       }
     }
 
