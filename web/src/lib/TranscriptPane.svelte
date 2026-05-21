@@ -19,6 +19,7 @@
         health = null,
         activeSessionId = "",
         onOpenConnectModal,
+        isLoadingSession = false,
     } = $props<{
         transcript: TranscriptMessage[];
         transcriptElement: HTMLDivElement | null;
@@ -32,6 +33,7 @@
         health?: ChumpHealth | null;
         activeSessionId?: string;
         onOpenConnectModal?: () => void;
+        isLoadingSession?: boolean;
     }>();
 </script>
 
@@ -50,6 +52,7 @@
                 {health}
                 {activeSessionId}
                 {isConnecting}
+                {isLoadingSession}
                 {onOpenConnectModal}
             />
         {/if}

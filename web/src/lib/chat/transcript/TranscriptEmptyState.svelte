@@ -8,11 +8,13 @@
         activeSessionId = "",
         isConnecting = false,
         onOpenConnectModal,
+        isLoadingSession = false,
     } = $props<{
         health?: ChumpHealth | null;
         activeSessionId?: string;
         isConnecting?: boolean;
         onOpenConnectModal?: () => void;
+        isLoadingSession?: boolean;
     }>();
 </script>
 
@@ -65,6 +67,14 @@
         </h1>
         <p class="text-[14px] text-text-tertiary max-w-md">
             Type your first message below, or create a new session to get started.
+        </p>
+    {:else if isLoadingSession}
+        <h1 class="text-[18px] md:text-[20px] font-medium text-text-main mb-2 flex items-center gap-2 justify-center">
+            <BrailleSpinner class="font-mono text-[18px] text-text-highlight" />
+            Loading session...
+        </h1>
+        <p class="text-[14px] text-text-tertiary max-w-md">
+            Restoring context and fetching messages from the server.
         </p>
     {:else}
         <h1 class="text-[18px] md:text-[20px] font-medium text-text-main mb-2">

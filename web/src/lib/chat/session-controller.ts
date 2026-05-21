@@ -49,6 +49,8 @@ export type SessionControllerState = {
     set isConnecting(value: boolean);
     get isSending(): boolean;
     set isSending(value: boolean);
+    get isLoadingSession(): boolean;
+    set isLoadingSession(value: boolean);
     get connectionError(): string;
     set connectionError(value: string);
     get lastEventId(): number;
@@ -149,7 +151,12 @@ export function createSessionController(
         state.stopEvents?.();
         state.stopEvents = null;
         state.streamToken += 1;
-        await refreshSessionSnapshot(nextSessionId);
+        state.isLoadingSession = true;
+        try {
+            await refreshSessionSnapshot(nextSessionId);
+        } finally {
+            state.isLoadingSession = false;
+        }
         openSessionStream(nextSessionId);
     }
 

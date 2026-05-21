@@ -20,6 +20,7 @@
         open = false,
         dragOffset = 0,
         isDragging = false,
+        isLoadingSession = false,
     } = $props<{
         sessions: Array<any>;
         activeSessionId: string;
@@ -38,6 +39,7 @@
         open?: boolean;
         dragOffset?: number;
         isDragging?: boolean;
+        isLoadingSession?: boolean;
     }>();
     let isConnected = $derived(!!health);
     let serverDisplay = $derived.by(() => {
@@ -111,7 +113,13 @@
                 >
                     <div class="flex justify-between items-center w-full">
                         <div class="flex items-center gap-2 truncate pr-2">
-                            <DitherIdenticon seed={session.id} class="w-4 h-4 rounded-full overflow-hidden flex-shrink-0" />
+                            {#if isLoadingSession && session.id === activeSessionId}
+                                <div class="w-4 h-4 flex items-center justify-center text-text-highlight flex-shrink-0">
+                                    <BrailleSpinner class="font-mono text-[13px]" />
+                                </div>
+                            {:else}
+                                <DitherIdenticon seed={session.id} class="w-4 h-4 rounded-full overflow-hidden flex-shrink-0" />
+                            {/if}
                             <span
                                 class="text-[13px] truncate {session.id ===
                                 activeSessionId

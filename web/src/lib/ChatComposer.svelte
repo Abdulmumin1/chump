@@ -39,6 +39,7 @@
         onCommand,
         onAbort,
         onScrollToBottom,
+        isLoadingSession = false,
     } = $props<{
         composerText: string;
         composerAttachments: ChatAttachment[];
@@ -58,6 +59,7 @@
         onCommand: (command: string, args: string) => void | Promise<void>;
         onAbort: () => void;
         onScrollToBottom?: () => void;
+        isLoadingSession?: boolean;
     }>();
 
     let textareaElement = $state<HTMLTextAreaElement | null>(null);
@@ -338,11 +340,12 @@
                 bind:this={textareaElement}
                 bind:value={composerText}
                 rows="2"
-                placeholder="Message the agent..."
+                placeholder={isLoadingSession ? "Loading session..." : "Message the agent..."}
                 onkeydown={handleKeydown}
                 oninput={handleInput}
                 onpaste={handlePaste}
-                class="w-full resize-none rounded-t-[8px] border-none bg-transparent px-3 md:px-4 py-2 md:py-2.5 text-md text-text-secondary placeholder:text-text-muted focus:outline-none min-h-[48px] md:min-h-[56px] max-h-[200px] md:max-h-[300px]"
+                disabled={isLoadingSession}
+                class="w-full resize-none rounded-t-[8px] border-none bg-transparent px-3 md:px-4 py-2 md:py-2.5 text-md text-text-secondary placeholder:text-text-muted focus:outline-none min-h-[48px] md:min-h-[56px] max-h-[200px] md:max-h-[300px] disabled:opacity-50"
             ></textarea>
 
             <div
@@ -352,8 +355,9 @@
                     <button
                         type="button"
                         aria-label="Attach image"
-                        class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated rounded-[6px] transition-colors"
+                        class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated rounded-[6px] transition-colors disabled:opacity-50"
                         onclick={openFilePicker}
+                        disabled={isLoadingSession}
                     >
                         <svg
                             class="w-4 h-4"
@@ -390,12 +394,14 @@
                             Working...
                         </span>
                     {:else if !composerText.trim() && !hasAttachments}
-                        <CommandMenu
-                            {models}
-                            {currentModel}
-                            {currentThinking}
-                            {onCommand}
-                        />
+                        {#if !isLoadingSession}
+                            <CommandMenu
+                                {models}
+                                {currentModel}
+                                {currentThinking}
+                                {onCommand}
+                            />
+                        {/if}
                     {/if}
                 </div>
                 <div class="flex items-center gap-2">

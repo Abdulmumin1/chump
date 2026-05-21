@@ -66,6 +66,7 @@
     let composerAttachments = $state<ChatAttachment[]>([]);
     let isConnecting = $state(false);
     let isSending = $state(false);
+    let isLoadingSession = $state(false);
     let connectionError = $state("");
     let transcriptElement = $state<HTMLDivElement | null>(null);
     let isAtBottom = $state(true);
@@ -103,6 +104,7 @@
     const canSend = $derived(
         Boolean(
             serverUrl &&
+                !isLoadingSession &&
                 (composerText.trim().length > 0 ||
                     composerAttachments.length > 0),
         ),
@@ -233,6 +235,12 @@
         },
         set isSending(value: boolean) {
             isSending = value;
+        },
+        get isLoadingSession() {
+            return isLoadingSession;
+        },
+        set isLoadingSession(value: boolean) {
+            isLoadingSession = value;
         },
         get connectionError() {
             return connectionError;
@@ -623,6 +631,7 @@
         {serverUrl}
         {isConnecting}
         {canConnect}
+        {isLoadingSession}
         onCreateSession={() => void sessionController.createFreshSession()}
         onOpenSession={() => void sessionController.openTypedSession()}
         onSelectSession={(id) => {
@@ -667,6 +676,7 @@
             {isConnecting}
             {expandedBlocks}
             {expandedReasoning}
+            {isLoadingSession}
             onToggleBlock={toggleBlock}
             onToggleReasoning={toggleReasoning}
             {reasoningSummary}
@@ -682,6 +692,7 @@
                 {canSend}
                 {isSending}
                 models={availableModels}
+                {isLoadingSession}
                 {currentModel}
                 {currentProvider}
                 workspaceRoot={displayWorkspace}
