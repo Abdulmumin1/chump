@@ -619,11 +619,11 @@ async function waitForServerExit(url: string, timeoutMs: number): Promise<boolea
   return false;
 }
 
-async function isServerHealthy(url: string): Promise<boolean> {
+async function isServerHealthy(url: string, timeoutMs: number = 1_000): Promise<boolean> {
   try {
     const response = await fetch(`${url}/health`, {
       method: "GET",
-      signal: AbortSignal.timeout(1_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return response.ok;
   } catch {
@@ -632,8 +632,16 @@ async function isServerHealthy(url: string): Promise<boolean> {
 }
 
 async function assertServerHealthy(url: string): Promise<void> {
-  if (await isServerHealthy(url)) {
-    return;
+  // For remote or tunneled connections (like onlocal.dev), a single 1-second request can easily time out on a cold start
+  // due to DNS resolution, SSL handshake, or tunnel wakeup latency.
+  // We try up to 3 times with a 2-second timeout per attempt to make connection establishment highly resilient.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (await isServerHealthy(url, 2_000)) {
+      return;
+    }
+    if (attempt < 3) {
+      await sleep(250 * attempt);
+    }
   }
   throw new Error(`could not reach server at ${url}`);
 }

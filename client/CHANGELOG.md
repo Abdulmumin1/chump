@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.29
+
+### Patch Changes
+
+- Make direct connections to remote and tunneled servers highly resilient by increasing the connection health check timeout and adding retry attempts with incremental backoff.
+
 ## 0.0.28
 
 ### Patch Changes
