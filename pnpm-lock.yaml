@@ -34,8 +34,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
       onlocal:
-        specifier: ^0.5.9
-        version: 0.5.9
+        specifier: ^0.6.0
+        version: 0.6.0
     devDependencies:
       '@types/node':
         specifier: ^24.6.1
@@ -1311,8 +1311,8 @@ packages:
   oniguruma-to-es@4.3.6:
     resolution: {integrity: sha512-csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA==}
 
-  onlocal@0.5.9:
-    resolution: {integrity: sha512-UP3EQlmn/tFEg4mL6NtIroODcZPec7Qi+ncJuDwPfPNrtzG/VBjO6Xd6wLDM9VmiacAc0PRmizynSCf3wi1Srw==}
+  onlocal@0.6.0:
+    resolution: {integrity: sha512-zH1qqbAnNpPBIlLkGiMFIC7ArnNMhCOxJVFFTdcvxw3eOKf8+aKRunlqinOYtAkR8048wrk8hum2NFFYtghr0A==}
     hasBin: true
 
   outdent@0.5.0:
@@ -2794,7 +2794,7 @@ snapshots:
       regex: 6.1.0
       regex-recursion: 6.0.2
 
-  onlocal@0.5.9: {}
+  onlocal@0.6.0: {}
 
   outdent@0.5.0: {}
 

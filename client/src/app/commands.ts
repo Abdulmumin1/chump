@@ -58,6 +58,12 @@ const ROOT_COMMANDS: Array<{
     action: "submit",
   },
   {
+    label: "/compact",
+    command: "/compact",
+    description: "summarize old context and keep recent messages",
+    action: "submit",
+  },
+  {
     label: "/new",
     command: "/new",
     description: "start a fresh session",
@@ -320,6 +326,7 @@ export function parseSlashCommand(input: string): {
     case "status":
     case "sessions":
     case "clear":
+    case "compact":
     case "agent":
     case "session":
     case "model":
@@ -343,6 +350,7 @@ export function printHelp(): void {
     writeOutputLine("/agent <id>");
     writeOutputLine("/share [status|stop]");
     writeOutputLine("/thinking <none|low|high|xhigh>");
+    writeOutputLine("/compact");
   });
 }
 

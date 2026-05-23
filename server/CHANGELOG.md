@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.28
+
+- Introduce summary/history compaction for agent sessions to optimize LLM context window usage.
+- Enhance configuration handling with local `.chump/config.json` support.
+- Alignment with client v0.0.28 release.
+
 ## 0.0.27
 
 - Label the backend process as `Chump Agent (Server)` in process monitors where supported.

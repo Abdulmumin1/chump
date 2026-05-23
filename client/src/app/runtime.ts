@@ -14,6 +14,7 @@ import type {
   ManagedServerMetadata,
 } from "../core/types.ts";
 import { getWorkspaceStatePaths } from "./state-paths.ts";
+import { getResolvedConfig } from "./config.ts";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
@@ -109,7 +110,7 @@ export async function ensureServerTarget(
 
   const metadata = await readManagedServerMetadata(workspaceRoot);
   if (metadata && await isServerHealthy(metadata.url)) {
-    if (!(await managedServerIsReusable(metadata))) {
+    if (!(await managedServerIsReusable(metadata, workspaceRoot))) {
       await stopManagedServer(workspaceRoot);
     } else {
       return {
@@ -125,7 +126,7 @@ export async function ensureServerTarget(
   if (
     refreshedMetadata &&
     await isServerHealthy(refreshedMetadata.url) &&
-    await managedServerIsReusable(refreshedMetadata)
+    await managedServerIsReusable(refreshedMetadata, workspaceRoot)
   ) {
     return {
       serverUrl: refreshedMetadata.url,
@@ -178,7 +179,7 @@ export async function recoverManagedServer(
     if (
       existing &&
       await isServerHealthy(existing.url) &&
-      await managedServerIsReusable(existing)
+      await managedServerIsReusable(existing, workspaceRoot)
     ) {
       return { started: false, metadata: existing };
     }
@@ -237,7 +238,7 @@ async function ensureManagedServer(workspaceRoot: string): Promise<{
   if (
     current &&
     await isServerHealthy(current.url) &&
-    await managedServerIsReusable(current)
+    await managedServerIsReusable(current, workspaceRoot)
   ) {
     return { started: false, metadata: current };
   }
@@ -247,7 +248,7 @@ async function ensureManagedServer(workspaceRoot: string): Promise<{
     if (
       existing &&
       await isServerHealthy(existing.url) &&
-      await managedServerIsReusable(existing)
+      await managedServerIsReusable(existing, workspaceRoot)
     ) {
       return { started: false, metadata: existing };
     }
@@ -335,7 +336,8 @@ async function spawnManagedServer(
   workspaceRoot: string,
   preferredPort: number | null = null,
 ): Promise<ManagedServerMetadata> {
-  const port = await resolveManagedServerPort(preferredPort);
+  const resolved = getResolvedConfig(workspaceRoot);
+  const port = await resolveManagedServerPort(preferredPort ?? resolved.port ?? null);
   const command = resolveServerCommand();
   const paths = getWorkspaceStatePaths(workspaceRoot);
   await mkdir(paths.dataDir, { recursive: true });
@@ -651,24 +653,25 @@ async function readServerHealth(url: string): Promise<Record<string, unknown> | 
   }
 }
 
-async function managedServerMatchesEnvironment(url: string): Promise<boolean> {
+async function managedServerMatchesEnvironment(url: string, workspaceRoot: string): Promise<boolean> {
   const health = await readServerHealth(url);
   if (!health) {
     return false;
   }
+  const resolved = getResolvedConfig(workspaceRoot);
 
   return [
-    matchesEnvString("CHUMP_PROVIDER", health.provider),
-    matchesEnvString("CHUMP_MODEL", health.model),
-    matchesEnvNumber("CHUMP_MAX_STEPS", health.max_steps),
-    matchesEnvNumber("CHUMP_COMMAND_TIMEOUT", health.command_timeout),
-    matchesReasoningEnv(health.reasoning),
+    matchesValueString(resolved.provider, health.provider),
+    matchesValueString(resolved.model, health.model),
+    matchesValueNumber(resolved.max_steps, health.max_steps),
+    matchesValueNumber(resolved.command_timeout, health.command_timeout),
+    matchesResolvedReasoning(resolved.reasoning_effort, resolved.reasoning_budget, health.reasoning),
   ].every(Boolean);
 }
 
-async function managedServerIsReusable(metadata: ManagedServerMetadata): Promise<boolean> {
+async function managedServerIsReusable(metadata: ManagedServerMetadata, workspaceRoot: string): Promise<boolean> {
   return managedServerMatchesCommand(metadata) &&
-    await managedServerMatchesEnvironment(metadata.url);
+    await managedServerMatchesEnvironment(metadata.url, workspaceRoot);
 }
 
 function managedServerMatchesCommand(metadata: ManagedServerMetadata): boolean {
@@ -678,28 +681,25 @@ function managedServerMatchesCommand(metadata: ManagedServerMetadata): boolean {
     JSON.stringify(metadata.command_args) === JSON.stringify(expected.args);
 }
 
-function matchesEnvString(name: string, actual: unknown): boolean {
-  const expected = process.env[name];
+function matchesValueString(expected: string | undefined, actual: unknown): boolean {
   if (expected === undefined) {
     return true;
   }
-  if (name === "CHUMP_PROVIDER") {
-    return normalizeProviderName(actual) === normalizeProviderName(expected);
-  }
-  return actual === expected;
+  return String(actual).toLowerCase() === expected.toLowerCase();
 }
 
-function matchesEnvNumber(name: string, actual: unknown): boolean {
-  const rawExpected = process.env[name];
-  if (rawExpected === undefined) {
+function matchesValueNumber(expected: number | undefined, actual: unknown): boolean {
+  if (expected === undefined) {
     return true;
   }
-  return actual === Number(rawExpected);
+  return Number(actual) === expected;
 }
 
-function matchesReasoningEnv(actual: unknown): boolean {
-  const expectedEffort = process.env.CHUMP_REASONING_EFFORT;
-  const expectedBudget = process.env.CHUMP_REASONING_BUDGET;
+function matchesResolvedReasoning(
+  expectedEffort: string | undefined,
+  expectedBudget: number | undefined,
+  actual: unknown,
+): boolean {
   if (expectedEffort === undefined && expectedBudget === undefined) {
     return true;
   }
@@ -710,7 +710,7 @@ function matchesReasoningEnv(actual: unknown): boolean {
   if (expectedEffort !== undefined && reasoning.effort !== expectedEffort) {
     return false;
   }
-  if (expectedBudget !== undefined && reasoning.budget !== Number(expectedBudget)) {
+  if (expectedBudget !== undefined && reasoning.budget !== expectedBudget) {
     return false;
   }
   return true;

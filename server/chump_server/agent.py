@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
-import os
 import time
 import traceback
 from dataclasses import replace
@@ -11,66 +9,38 @@ from typing import Any, AsyncIterator
 
 from ai_query import RetryPolicy, step_count_is
 from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
-from ai_query.providers import anthropic, google, openai, workers_ai, deepseek
-from ai_query.model import LanguageModel
-from ai_query.providers.deepseek.provider import DeepSeekProvider
-from ai_query.types import AbortSignal, ImagePart, Message, ProviderOptions, TextPart
+from ai_query.types import AbortSignal, Message, ProviderOptions
 
-from .codex_provider import codex_model
-from .config import (
-    DEFAULT_CHUMP_CLOUD_BASE_URL,
-    ChumpConfig,
-    auth_file_path,
-    load_auth_config,
-    load_config,
-)
+from .config import ChumpConfig, load_auth_config, load_config
 from .resources import ResourceCatalog, build_skill_bundle
+from .runtime.compaction import (
+    build_compaction_summary_message,
+    choose_compaction_start,
+    estimate_messages_tokens,
+    generate_compaction_summary,
+)
+from .runtime.messages import (
+    build_session_title,
+    build_user_content,
+    build_user_display_content,
+    is_image_attachment,
+    message_content_text,
+    remove_queued_message_at,
+    summarize_attachments,
+)
+from .runtime.model import resolve_model
+from .runtime.usage import (
+    default_usage_summary,
+    latest_usage_context_tokens,
+    merge_usage_dicts,
+    normalize_usage_summary,
+    resolve_usage,
+    usage_to_dict,
+    zero_usage_dict,
+)
 from .system_prompt import SYSTEM_PROMPT, build_system_prompt
 from .tools import build_tools
 from .git_utils import get_git_branch
-
-
-def resolve_model(config: ChumpConfig):
-    provider_name = config.provider.lower()
-    if provider_name == "codex":
-        return codex_model(
-            config.model,
-            auth_path=auth_file_path(),
-            auth_config=load_auth_config(),
-        )
-    if provider_name == "openai":
-        return openai(
-            config.model,
-            base_url=os.environ.get("OPENAI_BASE_URL"),
-            organization=os.environ.get("OPENAI_ORGANIZATION"),
-        )
-    if provider_name == "chump_cloud":
-        return LanguageModel(
-            provider=ChumpCloudProvider(
-                api_key="chump-cloud",
-                base_url=os.environ.get("CHUMP_CLOUD_BASE_URL")
-                or os.environ.get("OPENAI_BASE_URL")
-                or DEFAULT_CHUMP_CLOUD_BASE_URL,
-            ),
-            model_id=config.model,
-        )
-    if provider_name == "google":
-        return google(config.model)
-    if provider_name == "anthropic":
-        return anthropic(config.model, base_url=os.environ.get("ANTHROPIC_BASE_URL"))
-    if provider_name == "workers_ai":
-        return workers_ai(config.model)
-    if provider_name == "deepseek":
-        return deepseek(config.model)
-    raise ValueError(f"unsupported provider: {config.provider}")
-
-
-class ChumpCloudProvider(DeepSeekProvider):
-    name = "chump_cloud"
-
-    def __init__(self, *, api_key: str, base_url: str) -> None:
-        super().__init__(api_key=api_key)
-        self.base_url = base_url
 
 
 class ChumpAgent(Agent[dict[str, Any]]):
@@ -105,6 +75,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 "read_files": {},
                 "commands_run": [],
                 "notes": [],
+                "compaction": None,
                 "usage_summary": default_usage_summary(),
             },
             tools={},
@@ -136,6 +107,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "retry": self._retry_status(),
             "command_timeout": self._config.command_timeout,
             "managed_idle_timeout": self._config.managed_idle_timeout,
+            "compaction": self._compaction_status(),
             "reasoning": self._config.reasoning,
             "verbose": self._config.verbose,
             "message_count": len(self.messages),
@@ -170,6 +142,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
             usage_summary=self._usage_summary,
         )
         return {"status": "ok"}
+
+    @action
+    async def compact(self, reason: str = "manual") -> dict[str, Any]:
+        if self._current_turn is not None and not self._current_turn.done:
+            raise ValueError("cannot compact while a turn is running")
+        return await self._compact_messages(reason=reason)
 
     @action
     async def load_skill(self, name: str, args: str = "") -> dict[str, str]:
@@ -356,6 +334,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         **kwargs: Any,
     ) -> AgentTurn:
         self._ensure_model()
+        await self._maybe_compact_before_turn()
         self._last_step_records = []
         self._turn_instruction_claims = set()
         self._usage_summary["last_step"] = None
@@ -407,6 +386,120 @@ class ChumpAgent(Agent[dict[str, Any]]):
             max_delay=self._config.retry_max_delay,
             backoff=self._config.retry_backoff,
             jitter=self._config.retry_jitter,
+        )
+
+    def _compaction_status(self) -> dict[str, Any]:
+        estimate = self._context_token_estimate()
+        last = self.state.get("compaction")
+        return {
+            "threshold_tokens": self._config.compaction_tokens,
+            "keep_recent_tokens": self._config.compaction_keep_recent_tokens,
+            "estimated_tokens": estimate,
+            "message_count": len(self._messages),
+            "last": last if isinstance(last, dict) else None,
+        }
+
+    async def _maybe_compact_before_turn(self) -> None:
+        threshold = self._config.compaction_tokens
+        if threshold is None:
+            return
+        estimate = self._context_token_estimate()
+        if estimate < threshold:
+            return
+        await self._compact_messages(reason="auto", estimated_tokens=estimate)
+
+    def _context_token_estimate(self) -> int:
+        return max(
+            estimate_messages_tokens(self._messages),
+            latest_usage_context_tokens(self._usage_summary) or 0,
+        )
+
+    async def _compact_messages(
+        self,
+        *,
+        reason: str,
+        estimated_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        if len(self._messages) < 4:
+            return {
+                "status": "skipped",
+                "reason": "not_enough_messages",
+                "message_count": len(self._messages),
+            }
+
+        estimated_tokens = estimated_tokens or self._context_token_estimate()
+        keep_start = choose_compaction_start(
+            self._messages,
+            self._config.compaction_keep_recent_tokens,
+            force=reason == "manual",
+        )
+        if keep_start <= 1:
+            return {
+                "status": "skipped",
+                "reason": "nothing_to_compact",
+                "message_count": len(self._messages),
+                "estimated_tokens": estimated_tokens,
+            }
+
+        compacted_messages = self._messages[:keep_start]
+        recent_messages = self._messages[keep_start:]
+        await self.emit(
+            "compaction_status",
+            {
+                "running": True,
+                "reason": reason,
+                "tokens_before": estimated_tokens,
+                "messages_before": len(self._messages),
+            },
+        )
+        try:
+            summary = await self._generate_compaction_summary(compacted_messages)
+        finally:
+            await self.emit(
+                "compaction_status",
+                {
+                    "running": False,
+                    "reason": reason,
+                },
+            )
+        summary_message = build_compaction_summary_message(summary)
+        before_count = len(self._messages)
+        self._messages = [summary_message, *recent_messages]
+        await self._persist_messages()
+
+        now = time.time()
+        compaction = {
+            "reason": reason,
+            "tokens_before": estimated_tokens,
+            "messages_before": before_count,
+            "messages_after": len(self._messages),
+            "compacted_messages": len(compacted_messages),
+            "kept_messages": len(recent_messages),
+            "summary_chars": len(summary),
+            "created_at": now,
+        }
+        await self.update_state(
+            compaction=compaction,
+            updated_at=now,
+        )
+        await self.emit("compaction", compaction)
+        await self.emit("agent_status", await self.status())
+        self._log(
+            "compacted conversation: "
+            f"reason={reason} messages={before_count}->{len(self._messages)} "
+            f"tokens_before={estimated_tokens}"
+        )
+        return {"status": "ok", **compaction}
+
+    async def _generate_compaction_summary(self, messages: list[Message]) -> str:
+        self._ensure_model()
+        if self.model is None:
+            raise ValueError("No model set for compaction")
+        return await generate_compaction_summary(
+            model=self.model,
+            messages=messages,
+            retry=self._retry_policy(),
+            provider_options=self._turn_provider_options(),
         )
 
     def _retry_status(self) -> dict[str, Any]:
@@ -663,216 +756,3 @@ class ChumpAgent(Agent[dict[str, Any]]):
         last = self._messages[-1]
         if last.role == "user" and message_content_text(last.content) == message:
             self._messages.pop()
-
-
-def build_session_title(message: str) -> str:
-    normalized = " ".join(message.strip().split())
-    if not normalized:
-        return "Untitled session"
-    if len(normalized) <= 72:
-        return normalized
-    return normalized[:69].rstrip() + "..."
-
-
-def default_usage_summary() -> dict[str, Any]:
-    return {
-        "last_step": None,
-        "current_turn": None,
-        "last_turn": None,
-        "session_total": zero_usage_dict(),
-    }
-
-
-def zero_usage_dict() -> dict[str, int]:
-    return {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cached_tokens": 0,
-        "total_tokens": 0,
-    }
-
-
-def usage_to_dict(usage: Any) -> dict[str, int] | None:
-    if usage is None:
-        return None
-    return {
-        "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
-        "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
-        "cached_tokens": int(getattr(usage, "cached_tokens", 0) or 0),
-        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
-    }
-
-
-def merge_usage_dicts(
-    base: dict[str, int] | None,
-    delta: dict[str, int] | None,
-) -> dict[str, int] | None:
-    if base is None:
-        return delta
-    if delta is None:
-        return base
-    return {
-        "input_tokens": int(base.get("input_tokens", 0))
-        + int(delta.get("input_tokens", 0)),
-        "output_tokens": int(base.get("output_tokens", 0))
-        + int(delta.get("output_tokens", 0)),
-        "cached_tokens": int(base.get("cached_tokens", 0))
-        + int(delta.get("cached_tokens", 0)),
-        "total_tokens": int(base.get("total_tokens", 0))
-        + int(delta.get("total_tokens", 0)),
-    }
-
-
-def normalize_usage_summary(raw: Any) -> dict[str, Any]:
-    summary = default_usage_summary()
-    if not isinstance(raw, dict):
-        return summary
-    for key in ("last_step", "current_turn", "last_turn", "session_total"):
-        value = raw.get(key)
-        if isinstance(value, dict):
-            summary[key] = {
-                "input_tokens": int(value.get("input_tokens", 0) or 0),
-                "output_tokens": int(value.get("output_tokens", 0) or 0),
-                "cached_tokens": int(value.get("cached_tokens", 0) or 0),
-                "total_tokens": int(value.get("total_tokens", 0) or 0),
-            }
-    summary["session_total"] = summary["session_total"] or zero_usage_dict()
-    return summary
-
-
-async def resolve_usage(result: Any) -> Any:
-    usage = getattr(result, "usage", None)
-    if inspect.isawaitable(usage):
-        return await usage
-    return usage
-
-
-def build_user_content(
-    message: str,
-    attachments: list[dict[str, Any]],
-) -> str | list[TextPart | ImagePart]:
-    images = [
-        attachment for attachment in attachments if is_image_attachment(attachment)
-    ]
-    if not images:
-        return message
-
-    parts: list[TextPart | ImagePart] = []
-    remaining = message
-    used: set[int] = set()
-
-    while remaining:
-        next_match: tuple[int, int, dict[str, Any]] | None = None
-        for index, attachment in enumerate(images):
-            if index in used:
-                continue
-            label = str(attachment.get("label") or "")
-            if not label:
-                continue
-            position = remaining.find(label)
-            if position == -1:
-                continue
-            if next_match is None or position < next_match[0]:
-                next_match = (position, index, attachment)
-
-        if next_match is None:
-            append_text_part(parts, remaining)
-            remaining = ""
-            break
-
-        position, index, attachment = next_match
-        label = str(attachment.get("label") or "")
-        append_text_part(parts, remaining[:position])
-        parts.append(image_attachment_part(attachment))
-        used.add(index)
-        remaining = remaining[position + len(label) :]
-
-    for index, attachment in enumerate(images):
-        if index not in used:
-            parts.append(image_attachment_part(attachment))
-
-    return parts
-
-
-def build_user_display_content(
-    message: str,
-    attachments: list[dict[str, Any]],
-) -> str:
-    display = message.rstrip()
-    for attachment in attachments:
-        if not is_image_attachment(attachment):
-            continue
-        label = image_attachment_label(attachment)
-        if label and label not in display:
-            display = f"{display} {label}".strip()
-    return display
-
-
-def append_text_part(parts: list[TextPart | ImagePart], text: str) -> None:
-    if text:
-        parts.append(TextPart(text=text))
-
-
-def image_attachment_part(attachment: dict[str, Any]) -> ImagePart:
-    return ImagePart(
-        image=f"data:{attachment['mime']};base64,{attachment['data']}",
-        media_type=attachment["mime"],
-    )
-
-
-def summarize_attachments(attachments: list[dict[str, Any]]) -> list[dict[str, str]]:
-    return [
-        {
-            "type": "image",
-            "label": image_attachment_label(attachment),
-            "filename": str(attachment.get("filename") or "image"),
-            "mime": str(attachment.get("mime") or "application/octet-stream"),
-        }
-        for attachment in attachments
-        if is_image_attachment(attachment)
-    ]
-
-
-def image_attachment_label(attachment: dict[str, Any]) -> str:
-    label = str(attachment.get("label") or "").strip()
-    if label:
-        return label
-    filename = str(attachment.get("filename") or "image")
-    return f"[Image: {filename}]"
-
-
-def is_image_attachment(attachment: Any) -> bool:
-    if not isinstance(attachment, dict):
-        return False
-    if attachment.get("type") != "image":
-        return False
-    if not isinstance(attachment.get("data"), str) or not attachment["data"]:
-        return False
-    mime = attachment.get("mime")
-    return isinstance(mime, str) and mime.startswith("image/")
-
-
-def message_content_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return ""
-    parts: list[str] = []
-    for part in content:
-        if isinstance(part, TextPart):
-            parts.append(part.text)
-        elif isinstance(part, dict) and part.get("type") == "text":
-            parts.append(str(part.get("text") or ""))
-    return "".join(parts)
-
-
-async def remove_queued_message_at(queue: asyncio.Queue[Message], index: int) -> bool:
-    items: list[Message] = []
-    while not queue.empty():
-        items.append(await queue.get())
-    removed = 0 <= index < len(items)
-    if removed:
-        items.pop(index)
-    for item in items:
-        await queue.put(item)
-    return removed

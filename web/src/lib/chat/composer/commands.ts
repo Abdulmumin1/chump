@@ -27,6 +27,12 @@ const ROOT_COMMANDS: Suggestion[] = [
         kind: "command",
     },
     {
+        label: "/compact",
+        command: "/compact",
+        description: "summarize old context and keep recent messages",
+        kind: "command",
+    },
+    {
         label: "/new",
         command: "/new",
         description: "start a fresh session",

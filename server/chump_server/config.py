@@ -12,6 +12,8 @@ from typing import Any
 
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 DEFAULT_PROVIDER = "chump_cloud"
+DEFAULT_COMPACTION_TOKENS = 200_000
+DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000
 DEFAULT_CHUMP_CLOUD_BASE_URL = "https://chump-cloud.yaqeen.me/v1"
 DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
     "https://chump.yaqeen.me",
@@ -105,6 +107,8 @@ class ChumpConfig:
     retry_jitter: bool
     command_timeout: int
     managed_idle_timeout: int | None
+    compaction_tokens: int | None
+    compaction_keep_recent_tokens: int
     reasoning: dict[str, Any] | None
     verbose: bool
     allowed_origins: tuple[str, ...]
@@ -121,44 +125,260 @@ def load_config() -> ChumpConfig:
     migrate_legacy_workspace_state(workspace_root, data_dir)
     auth_config = load_auth_config()
     apply_auth_environment(auth_config)
+    repo_config = load_repo_config(workspace_root)
+    global_config = load_global_config()
 
     provider = normalize_provider_name(
         os.environ.get("CHUMP_PROVIDER")
+        or repo_config.get("provider")
+        or global_config.get("provider")
         or string_value(auth_config.get("provider"))
         or DEFAULT_PROVIDER
     )
 
     env_model = os.environ.get("CHUMP_MODEL")
-    auth_model = string_value(auth_config.get("model"))
+    config_model = (
+        repo_config.get("model")
+        or global_config.get("model")
+        or string_value(auth_config.get("model"))
+    )
     model = normalize_model_name(
         provider,
-        env_model or auth_model or DEFAULT_MODELS[provider],
+        env_model or config_model or DEFAULT_MODELS[provider],
         strict=env_model is not None,
     )
 
+    host = (
+        os.environ.get("CHUMP_HOST")
+        or repo_config.get("host")
+        or global_config.get("host")
+        or "127.0.0.1"
+    )
+
+    port_raw = (
+        os.environ.get("CHUMP_PORT")
+        or repo_config.get("port")
+        or global_config.get("port")
+    )
+    port = int(port_raw) if port_raw is not None else 8080
+
+    max_steps_raw = (
+        os.environ.get("CHUMP_MAX_STEPS")
+        or repo_config.get("max_steps")
+        or global_config.get("max_steps")
+    )
+    max_steps = int(max_steps_raw) if max_steps_raw is not None else 64
+
+    retry_max_attempts_raw = (
+        os.environ.get("CHUMP_RETRY_MAX_ATTEMPTS")
+        or repo_config.get("retry_max_attempts")
+        or nested_config_value(repo_config, "retry", "max_attempts")
+        or global_config.get("retry_max_attempts")
+        or nested_config_value(global_config, "retry", "max_attempts")
+    )
+    retry_max_attempts = int(retry_max_attempts_raw) if retry_max_attempts_raw is not None else 3
+
+    retry_initial_delay_raw = (
+        os.environ.get("CHUMP_RETRY_INITIAL_DELAY")
+        or repo_config.get("retry_initial_delay")
+        or nested_config_value(repo_config, "retry", "initial_delay")
+        or global_config.get("retry_initial_delay")
+        or nested_config_value(global_config, "retry", "initial_delay")
+    )
+    retry_initial_delay = float(retry_initial_delay_raw) if retry_initial_delay_raw is not None else 0.5
+
+    retry_max_delay_raw = (
+        os.environ.get("CHUMP_RETRY_MAX_DELAY")
+        or repo_config.get("retry_max_delay")
+        or nested_config_value(repo_config, "retry", "max_delay")
+        or global_config.get("retry_max_delay")
+        or nested_config_value(global_config, "retry", "max_delay")
+    )
+    retry_max_delay = float(retry_max_delay_raw) if retry_max_delay_raw is not None else 8.0
+
+    retry_backoff_raw = (
+        os.environ.get("CHUMP_RETRY_BACKOFF")
+        or repo_config.get("retry_backoff")
+        or nested_config_value(repo_config, "retry", "backoff")
+        or global_config.get("retry_backoff")
+        or nested_config_value(global_config, "retry", "backoff")
+    )
+    retry_backoff = float(retry_backoff_raw) if retry_backoff_raw is not None else 2.0
+
+    retry_jitter_raw = (
+        os.environ.get("CHUMP_RETRY_JITTER")
+        or repo_config.get("retry_jitter")
+        or nested_config_value(repo_config, "retry", "jitter")
+        or global_config.get("retry_jitter")
+        or nested_config_value(global_config, "retry", "jitter")
+    )
+    retry_jitter = bool_value(retry_jitter_raw, default=True)
+
+    command_timeout_raw = (
+        os.environ.get("CHUMP_COMMAND_TIMEOUT")
+        or repo_config.get("command_timeout")
+        or global_config.get("command_timeout")
+    )
+    command_timeout = int(command_timeout_raw) if command_timeout_raw is not None else 120
+
+    managed_idle_timeout_raw = (
+        os.environ.get("CHUMP_MANAGED_SERVER_IDLE_TIMEOUT")
+        or repo_config.get("managed_idle_timeout")
+        or repo_config.get("managed_server_idle_timeout")
+        or global_config.get("managed_idle_timeout")
+        or global_config.get("managed_server_idle_timeout")
+    )
+    managed_idle_timeout = int_value(managed_idle_timeout_raw)
+
+    verbose_raw = (
+        os.environ.get("CHUMP_VERBOSE")
+        or repo_config.get("verbose")
+        or global_config.get("verbose")
+    )
+    if verbose_raw is not None:
+        verbose = str(verbose_raw).lower() not in {"0", "false", "no", "off"}
+    else:
+        verbose = True
+
     return ChumpConfig(
-        host=os.environ.get("CHUMP_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CHUMP_PORT", "8080")),
+        host=host,
+        port=port,
         workspace_root=workspace_root,
         data_dir=data_dir,
         provider=provider,
         model=model,
-        max_steps=int(os.environ.get("CHUMP_MAX_STEPS", "64")),
-        retry_max_attempts=int(os.environ.get("CHUMP_RETRY_MAX_ATTEMPTS", "3")),
-        retry_initial_delay=float(os.environ.get("CHUMP_RETRY_INITIAL_DELAY", "0.5")),
-        retry_max_delay=float(os.environ.get("CHUMP_RETRY_MAX_DELAY", "8")),
-        retry_backoff=float(os.environ.get("CHUMP_RETRY_BACKOFF", "2")),
-        retry_jitter=bool_value(os.environ.get("CHUMP_RETRY_JITTER"), default=True),
-        command_timeout=int(os.environ.get("CHUMP_COMMAND_TIMEOUT", "120")),
-        managed_idle_timeout=int_value(
-            os.environ.get("CHUMP_MANAGED_SERVER_IDLE_TIMEOUT")
+        max_steps=max_steps,
+        retry_max_attempts=retry_max_attempts,
+        retry_initial_delay=retry_initial_delay,
+        retry_max_delay=retry_max_delay,
+        retry_backoff=retry_backoff,
+        retry_jitter=retry_jitter,
+        command_timeout=command_timeout,
+        managed_idle_timeout=managed_idle_timeout,
+        compaction_tokens=load_compaction_tokens(auth_config, repo_config, global_config),
+        compaction_keep_recent_tokens=load_compaction_keep_recent_tokens(
+            auth_config, repo_config, global_config
         ),
-        reasoning=load_reasoning_config(auth_config, provider),
-        verbose=os.environ.get("CHUMP_VERBOSE", "1").lower()
-        not in {"0", "false", "no"},
-        allowed_origins=load_allowed_origins(),
+        reasoning=load_reasoning_config(auth_config, provider, repo_config, global_config),
+        verbose=verbose,
+        allowed_origins=load_allowed_origins(repo_config, global_config),
         available_providers=load_available_providers(auth_config),
     )
+
+
+def load_repo_config(workspace_root: Path) -> dict[str, Any]:
+    config_path = workspace_root / ".chump" / "config.json"
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid repo config at {config_path}: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError(f"invalid repo config at {config_path}: expected object")
+    return data
+
+
+def global_config_dir() -> Path:
+    configured = os.environ.get("CHUMP_AGENT_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if xdg_config_home := os.environ.get("XDG_CONFIG_HOME"):
+        return Path(xdg_config_home).expanduser() / "chump"
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "chump"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "chump"
+    return Path.home() / ".chump"
+
+
+def load_global_config() -> dict[str, Any]:
+    configured = os.environ.get("CHUMP_CONFIG_FILE")
+    if configured:
+        config_path = Path(configured).expanduser().resolve()
+    else:
+        config_path = global_config_dir() / "config.json"
+
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid global config at {config_path}: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError(f"invalid global config at {config_path}: expected object")
+    return data
+
+
+def load_compaction_tokens(
+    auth_config: dict[str, Any],
+    repo_config: dict[str, Any],
+    global_config: dict[str, Any],
+) -> int | None:
+    raw = first_config_value(
+        os.environ.get("CHUMP_COMPACTION_TOKENS"),
+        repo_config.get("compaction_tokens"),
+        nested_config_value(repo_config, "compaction", "tokens"),
+        global_config.get("compaction_tokens"),
+        nested_config_value(global_config, "compaction", "tokens"),
+        auth_config.get("compaction_tokens"),
+        nested_config_value(auth_config, "compaction", "tokens"),
+        DEFAULT_COMPACTION_TOKENS,
+    )
+    return normalize_optional_positive_int(raw, "compaction_tokens")
+
+
+def load_compaction_keep_recent_tokens(
+    auth_config: dict[str, Any],
+    repo_config: dict[str, Any],
+    global_config: dict[str, Any],
+) -> int:
+    raw = first_config_value(
+        os.environ.get("CHUMP_COMPACTION_KEEP_RECENT_TOKENS"),
+        repo_config.get("compaction_keep_recent_tokens"),
+        nested_config_value(repo_config, "compaction", "keep_recent_tokens"),
+        global_config.get("compaction_keep_recent_tokens"),
+        nested_config_value(global_config, "compaction", "keep_recent_tokens"),
+        auth_config.get("compaction_keep_recent_tokens"),
+        nested_config_value(auth_config, "compaction", "keep_recent_tokens"),
+        DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
+    )
+    value = normalize_optional_positive_int(raw, "compaction_keep_recent_tokens")
+    return value if value is not None else DEFAULT_COMPACTION_KEEP_RECENT_TOKENS
+
+
+def first_config_value(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def nested_config_value(config: dict[str, Any], section: str, key: str) -> Any:
+    section_value = config.get(section)
+    if not isinstance(section_value, dict):
+        return None
+    return section_value.get(key)
+
+
+def normalize_optional_positive_int(value: Any, name: str) -> int | None:
+    if isinstance(value, str) and value.lower() in {
+        "0",
+        "false",
+        "off",
+        "none",
+        "disabled",
+    }:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"invalid {name}: expected positive integer or disabled") from error
+    if parsed <= 0:
+        return None
+    return parsed
 
 
 def load_available_providers(auth_config: dict[str, Any]) -> tuple[str, ...]:
@@ -169,12 +389,24 @@ def load_available_providers(auth_config: dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(providers))
 
 
-def load_allowed_origins() -> tuple[str, ...]:
+def load_allowed_origins(
+    repo_config: dict[str, Any] | None = None,
+    global_config: dict[str, Any] | None = None,
+) -> tuple[str, ...]:
     raw = os.environ.get("CHUMP_ALLOWED_ORIGINS")
-    if raw is None:
-        return DEFAULT_ALLOWED_ORIGINS
-    items = tuple(origin.strip() for origin in raw.split(",") if origin.strip())
-    return items
+    if raw is not None:
+        return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
+
+    config_val = (
+        (repo_config.get("allowed_origins") if repo_config else None)
+        or (global_config.get("allowed_origins") if global_config else None)
+    )
+    if isinstance(config_val, list):
+        return tuple(str(origin).strip() for origin in config_val if str(origin).strip())
+    elif isinstance(config_val, str):
+        return tuple(origin.strip() for origin in config_val.split(",") if origin.strip())
+
+    return DEFAULT_ALLOWED_ORIGINS
 
 
 def load_auth_config() -> dict[str, Any]:
@@ -298,11 +530,20 @@ def bool_value(value: str | None, *, default: bool) -> bool:
 def load_reasoning_config(
     auth_config: dict[str, Any] | None = None,
     provider: str | None = None,
+    repo_config: dict[str, Any] | None = None,
+    global_config: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     reasoning: dict[str, Any] = {}
     effort = os.environ.get("CHUMP_REASONING_EFFORT")
     budget = os.environ.get("CHUMP_REASONING_BUDGET")
-    configured = auth_config.get("reasoning") if auth_config else None
+
+    configured = None
+    if repo_config and "reasoning" in repo_config:
+        configured = repo_config.get("reasoning")
+    elif global_config and "reasoning" in global_config:
+        configured = global_config.get("reasoning")
+    elif auth_config and "reasoning" in auth_config:
+        configured = auth_config.get("reasoning")
 
     if effort:
         if effort not in REASONING_EFFORTS:

@@ -76,6 +76,10 @@ cd ~/other-project && chump
 - `/share` - create a shareable session link
 - `/quit`
 
+## Configuration
+
+Chump supports easy local and global configuration using unified `config.json` files. See the [Configuration Guide](CONFIGURATION.md) for detailed paths, precedence, options, and templates.
+
 ## License
 
 Apache-2.0

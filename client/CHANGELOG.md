@@ -1,5 +1,14 @@
 # chump-agent
 
+## 0.0.28
+
+### Patch Changes
+
+- - Introduce history/summary compaction for agent sessions to optimize context window usage.
+  - Enhance configuration management supporting both file-based configurations and environment variable overrides.
+  - Improve Windows terminal process labels and process list reliability.
+  - Update web interface with modular components and smoother session transitions.
+
 ## 0.0.27
 
 ### Patch Changes

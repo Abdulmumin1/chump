@@ -5,6 +5,7 @@ import {
   abortCurrentTurn,
   cancelLastSteering,
   clearMessages,
+  compactMessages,
   getHealth,
   getMessages,
   getSessions,
@@ -39,6 +40,7 @@ import {
   consumeToolActivity,
   setAgentStatusHook,
   setAssistantTextHook,
+  setCompactionStatusHook,
   setReasoningActivityHook,
   setSteeringAcceptedHook,
   setSteeringQueueHook,
@@ -134,6 +136,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let resumeSessionId: string | null = null;
   let connectionCountAtQuit: number | null = null;
   let recoveryPromise: Promise<void> | null = null;
+  let localCompactionActive = false;
   const [health, status, sessions] = await Promise.all([
     getHealth(config),
     getStatus(config),
@@ -168,6 +171,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     // local turn" to avoid conflicting with a local-side push, which no
     // longer exists.
     promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
+  });
+  const compactionStatus = createActivityStatusController(
+    (status) => promptReader.setStatus(status),
+    { label: "Compacting" },
+  );
+  setCompactionStatusHook((payload) => {
+    if (localCompactionActive) {
+      return;
+    }
+    if (payload.running === true) {
+      compactionStatus.start();
+      return;
+    }
+    compactionStatus.stop();
   });
   const sharedTurnSync = createSharedTurnSync({
     config: () => config,
@@ -294,6 +311,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         shareManager,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
+        setStatus: (statusText) => promptReader.setStatus(statusText),
+        setLocalCompactionActive: (active) => {
+          localCompactionActive = active;
+        },
         setRuleBadge: (badge) => promptReader.setRuleBadge(badge),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
@@ -328,6 +349,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         shareManager,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
+        setStatus: (statusText) => promptReader.setStatus(statusText),
+        setLocalCompactionActive: (active) => {
+          localCompactionActive = active;
+        },
         setRuleBadge: (badge) => promptReader.setRuleBadge(badge),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
@@ -424,6 +449,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     setUserMessageHook(null);
     setAssistantTextHook(null);
     setAgentStatusHook(null);
+    setCompactionStatusHook(null);
     setSteeringQueueHook(null);
     sharedTurnSync.dispose();
   }
@@ -485,6 +511,7 @@ function formatCompactNames(values: string[], limit = 4): string {
 
 function createActivityStatusController(
   setStatus: (status: string | null) => void,
+  options: { label?: string } = {},
 ): {
   start: () => void;
   stop: () => void;
@@ -493,6 +520,7 @@ function createActivityStatusController(
   noteToolActivity: () => void;
   noteReasoningPreview: (preview: string | null) => void;
 } {
+  const label = options.label ?? "Transmogrifying";
   let active = false;
   let aborting = false;
   let spinnerFrame: string | null = null;
@@ -500,7 +528,7 @@ function createActivityStatusController(
   const spinner = createSpinner((frame) => {
     spinnerFrame = frame;
     syncStatus();
-  });
+  }, { label });
 
   function syncStatus(): void {
     if (!active) {
@@ -513,7 +541,7 @@ function createActivityStatusController(
       return;
     }
 
-    setStatus(spinnerFrame ?? renderMuted("Transmogrifying"));
+    setStatus(spinnerFrame ?? renderMuted(label));
   }
 
   return {
@@ -1016,6 +1044,7 @@ function isBlockedActiveSlashCommand(value: string): boolean {
     "/model",
     "/thinking",
     "/clear",
+    "/compact",
     "/agent",
   ]).has(command);
 }
@@ -1099,6 +1128,8 @@ async function handleSlashCommand(
     shareManager: ShareManager;
     metadata: ManagedServerMetadata | null;
     setFooter: (footer: string | null) => void;
+    setStatus: (status: string | null) => void;
+    setLocalCompactionActive: (active: boolean) => void;
     setRuleBadge: (badge: string | null) => void;
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
@@ -1198,6 +1229,28 @@ async function handleSlashCommand(
     case "clear": {
       const result = await clearMessages(config);
       writeOutput(`${JSON.stringify(result, null, 2)}\n`);
+      break;
+    }
+    case "compact": {
+      const activityStatus = createActivityStatusController(context.setStatus, { label: "Compacting" });
+      context.setLocalCompactionActive(true);
+      activityStatus.start();
+      try {
+        const result = await compactMessages(config);
+        if (result.status === "ok") {
+          writeOutput(
+            `${renderMuted(
+              `compacted ${result.messages_before ?? "?"} -> ${result.messages_after ?? "?"} messages`,
+            )}\n`,
+          );
+        } else {
+          writeOutput(`${renderMuted(`compaction skipped: ${result.reason ?? result.status}`)}\n`);
+        }
+      } finally {
+        activityStatus.stop();
+        context.setLocalCompactionActive(false);
+      }
+      context.setFooter(renderFooter(config, await getStatus(config), context.shareManager.current()));
       break;
     }
     case "session": {

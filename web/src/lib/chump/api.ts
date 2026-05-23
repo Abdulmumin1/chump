@@ -6,6 +6,7 @@ import type {
 	ChumpState,
 	ChumpHealth,
 	ChumpStatus,
+	CompactionResult,
 	SessionSummary,
 	SessionsResponse,
 	SseEvent
@@ -78,6 +79,13 @@ export async function clearMessages(
 	agentId: string
 ): Promise<{ status: string }> {
 	return await invokeAction<{ status: string }>(serverUrl, agentId, 'clear_messages');
+}
+
+export async function compactMessages(
+	serverUrl: string,
+	agentId: string
+): Promise<CompactionResult> {
+	return await invokeAction<CompactionResult>(serverUrl, agentId, 'compact');
 }
 
 export async function abortCurrentTurn(
@@ -164,6 +172,7 @@ export function openEventStream(
 	let lastEventId = options.lastEventId ?? 0;
 	let controller: AbortController | null = null;
 	let idleTimer: ReturnType<typeof setTimeout> | null = null;
+	const clientId = eventStreamClientId();
 
 	const armIdleTimer = () => {
 		if (idleTimer) {
@@ -208,6 +217,7 @@ export function openEventStream(
 			armIdleTimer();
 			try {
 				const requestUrl = new URL(`${buildAgentUrl(serverUrl, agentId)}/events`);
+				requestUrl.searchParams.set('client_id', clientId);
 				if (lastEventId > 0) {
 					requestUrl.searchParams.set('last_event_id', String(lastEventId));
 				}
@@ -269,6 +279,20 @@ export function openEventStream(
 			window.removeEventListener('online', onOnline);
 		}
 	};
+}
+
+function eventStreamClientId(): string {
+	if (typeof sessionStorage !== 'undefined') {
+		const key = 'chump:event-stream-client-id';
+		const existing = sessionStorage.getItem(key);
+		if (existing) {
+			return existing;
+		}
+		const next = `web-${crypto.randomUUID()}`;
+		sessionStorage.setItem(key, next);
+		return next;
+	}
+	return `web-${crypto.randomUUID()}`;
 }
 
 export function sessionTitle(session: SessionSummary): string {
