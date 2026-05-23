@@ -135,6 +135,11 @@
 						<svg class="w-4 h-4 text-text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
 						<span class="text-[13px] text-text-secondary">New Session</span>
 					</button>
+
+					<button class="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-bg-elevated" onclick={() => execute('compact', '')} type="button">
+						<svg class="w-4 h-4 text-text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M7 12h10M10 17h4"></path></svg>
+						<span class="text-[13px] text-text-secondary">Compact Session</span>
+					</button>
 				</div>
 			{:else if view === 'models'}
 				<div class="py-1">

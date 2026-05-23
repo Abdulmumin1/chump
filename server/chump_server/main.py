@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import sqlite3
 import time
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any
 
 from ai_query.agents import AgentServer
 from ai_query.agents.server.types import AgentServerConfig
@@ -17,6 +14,8 @@ from .config import ChumpConfig, load_config
 from .managed_idle import is_resume_gap
 from .process_title import set_process_title
 from .resources import ResourceCatalog
+from .server.connections import active_connection_count
+from .server.sessions import stored_sessions
 
 
 class ChumpServer(AgentServer):
@@ -91,75 +90,7 @@ class ChumpServer(AgentServer):
 
     def _stored_sessions(self) -> list[dict[str, Any]]:
         db_path = self.chump_config.data_dir / "chump.sqlite3"
-        if not db_path.exists():
-            return []
-
-        session_ids: set[str] = set()
-        values: dict[str, Any] = {}
-        with sqlite3.connect(str(db_path)) as conn:
-            cursor = conn.execute("SELECT key, value FROM kv_store")
-            for key, raw_value in cursor.fetchall():
-                if ":" not in key:
-                    continue
-                session_id, suffix = key.rsplit(":", 1)
-                if suffix not in {"state", "messages", "event_log"}:
-                    continue
-                session_ids.add(session_id)
-                values[key] = _decode_json(raw_value)
-
-        sessions = []
-        active_ids = set(self._agents.keys())
-        for session_id in sorted(session_ids):
-            state = values.get(f"{session_id}:state") or {}
-            messages = values.get(f"{session_id}:messages") or []
-            event_log = values.get(f"{session_id}:event_log") or []
-            active_meta = self._agents.get(session_id)
-            created_at = state.get("created_at") if isinstance(state, dict) else None
-            updated_at = state.get("updated_at") if isinstance(state, dict) else None
-            file_diffs = state.get("file_diffs") if isinstance(state, dict) else None
-            total_added = 0
-            total_removed = 0
-            if isinstance(file_diffs, dict):
-                for value in file_diffs.values():
-                    if not isinstance(value, dict):
-                        continue
-                    added = value.get("added")
-                    removed = value.get("removed")
-                    total_added += added if isinstance(added, int) else 0
-                    total_removed += removed if isinstance(removed, int) else 0
-            sessions.append(
-                {
-                    "id": session_id,
-                    "active": session_id in active_ids,
-                    "message_count": len(messages) if isinstance(messages, list) else 0,
-                    "event_count": len(event_log) if isinstance(event_log, list) else 0,
-                    "title": (state.get("title") if isinstance(state, dict) else None),
-                    "created_at": created_at
-                    if isinstance(created_at, (int, float))
-                    else None,
-                    "updated_at": updated_at
-                    if isinstance(updated_at, (int, float))
-                    else None,
-                    "last_user_goal": (
-                        state.get("last_user_goal") if isinstance(state, dict) else None
-                    ),
-                    "last_activity": active_meta.last_activity if active_meta else None,
-                    "connections": active_meta.connection_count if active_meta else 0,
-                    "total_added": total_added,
-                    "total_removed": total_removed,
-                }
-            )
-        sessions.sort(
-            key=lambda session: (
-                session.get("updated_at")
-                or session.get("created_at")
-                or session.get("last_activity")
-                or 0,
-                session["id"],
-            ),
-            reverse=True,
-        )
-        return sessions
+        return stored_sessions(db_path, self._agents)
 
     async def _start_managed_idle_shutdown(self, app: web.Application) -> None:
         if self.chump_config.managed_idle_timeout is None:
@@ -217,20 +148,7 @@ class ChumpServer(AgentServer):
                 return
 
     def _active_connection_count(self) -> int:
-        count = 0
-        for meta in self._agents.values():
-            agent = meta.agent
-            count += len(agent._connections)
-            stale_sse = []
-            for response in list(agent._sse_connections):
-                task = getattr(response, "task", None)
-                if task is not None and task.done():
-                    stale_sse.append(response)
-                    continue
-                count += 1
-            for response in stale_sse:
-                agent._sse_connections.discard(response)
-        return count
+        return active_connection_count(list(self._agents.values()))
 
 
 def main() -> None:
@@ -267,13 +185,6 @@ def _package_version(package: str) -> str:
         return version(package)
     except PackageNotFoundError:
         return "0.0.0"
-
-
-def _decode_json(value: str) -> Any:
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return None
 
 
 if __name__ == "__main__":

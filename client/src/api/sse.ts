@@ -1,4 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
+
+const EVENT_STREAM_CLIENT_ID = `cli-${randomUUID()}`;
 
 export async function openEventStream(
   config: ChumpConfig,
@@ -45,6 +48,7 @@ export async function openEventStream(
       try {
         const urlStr = `${buildAgentUrl(config)}/events`;
         const requestUrl = new URL(urlStr);
+        requestUrl.searchParams.set("client_id", EVENT_STREAM_CLIENT_ID);
         if (lastEventId > 0) {
           requestUrl.searchParams.set("last_event_id", String(lastEventId));
         }

@@ -19,6 +19,7 @@ export type TranscriptRendererHooks = {
   onAgentStatus?: ((payload: Record<string, unknown>) => void) | null;
   onSteeringQueue?: ((payload: Record<string, unknown>) => void) | null;
   onTurnStatus?: ((payload: Record<string, unknown>) => void) | null;
+  onCompactionStatus?: ((payload: Record<string, unknown>) => void) | null;
 };
 
 export class TranscriptRenderer {
@@ -70,6 +71,9 @@ export class TranscriptRenderer {
         return;
       case "turn_status":
         this.hooks.onTurnStatus?.(event.payload);
+        return;
+      case "compaction_status":
+        this.hooks.onCompactionStatus?.(event.payload);
         return;
       case "stream_end":
         this.finishReasoning();
@@ -156,6 +160,7 @@ export function transcriptEventFromSse(event: SseEvent): TranscriptEvent | null 
     event.event === "agent_status" ||
     event.event === "steering_queue" ||
     event.event === "turn_status" ||
+    event.event === "compaction_status" ||
     event.event === "user_message"
   ) {
     return payload ? { type: event.event, payload } : null;

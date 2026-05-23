@@ -49,6 +49,8 @@ export type SessionControllerState = {
     set isConnecting(value: boolean);
     get isSending(): boolean;
     set isSending(value: boolean);
+    get isCompacting(): boolean;
+    set isCompacting(value: boolean);
     get isLoadingSession(): boolean;
     set isLoadingSession(value: boolean);
     get connectionError(): string;
@@ -298,6 +300,7 @@ export function createSessionController(
         state.sessionState = null;
         state.messages = [];
         state.steeringQueue = [];
+        state.isCompacting = false;
         state.lastEventId = 0;
         if (!state.sessions.some((session) => session.id === state.activeSessionId)) {
             state.activeSessionId = "";
@@ -404,6 +407,15 @@ export function createSessionController(
                 });
             }
             if (!state.isSending) {
+                void refreshMessages(sessionId, currentStreamToken);
+                void refreshSessionsList();
+            }
+            return;
+        }
+
+        if (event.event === "compaction_status" && payload) {
+            state.isCompacting = payload.running === true;
+            if (!state.isCompacting) {
                 void refreshMessages(sessionId, currentStreamToken);
                 void refreshSessionsList();
             }

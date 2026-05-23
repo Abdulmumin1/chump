@@ -25,6 +25,7 @@
         composerAttachments = $bindable([]),
         canSend,
         isSending,
+        isCompacting = false,
         models = [],
         currentModel = "",
         workspaceRoot = "",
@@ -45,6 +46,7 @@
         composerAttachments: ChatAttachment[];
         canSend: boolean;
         isSending: boolean;
+        isCompacting?: boolean;
         models: ModelChoice[];
         currentModel: string;
         currentProvider: string;
@@ -224,6 +226,10 @@
             void onCommand("clear", "");
             return;
         }
+        if (trimmed === "/compact") {
+            void onCommand("compact", "");
+            return;
+        }
         if (trimmed === "/new") {
             void onCommand("new", "");
             return;
@@ -383,7 +389,7 @@
                         class="hidden"
                         onchange={handleFileInputChange}
                     />
-                    {#if isSending}
+                    {#if isCompacting || isSending}
                         <span
                             class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
                             aria-live="polite"
@@ -391,7 +397,7 @@
                             <BrailleSpinner
                                 class="font-mono text-[15px] text-text-highlight"
                             />
-                            Working...
+                            {isCompacting ? "Compacting..." : "Working..."}
                         </span>
                     {:else if !composerText.trim() && !hasAttachments}
                         {#if !isLoadingSession}
@@ -409,7 +415,7 @@
                         class="text-[11px] md:text-[12px] font-medium text-text-muted mr-1 md:mr-2 tracking-wide hidden sm:inline"
                         >⌘ Enter</span
                     >
-                    {#if isSending && !composerText.trim() && !hasAttachments}
+                    {#if isSending && !isCompacting && !composerText.trim() && !hasAttachments}
                         <button
                             aria-label="Abort"
                             class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-error/20 hover:bg-error/30 text-error rounded-[6px]"

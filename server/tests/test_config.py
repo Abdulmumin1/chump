@@ -62,6 +62,53 @@ def test_load_config_reads_retry_policy(monkeypatch, tmp_path):
     assert config.retry_jitter is False
 
 
+def test_load_config_reads_compaction_env(monkeypatch, tmp_path):
+    auth_file = tmp_path / "missing-auth.json"
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CHUMP_COMPACTION_TOKENS", "150000")
+    monkeypatch.setenv("CHUMP_COMPACTION_KEEP_RECENT_TOKENS", "30000")
+
+    config = load_config()
+
+    assert config.compaction_tokens == 150_000
+    assert config.compaction_keep_recent_tokens == 30_000
+
+
+def test_load_config_disables_compaction_env(monkeypatch, tmp_path):
+    auth_file = tmp_path / "missing-auth.json"
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CHUMP_COMPACTION_TOKENS", "off")
+
+    config = load_config()
+
+    assert config.compaction_tokens is None
+
+
+def test_load_config_repo_compaction_overrides_global(monkeypatch, tmp_path):
+    workspace = tmp_path / "workspace"
+    chump_dir = workspace / ".chump"
+    chump_dir.mkdir(parents=True)
+    (chump_dir / "config.json").write_text(
+        '{"compaction": {"tokens": 123000, "keep_recent_tokens": 11000}}',
+        encoding="utf-8",
+    )
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        '{"compaction": {"tokens": 180000, "keep_recent_tokens": 22000}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+
+    config = load_config()
+
+    assert config.compaction_tokens == 123_000
+    assert config.compaction_keep_recent_tokens == 11_000
+
+
 def test_load_config_uses_latest_google_default_model(monkeypatch, tmp_path):
     auth_file = tmp_path / "missing-auth.json"
     monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
@@ -94,3 +141,42 @@ def test_load_config_migrates_legacy_workspace_state(monkeypatch, tmp_path):
     assert not (legacy_dir / "chump.sqlite3").exists()
     assert not (legacy_dir / "server.log").exists()
     assert legacy_dir.exists()
+
+
+def test_load_config_global_config_file_resolution(monkeypatch, tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    # 1. Setup global config file
+    global_config_file = tmp_path / "global-config.json"
+    global_config_file.write_text(
+        '{"provider": "openai", "model": "gpt-5.5", "max_steps": 42, "compaction_tokens": 80000}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHUMP_CONFIG_FILE", str(global_config_file))
+
+    # 2. Setup auth config
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text('{"provider": "anthropic"}', encoding="utf-8")
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+
+    monkeypatch.setenv("CHUMP_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+
+    config = load_config()
+    assert config.provider == "openai" # global config overrides auth config
+    assert config.model == "gpt-5.5"   # global config
+    assert config.max_steps == 42       # global config
+    assert config.compaction_tokens == 80000
+
+    # 3. Setup local config file
+    local_chump_dir = workspace / ".chump"
+    local_chump_dir.mkdir()
+    (local_chump_dir / "config.json").write_text(
+        '{"provider": "deepseek", "max_steps": 15}',
+        encoding="utf-8",
+    )
+
+    config = load_config()
+    assert config.provider == "deepseek" # local config overrides global config
+    assert config.max_steps == 15        # local config overrides global config

@@ -13,6 +13,7 @@ let assistantTextHook: ((content: string) => boolean) | null = null;
 let agentStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringQueueHook: ((payload: Record<string, unknown>) => void) | null = null;
 let turnStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
+let compactionStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 const transcriptRenderer = new TranscriptRenderer({
   hooks: {
     onToolActivity: () => toolActivityHook?.(),
@@ -23,6 +24,7 @@ const transcriptRenderer = new TranscriptRenderer({
     onAgentStatus: (payload) => agentStatusHook?.(payload),
     onSteeringQueue: (payload) => steeringQueueHook?.(payload),
     onTurnStatus: (payload) => turnStatusHook?.(payload),
+    onCompactionStatus: (payload) => compactionStatusHook?.(payload),
   },
 });
 
@@ -68,6 +70,12 @@ export function setTurnStatusHook(
   hook: ((payload: Record<string, unknown>) => void) | null,
 ): void {
   turnStatusHook = hook;
+}
+
+export function setCompactionStatusHook(
+  hook: ((payload: Record<string, unknown>) => void) | null,
+): void {
+  compactionStatusHook = hook;
 }
 
 export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {

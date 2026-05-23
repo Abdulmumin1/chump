@@ -6,6 +6,7 @@ import type {
   ChumpHealth,
   ChumpState,
   ChumpStatus,
+  CompactionResult,
   ChatAttachment,
   SessionsResponse,
 } from "../core/types.ts";
@@ -89,6 +90,12 @@ export async function clearMessages(
   config: ChumpConfig,
 ): Promise<{ status: string }> {
   return await invokeAction<{ status: string }>(config, "clear_messages");
+}
+
+export async function compactMessages(
+  config: ChumpConfig,
+): Promise<CompactionResult> {
+  return await invokeAction<CompactionResult>(config, "compact");
 }
 
 export async function getState(

@@ -1,13 +1,16 @@
 import { renderAccent, renderMuted } from "./render.ts";
 import { preferredSpinnerFrames } from "./terminal-capabilities.ts";
 
-export function createSpinner(onFrame: (frame: string | null) => void): {
+export function createSpinner(
+  onFrame: (frame: string | null) => void,
+  options: { label?: string } = {},
+): {
   start: () => void;
   refresh: () => void;
   stop: () => void;
 } {
   const frames = preferredSpinnerFrames();
-  const label = "Transmogrifying";
+  const label = options.label ?? "Transmogrifying";
   let index = 0;
   let timer: NodeJS.Timeout | null = null;
   let active = false;

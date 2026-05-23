@@ -36,6 +36,28 @@ export type UsageSummary = {
 	session_total: UsageStats | null;
 };
 
+export type CompactionStatus = {
+	threshold_tokens: number | null;
+	keep_recent_tokens: number;
+	estimated_tokens: number;
+	message_count: number;
+	last: CompactionResult | null;
+};
+
+export type CompactionResult = {
+	status: string;
+	reason?: string;
+	tokens_before?: number;
+	messages_before?: number;
+	messages_after?: number;
+	compacted_messages?: number;
+	kept_messages?: number;
+	summary_chars?: number;
+	created_at?: number;
+	message_count?: number;
+	estimated_tokens?: number;
+};
+
 export type ChangeRecordLine = {
 	type: "add" | "remove";
 	old_line: number | null;
@@ -166,6 +188,7 @@ export type ChumpStatus = {
 	max_steps: number;
 	command_timeout: number;
 	managed_idle_timeout: number | null;
+	compaction?: CompactionStatus | null;
 	reasoning: Record<string, unknown> | null;
 	verbose: boolean;
 	message_count: number;

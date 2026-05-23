@@ -30,6 +30,7 @@
         abortCurrentTurn,
         cancelSteering,
         clearMessages,
+        compactMessages,
         setModel,
         setReasoning,
         sessionTitle,
@@ -66,6 +67,7 @@
     let composerAttachments = $state<ChatAttachment[]>([]);
     let isConnecting = $state(false);
     let isSending = $state(false);
+    let isCompacting = $state(false);
     let isLoadingSession = $state(false);
     let connectionError = $state("");
     let transcriptElement = $state<HTMLDivElement | null>(null);
@@ -236,6 +238,12 @@
         set isSending(value: boolean) {
             isSending = value;
         },
+        get isCompacting() {
+            return isCompacting;
+        },
+        set isCompacting(value: boolean) {
+            isCompacting = value;
+        },
         get isLoadingSession() {
             return isLoadingSession;
         },
@@ -391,6 +399,15 @@
             return;
         }
 
+        if (attachments.length === 0 && trimmedText.startsWith("/")) {
+            const [command, ...parts] = trimmedText.slice(1).split(/\s+/);
+            if (command) {
+                composerText = "";
+                await runCommand(command, parts.join(" "));
+                return;
+            }
+        }
+
         const sessionId = await sessionController.ensureActiveSession();
         if (!sessionId) {
             return;
@@ -523,6 +540,27 @@
                     await clearMessages(serverUrl, activeSessionId);
                     await sessionController.refreshSessionSnapshot(activeSessionId);
                     pushToast("Chat cleared", "success");
+                    break;
+                }
+                case "compact": {
+                    isCompacting = true;
+                    try {
+                        const result = await compactMessages(serverUrl, activeSessionId);
+                        await sessionController.refreshSessionSnapshot(activeSessionId);
+                        if (result.status === "ok") {
+                            pushToast(
+                                `Compacted ${result.messages_before ?? "?"} -> ${result.messages_after ?? "?"} messages`,
+                                "success",
+                            );
+                        } else {
+                            pushToast(
+                                `Compaction skipped: ${result.reason ?? result.status}`,
+                                "default",
+                            );
+                        }
+                    } finally {
+                        isCompacting = false;
+                    }
                     break;
                 }
                 case "new": {
@@ -691,6 +729,7 @@
                 bind:composerAttachments
                 {canSend}
                 {isSending}
+                {isCompacting}
                 models={availableModels}
                 {isLoadingSession}
                 {currentModel}
