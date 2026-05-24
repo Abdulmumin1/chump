@@ -45,7 +45,7 @@ Pushing a `chump-server-v*` tag runs the PyPI job and creates a GitHub Release i
 - `CHUMP_PORT`: default `8080`
 - `CHUMP_WORKSPACE_ROOT`: defaults to the parent directory of `server/`
 - `CHUMP_STATE_DIR`: optional override for the workspace state directory; defaults to a per-workspace path under the user's OS state/data directory
-- `CHUMP_PROVIDER`: default `chump_cloud`; also supports `codex`, `openai`, `google`, `anthropic`, and `workers_ai`
+- `CHUMP_PROVIDER`: default `chump_cloud`; also supports `codex`, `github_copilot`, `openai`, `google`, `anthropic`, `workers_ai`, `deepseek`, `openrouter`, `groq`, `xai`, `opencode`, `opencode_go`, and `zenmux`
 - `CHUMP_MODEL`: provider-specific default
 - `CHUMP_CLOUD_BASE_URL`: optional OpenAI-compatible base URL for the `chump_cloud` provider
 - `CHUMP_MAX_STEPS`: default `64`

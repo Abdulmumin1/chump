@@ -9,7 +9,17 @@ from urllib.request import Request, urlopen
 
 from ai_query.model import LanguageModel
 from ai_query.providers.openai import OpenAIProvider
-from ai_query.types import Message, ProviderOptions, ReasoningEvent, StreamChunk, ToolCall, ToolSet, Usage
+from ai_query.types import (
+    GenerateTextResult,
+    Message,
+    ProviderOptions,
+    ReasoningEvent,
+    ReasoningPart,
+    StreamChunk,
+    ToolCall,
+    ToolSet,
+    Usage,
+)
 
 CODEX_API_BASE_URL = "https://chatgpt.com/backend-api/codex"
 OPENAI_AUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -59,6 +69,56 @@ class CodexProvider(OpenAIProvider):
     ) -> bool:
         return bool(tools)
 
+    async def generate(
+        self,
+        *,
+        model: str,
+        messages: list[Message],
+        tools: ToolSet | None = None,
+        provider_options: ProviderOptions | None = None,
+        **kwargs: Any,
+    ) -> GenerateTextResult:
+        response = await self.transport.post(
+            f"{self.base_url}/responses",
+            await self._build_responses_body(
+                model=model,
+                messages=messages,
+                tools=tools,
+                provider_options=provider_options,
+                kwargs=kwargs,
+                stream=False,
+            ),
+            headers=self._get_headers(),
+        )
+
+        usage = parse_responses_usage(response.get("usage"))
+        output_items = [item for item in response.get("output") or [] if isinstance(item, dict)]
+        tool_calls = extract_tool_calls(output_items)
+        response_with_tools = dict(response)
+        response_with_tools["tool_calls"] = tool_calls
+
+        return GenerateTextResult(
+            text=self._extract_text_from_responses_output(response),
+            reasoning_parts=[
+                ReasoningPart(
+                    text=summary,
+                    data={
+                        "provider": self.name,
+                        "field": "reasoning.summary",
+                        "kind": "summary",
+                    },
+                )
+                for summary in self._extract_reasoning_summaries_from_responses_output(response)
+            ],
+            finish_reason="tool_use" if tool_calls else response.get("status"),
+            usage=usage,
+            response=response_with_tools,
+            provider_metadata={
+                "model": response.get("model"),
+                "id": response.get("id"),
+            },
+        )
+
     def _refresh_if_needed(self) -> None:
         if self.access_token and self.expires > int(time.time() * 1000) + 30_000:
             return
@@ -89,18 +149,6 @@ class CodexProvider(OpenAIProvider):
         provider_options: ProviderOptions | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
-        options = self._build_request_options(kwargs, self.get_provider_options(provider_options))
-        response_options = self._build_responses_request_options(options)
-        response_options = with_reasoning_summary(response_options)
-        body = {
-            "model": model,
-            "input": sanitize_response_input_items(await self._convert_messages_for_responses(messages)),
-            "tools": self._convert_tools_for_responses(tools or {}),
-            **response_options,
-        }
-        body["stream"] = True
-        body["store"] = False
-
         buffer = b""
         usage = None
         finish_reason = None
@@ -109,7 +157,14 @@ class CodexProvider(OpenAIProvider):
 
         async for chunk_bytes in self.transport.stream(
             f"{self.base_url}/responses",
-            body,
+            await self._build_responses_body(
+                model=model,
+                messages=messages,
+                tools=tools,
+                provider_options=provider_options,
+                kwargs=kwargs,
+                stream=True,
+            ),
             headers=self._get_headers(),
         ):
             buffer += chunk_bytes
@@ -183,6 +238,34 @@ class CodexProvider(OpenAIProvider):
             finish_reason=finish_reason,
             tool_calls=extract_tool_calls(list(output_items.values())) or None,
         )
+
+    async def _build_responses_body(
+        self,
+        *,
+        model: str,
+        messages: list[Message],
+        tools: ToolSet | None,
+        provider_options: ProviderOptions | None,
+        kwargs: dict[str, Any],
+        stream: bool,
+    ) -> dict[str, Any]:
+        options = self._build_request_options(kwargs, self.get_provider_options(provider_options))
+        response_options = with_reasoning_summary(
+            self._build_responses_request_options(options)
+        )
+        body = {
+            "model": model,
+            "input": sanitize_response_input_items(
+                await self._convert_messages_for_responses(messages)
+            ),
+            **response_options,
+            "store": False,
+        }
+        if tools:
+            body["tools"] = self._convert_tools_for_responses(tools)
+        if stream:
+            body["stream"] = True
+        return body
 
     def _parse_response_sse_json(self, line: bytes | str) -> dict[str, Any] | None:
         data = self._parse_sse_line(line)

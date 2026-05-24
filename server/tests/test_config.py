@@ -1,9 +1,13 @@
+import os
+
 import pytest
 
 from chump_server.config import (
     DEFAULT_PROVIDER,
+    apply_auth_environment,
     load_config,
     normalize_model_name,
+    normalize_provider_name,
     normalize_reasoning_config,
 )
 
@@ -25,6 +29,29 @@ def test_normalize_model_name_accepts_chump_cloud_provider_model_pair():
         normalize_model_name("chump_cloud", "deepseek-v4-flash")
         == "deepseek-v4-flash"
     )
+
+
+def test_normalize_model_name_accepts_openrouter_provider_model_pair():
+    assert (
+        normalize_model_name("openrouter", "anthropic/claude-sonnet-4.5")
+        == "anthropic/claude-sonnet-4.5"
+    )
+
+
+def test_normalize_model_name_accepts_opencode_go_provider_model_pair():
+    assert normalize_model_name("opencode_go", "kimi-k2.6") == "kimi-k2.6"
+
+
+def test_normalize_model_name_accepts_github_copilot_provider_model_pair():
+    assert normalize_model_name("github_copilot", "gpt-5.4") == "gpt-5.4"
+
+
+def test_normalize_provider_name_accepts_x_ai_alias():
+    assert normalize_provider_name("x-ai") == "xai"
+
+
+def test_normalize_provider_name_accepts_copilot_alias():
+    assert normalize_provider_name("copilot") == "github_copilot"
 
 
 def test_chump_cloud_ignores_openai_reasoning_config():
@@ -118,6 +145,56 @@ def test_load_config_uses_latest_google_default_model(monkeypatch, tmp_path):
     config = load_config()
 
     assert config.model == "gemini-3.5-flash"
+
+
+def test_load_config_uses_opencode_go_default_model(monkeypatch, tmp_path):
+    auth_file = tmp_path / "missing-auth.json"
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CHUMP_PROVIDER", "opencode-go")
+
+    config = load_config()
+
+    assert config.provider == "opencode_go"
+    assert config.model == "kimi-k2.6"
+
+
+def test_load_config_uses_github_copilot_default_model(monkeypatch, tmp_path):
+    auth_file = tmp_path / "missing-auth.json"
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CHUMP_PROVIDER", "github-copilot")
+
+    config = load_config()
+
+    assert config.provider == "github_copilot"
+    assert config.model == "gpt-5.4"
+
+
+def test_apply_auth_environment_only_exports_env_style_keys(monkeypatch):
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("type", raising=False)
+    monkeypatch.delenv("access", raising=False)
+    monkeypatch.delenv("refresh", raising=False)
+
+    apply_auth_environment(
+        {
+            "credentials": {
+                "xai": {
+                    "type": "oauth",
+                    "access": "token",
+                    "refresh": "refresh-token",
+                    "XAI_API_KEY": "manual-key",
+                }
+            }
+        },
+        "xai",
+    )
+
+    assert os.environ.get("XAI_API_KEY") == "manual-key"
+    assert os.environ.get("type") is None
+    assert os.environ.get("access") is None
+    assert os.environ.get("refresh") is None
 
 
 def test_load_config_migrates_legacy_workspace_state(monkeypatch, tmp_path):

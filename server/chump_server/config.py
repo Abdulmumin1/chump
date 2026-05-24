@@ -26,12 +26,19 @@ DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
 )
 DEFAULT_MODELS = {
     "codex": "gpt-5.4",
+    "github_copilot": "gpt-5.4",
     "openai": "gpt-5.4",
     "chump_cloud": "deepseek-v4-flash",
     "google": "gemini-3.5-flash",
     "anthropic": "claude-sonnet-4-20250514",
     "workers_ai": "@cf/moonshotai/kimi-k2.5",
     "deepseek": "deepseek-v4-pro",
+    "openrouter": "anthropic/claude-sonnet-4.5",
+    "groq": "openai/gpt-oss-120b",
+    "xai": "grok-code-fast-1",
+    "opencode": "gpt-5.4",
+    "opencode_go": "kimi-k2.6",
+    "zenmux": "anthropic/claude-sonnet-4.5",
 }
 
 PROVIDER_MODELS = {
@@ -46,6 +53,15 @@ PROVIDER_MODELS = {
         "gpt-5.1-codex-max",
         "gpt-5.1-codex-mini",
         "gpt-5-codex",
+    },
+    "github_copilot": {
+        "gpt-5.4",
+        "gpt-5.3-codex",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
     },
     "openai": {
         "gpt-5.5",
@@ -87,6 +103,65 @@ PROVIDER_MODELS = {
     "deepseek": {
         "deepseek-v4-pro",
         "deepseek-v4-flash",
+    },
+    "openrouter": {
+        "openai/gpt-5.5",
+        "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4.5",
+        "google/gemini-2.5-pro",
+        "deepseek/deepseek-v4-pro",
+        "moonshotai/kimi-k2.6",
+        "qwen/qwen3.6-plus",
+    },
+    "groq": {
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3-32b",
+        "groq/compound-mini",
+    },
+    "xai": {
+        "grok-4.3",
+        "grok-4-1-fast",
+        "grok-4-fast",
+        "grok-code-fast-1",
+    },
+    "opencode": {
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.1-codex-mini",
+        "claude-sonnet-4-5",
+        "gemini-3.1-pro",
+        "glm-5.1",
+        "kimi-k2.6",
+        "qwen3.6-plus",
+        "minimax-m2.7",
+        "deepseek-v4-flash-free",
+    },
+    "opencode_go": {
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "glm-5",
+        "glm-5.1",
+        "kimi-k2.5",
+        "kimi-k2.6",
+        "mimo-v2.5",
+        "mimo-v2.5-pro",
+        "minimax-m2.5",
+        "minimax-m2.7",
+        "qwen3.5-plus",
+        "qwen3.6-plus",
+    },
+    "zenmux": {
+        "openai/gpt-5.5",
+        "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4.5",
+        "google/gemini-2.5-pro",
+        "deepseek/deepseek-v4-pro",
+        "moonshotai/kimi-k2.6",
+        "qwen/qwen3.6-plus",
+        "x-ai/grok-4.1-fast",
+        "z-ai/glm-5.1",
+        "volcengine/doubao-seed-code",
     },
 }
 
@@ -506,7 +581,12 @@ def apply_auth_environment(
     if not isinstance(provider_credentials, dict):
         return
     for key, value in provider_credentials.items():
-        if isinstance(key, str) and isinstance(value, str) and key not in os.environ:
+        if (
+            isinstance(key, str)
+            and isinstance(value, str)
+            and re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
+            and key not in os.environ
+        ):
             os.environ[key] = value
 
 
@@ -610,10 +690,20 @@ def normalize_provider_name(value: str) -> str:
         return "workers_ai"
     if normalized in {"chatgpt", "openai_codex"}:
         return "codex"
+    if normalized in {"githubcopilot", "copilot"}:
+        return "github_copilot"
     if normalized in {"deepseek"}:
         return "deepseek"
     if normalized in {"chumpcloud", "chump_cloud"}:
         return "chump_cloud"
+    if normalized in {"open_router"}:
+        return "openrouter"
+    if normalized in {"x_ai", "grok"}:
+        return "xai"
+    if normalized in {"opencodezen", "opencode_zen"}:
+        return "opencode"
+    if normalized in {"opencodego"}:
+        return "opencode_go"
     if normalized not in DEFAULT_MODELS:
         valid = ", ".join(sorted(DEFAULT_MODELS))
         raise ValueError(f"invalid CHUMP_PROVIDER={value!r}; expected one of: {valid}")

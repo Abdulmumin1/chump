@@ -43,7 +43,7 @@ The following fields can be configured in either your local `.chump/config.json`
 
 | Config Key | Type | Env Variable equivalent | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `provider` | `string` | `CHUMP_PROVIDER` | `chump_cloud` | The AI provider to use (`chump_cloud`, `openai`, `anthropic`, `google`, `deepseek`, `workers_ai`, `codex`). |
+| `provider` | `string` | `CHUMP_PROVIDER` | `chump_cloud` | The AI provider to use (`chump_cloud`, `openai`, `anthropic`, `google`, `deepseek`, `workers_ai`, `codex`, `github_copilot`, `openrouter`, `groq`, `xai`, `opencode`, `opencode_go`, `zenmux`). |
 | `model` | `string` | `CHUMP_MODEL` | *Depends on provider* | The model name to use under the chosen provider (e.g., `claude-sonnet-4-20250514`, `deepseek-v4-flash`, etc.). |
 | `host` | `string` | `CHUMP_HOST` | `127.0.0.1` | Host address for the backend server. |
 | `port` | `integer` | `CHUMP_PORT` | `8080` | Port for the backend server. |
