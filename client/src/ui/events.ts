@@ -5,6 +5,8 @@ import { renderError } from "./render.ts";
 import { TranscriptRenderer, transcriptEventFromSse } from "./transcript.ts";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
 
+const EVENT_ERROR_LOG_INTERVAL_MS = 30000;
+
 let toolActivityHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringAcceptedHook: ((content: string) => void) | null = null;
@@ -79,10 +81,39 @@ export function setCompactionStatusHook(
 }
 
 export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {
+  let lastEventErrorMessage = "";
+  let lastEventErrorAt = 0;
+  let suppressedEventErrors = 0;
+
   try {
     return await openEventStream(config, {
-      onEvent: (event) => logEvent(event),
-      onError: (error) => console.error(renderError(`[events] ${error.message}`)),
+      onEvent: (event) => {
+        lastEventErrorMessage = "";
+        lastEventErrorAt = 0;
+        suppressedEventErrors = 0;
+        logEvent(event);
+      },
+      onError: (error) => {
+        const now = Date.now();
+        const message = error.message || String(error);
+        const shouldLog =
+          message !== lastEventErrorMessage ||
+          now - lastEventErrorAt >= EVENT_ERROR_LOG_INTERVAL_MS;
+
+        if (!shouldLog) {
+          suppressedEventErrors += 1;
+          return;
+        }
+
+        const repeatSuffix =
+          suppressedEventErrors > 0
+            ? ` (${suppressedEventErrors} repeats suppressed)`
+            : "";
+        console.error(renderError(`[events] ${message}${repeatSuffix}; retrying`));
+        lastEventErrorMessage = message;
+        lastEventErrorAt = now;
+        suppressedEventErrors = 0;
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

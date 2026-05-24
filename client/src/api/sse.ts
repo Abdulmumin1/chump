@@ -11,10 +11,12 @@ export async function openEventStream(
   },
   options: {
     reconnectDelayMs?: number;
+    maxReconnectDelayMs?: number;
     idleTimeoutMs?: number;
   } = {},
 ): Promise<() => void> {
   const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
+  const maxReconnectDelayMs = options.maxReconnectDelayMs ?? 30000;
   // Server sends `: keepalive` comments every 30s. If we go ~60s without any
   // bytes, tear the connection down and reconnect.
   const idleTimeoutMs = options.idleTimeoutMs ?? 60000;
@@ -22,6 +24,7 @@ export async function openEventStream(
   let lastEventId = 0;
   let controller: AbortController | null = null;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectFailures = 0;
 
   const armIdleTimer = () => {
     if (idleTimer) {
@@ -67,6 +70,7 @@ export async function openEventStream(
         await consumeSse(
           response,
           (event) => {
+            reconnectFailures = 0;
             if (event.id) {
               const parsed = Number(event.id);
               if (Number.isFinite(parsed)) {
@@ -83,6 +87,7 @@ export async function openEventStream(
         }
         // Aborted is a deliberate restart (e.g. idle watchdog), don't trigger onError
         if (controller && !controller.signal.aborted) {
+          reconnectFailures += 1;
           handlers.onError?.(
             error instanceof Error ? error : new Error(String(error)),
           );
@@ -95,7 +100,11 @@ export async function openEventStream(
         break;
       }
 
-      await delay(reconnectDelayMs);
+      const delayMs = Math.min(
+        reconnectDelayMs * 2 ** Math.min(reconnectFailures, 5),
+        maxReconnectDelayMs,
+      );
+      await delay(delayMs);
     }
   };
 
