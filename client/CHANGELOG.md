@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.30
+
+### Patch Changes
+
+- Add GitHub Copilot, xAI, OpenRouter, Groq, OpenCode, and ZenMux provider support to the CLI, expand fallback model metadata, and make background event stream reconnects back off more cleanly.
+
 ## 0.0.29
 
 ### Patch Changes

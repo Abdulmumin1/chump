@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.29
+
+- Add provider normalization, defaults, and runtime adapters for GitHub Copilot, OpenRouter, Groq, xAI, OpenCode, and ZenMux.
+- Move the Codex adapter into the shared provider package and keep Codex compaction summaries on the Responses API path.
+- Preserve tool-call/tool-result boundaries when compacting session history.
+
 ## 0.0.28
 
 - Introduce summary/history compaction for agent sessions to optimize LLM context window usage.
