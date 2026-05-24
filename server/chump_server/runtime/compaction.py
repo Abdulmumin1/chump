@@ -24,11 +24,30 @@ def choose_compaction_start(
 ) -> int:
     start = find_recent_message_start(messages, keep_recent_tokens)
     if start > 1 or not force or len(messages) < 4:
-        return start
+        return align_compaction_start(messages, start)
     # Manual compaction should still do useful work when provider-reported
     # context is high but local text heuristics say the whole transcript is
     # below the recent-history budget.
-    return max(1, len(messages) - 2)
+    return align_compaction_start(messages, max(1, len(messages) - 2))
+
+
+def align_compaction_start(messages: list[Message], start: int) -> int:
+    start = min(max(0, start), len(messages))
+    while start > 1 and start < len(messages) and is_tool_result_message(messages[start]):
+        start -= 1
+    return start
+
+
+def is_tool_result_message(message: Message) -> bool:
+    if str(message.role) == "tool":
+        return True
+    content = message.content
+    if not isinstance(content, list):
+        return False
+    for part in content:
+        if isinstance(part, dict) and part.get("type") == "tool_result":
+            return True
+    return False
 
 
 def find_recent_message_start(messages: list[Message], keep_recent_tokens: int) -> int:
