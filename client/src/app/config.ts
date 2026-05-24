@@ -58,12 +58,13 @@ export function getResolvedConfig(workspaceRoot: string): ResolvedConfig {
   const localConfig = loadJsonConfig(path.join(workspaceRoot, ".chump", "config.json"));
   const authConfig = loadJsonConfig(globalAuthFilePath());
 
-  const provider =
+  const provider = normalizeProviderName(
     process.env.CHUMP_PROVIDER ??
-    localConfig.provider ??
-    globalConfig.provider ??
-    authConfig.provider ??
-    "chump_cloud";
+      localConfig.provider ??
+      globalConfig.provider ??
+      authConfig.provider ??
+      "chump_cloud",
+  );
 
   const envModel = process.env.CHUMP_MODEL;
   const configModel =
@@ -73,12 +74,19 @@ export function getResolvedConfig(workspaceRoot: string): ResolvedConfig {
 
   const DEFAULT_MODELS: Record<string, string> = {
     codex: "gpt-5.4",
+    github_copilot: "gpt-5.4",
     openai: "gpt-5.4",
     chump_cloud: "deepseek-v4-flash",
+    opencode: "gpt-5.4",
+    opencode_go: "kimi-k2.6",
+    openrouter: "anthropic/claude-sonnet-4.5",
     google: "gemini-3.5-flash",
     anthropic: "claude-sonnet-4-20250514",
+    groq: "openai/gpt-oss-120b",
+    xai: "grok-code-fast-1",
     workers_ai: "@cf/moonshotai/kimi-k2.5",
     deepseek: "deepseek-v4-pro",
+    zenmux: "anthropic/claude-sonnet-4.5",
   };
 
   const model = envModel ?? configModel ?? DEFAULT_MODELS[provider] ?? "deepseek-v4-flash";
@@ -218,4 +226,33 @@ export function resolveWorkspaceRoot(startDir: string): string {
 function sanitizeSegment(value: string): string {
   const normalized = value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
   return normalized.replace(/^-+|-+$/g, "") || "workspace";
+}
+
+function normalizeProviderName(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/-/g, "_");
+  if (normalized === "workersai") {
+    return "workers_ai";
+  }
+  if (normalized === "chatgpt" || normalized === "openai_codex") {
+    return "codex";
+  }
+  if (normalized === "githubcopilot" || normalized === "copilot") {
+    return "github_copilot";
+  }
+  if (normalized === "chumpcloud") {
+    return "chump_cloud";
+  }
+  if (normalized === "open_router") {
+    return "openrouter";
+  }
+  if (normalized === "x_ai" || normalized === "grok") {
+    return "xai";
+  }
+  if (normalized === "opencodezen" || normalized === "opencode_zen") {
+    return "opencode";
+  }
+  if (normalized === "opencodego") {
+    return "opencode_go";
+  }
+  return normalized;
 }

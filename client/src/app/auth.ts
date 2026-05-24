@@ -6,10 +6,17 @@ import process from "node:process";
 import { intro, isCancel, outro, password, select, text } from "@clack/prompts";
 
 import { connectCodexBrowser, connectCodexHeadless } from "./codex-auth.ts";
+import { connectGitHubCopilot } from "./github-copilot-auth.ts";
+import { connectXaiBrowser, connectXaiHeadless } from "./xai-auth.ts";
 
 const PROVIDERS = {
   codex: {
     label: "Codex",
+    defaultModel: "gpt-5.4",
+    fields: [],
+  },
+  github_copilot: {
+    label: "GitHub Copilot",
     defaultModel: "gpt-5.4",
     fields: [],
   },
@@ -27,6 +34,21 @@ const PROVIDERS = {
     defaultModel: "deepseek-v4-flash",
     fields: [],
   },
+  opencode: {
+    label: "OpenCode Zen",
+    defaultModel: "gpt-5.4",
+    fields: [{ key: "OPENCODE_API_KEY", label: "OpenCode API key", secret: true }],
+  },
+  opencode_go: {
+    label: "OpenCode Go",
+    defaultModel: "kimi-k2.6",
+    fields: [{ key: "OPENCODE_API_KEY", label: "OpenCode API key", secret: true }],
+  },
+  openrouter: {
+    label: "OpenRouter",
+    defaultModel: "anthropic/claude-sonnet-4.5",
+    fields: [{ key: "OPENROUTER_API_KEY", label: "OpenRouter API key", secret: true }],
+  },
   anthropic: {
     label: "Anthropic",
     defaultModel: "claude-sonnet-4-20250514",
@@ -40,12 +62,27 @@ const PROVIDERS = {
     defaultModel: "gemini-3.5-flash",
     fields: [{ key: "GOOGLE_API_KEY", label: "Google API key", secret: true }],
   },
+  groq: {
+    label: "Groq",
+    defaultModel: "openai/gpt-oss-120b",
+    fields: [{ key: "GROQ_API_KEY", label: "Groq API key", secret: true }],
+  },
+  xai: {
+    label: "xAI",
+    defaultModel: "grok-code-fast-1",
+    fields: [],
+  },
   deepseek: {
     label: "DeepSeek",
     defaultModel: "deepseek-v4-pro",
     fields: [
       { key: "DEEPSEEK_API_KEY", label: "DeepSeek API key", secret: true },
     ],
+  },
+  zenmux: {
+    label: "ZenMux",
+    defaultModel: "anthropic/claude-sonnet-4.5",
+    fields: [{ key: "ZENMUX_API_KEY", label: "ZenMux API key", secret: true }],
   },
   workers_ai: {
     label: "Cloudflare Workers AI",
@@ -78,6 +115,10 @@ export async function connectProvider(): Promise<void> {
 
   if (provider === "codex") {
     credentials = await promptCodexCredentials();
+  } else if (provider === "github_copilot") {
+    credentials = await promptGitHubCopilotCredentials();
+  } else if (provider === "xai") {
+    credentials = await promptXaiCredentials();
   } else {
     for (const field of definition.fields) {
       const optional = "optional" in field && field.optional === true;
@@ -194,6 +235,70 @@ async function promptCodexCredentials(): Promise<Record<string, unknown>> {
 
   console.log("Opening browser for ChatGPT authorization...");
   return await connectCodexBrowser();
+}
+
+async function promptGitHubCopilotCredentials(): Promise<Record<string, unknown>> {
+  const deploymentType = await select({
+    message: "GitHub deployment",
+    options: [
+      { value: "github.com", label: "GitHub.com" },
+      { value: "enterprise", label: "GitHub Enterprise" },
+    ],
+  });
+  cancelIfNeeded(deploymentType);
+
+  let enterpriseUrl: string | undefined;
+  if (deploymentType === "enterprise") {
+    const value = await text({
+      message: "GitHub Enterprise URL or domain",
+      placeholder: "company.ghe.com or https://company.ghe.com",
+      validate: (input) => {
+        if (!input) {
+          return "Required";
+        }
+        try {
+          const url = input.includes("://") ? new URL(input) : new URL(`https://${input}`);
+          return url.hostname ? undefined : "Enter a valid URL or domain";
+        } catch {
+          return "Enter a valid URL or domain";
+        }
+      },
+    });
+    cancelIfNeeded(value);
+    enterpriseUrl = String(value).trim();
+  }
+
+  return await connectGitHubCopilot((url, code) => {
+    console.log(`Open ${url}`);
+    console.log(`Enter code: ${code}`);
+  }, enterpriseUrl);
+}
+
+async function promptXaiCredentials(): Promise<Record<string, unknown>> {
+  const method = await select({
+    message: "Login method",
+    options: [
+      { value: "browser", label: "Grok subscription (browser)" },
+      { value: "headless", label: "Grok subscription (headless / remote)" },
+      { value: "api", label: "Manually enter API key" },
+    ],
+  });
+  cancelIfNeeded(method);
+
+  if (method === "api") {
+    const apiKey = await promptPassword("xAI API key", false);
+    return { XAI_API_KEY: apiKey };
+  }
+
+  if (method === "headless") {
+    return await connectXaiHeadless((url, code) => {
+      console.log(`Open ${url}`);
+      console.log(`Enter code: ${code}`);
+    });
+  }
+
+  console.log("Opening browser for xAI authorization...");
+  return await connectXaiBrowser();
 }
 
 async function promptText(

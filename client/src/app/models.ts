@@ -22,6 +22,15 @@ const CODEX_MODELS = new Set([
 
 const SUPPORTED_MODELS: Record<string, Set<string>> = {
   codex: new Set(CODEX_MODELS),
+  github_copilot: new Set([
+    "gpt-5.4",
+    "gpt-5.3-codex",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex-mini",
+  ]),
   openai: new Set([
     "gpt-5.5",
     "gpt-5.4-pro",
@@ -38,6 +47,41 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5-codex",
   ]),
   chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+  opencode: new Set([
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.1-codex-mini",
+    "claude-sonnet-4-5",
+    "gemini-3.1-pro",
+    "glm-5.1",
+    "kimi-k2.6",
+    "qwen3.6-plus",
+    "minimax-m2.7",
+    "deepseek-v4-flash-free",
+  ]),
+  opencode_go: new Set([
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "glm-5",
+    "glm-5.1",
+    "kimi-k2.5",
+    "kimi-k2.6",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "minimax-m2.5",
+    "minimax-m2.7",
+    "qwen3.5-plus",
+    "qwen3.6-plus",
+  ]),
+  openrouter: new Set([
+    "openai/gpt-5.5",
+    "openai/gpt-5.4",
+    "anthropic/claude-sonnet-4.5",
+    "google/gemini-2.5-pro",
+    "deepseek/deepseek-v4-pro",
+    "moonshotai/kimi-k2.6",
+    "qwen/qwen3.6-plus",
+  ]),
   google: new Set([
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
@@ -48,6 +92,18 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gemini-2.5-flash-lite",
   ]),
   anthropic: new Set(["claude-sonnet-4-20250514"]),
+  groq: new Set([
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3-32b",
+    "groq/compound-mini",
+  ]),
+  xai: new Set([
+    "grok-4.3",
+    "grok-4-1-fast",
+    "grok-4-fast",
+    "grok-code-fast-1",
+  ]),
   workers_ai: new Set([
     "@cf/zai-org/glm-4.7-flash",
     "@cf/nvidia/nemotron-3-120b-a12b",
@@ -55,6 +111,18 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "@cf/moonshotai/kimi-k2.6",
   ]),
   deepseek: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+  zenmux: new Set([
+    "openai/gpt-5.5",
+    "openai/gpt-5.4",
+    "anthropic/claude-sonnet-4.5",
+    "google/gemini-2.5-pro",
+    "deepseek/deepseek-v4-pro",
+    "moonshotai/kimi-k2.6",
+    "qwen/qwen3.6-plus",
+    "x-ai/grok-4.1-fast",
+    "z-ai/glm-5.1",
+    "volcengine/doubao-seed-code",
+  ]),
 };
 
 const FALLBACK_MODELS: Record<string, ModelProvider> = {
@@ -98,6 +166,47 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
       "gpt-5-codex": {
         id: "gpt-5-codex",
         name: "GPT-5 Codex",
+        reasoning: true,
+      },
+    },
+  },
+  github_copilot: {
+    id: "github_copilot",
+    name: "GitHub Copilot",
+    models: {
+      "gpt-5.4": {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        reasoning: true,
+      },
+      "gpt-5.3-codex": {
+        id: "gpt-5.3-codex",
+        name: "GPT-5.3 Codex",
+        reasoning: true,
+      },
+      "gpt-5.2": {
+        id: "gpt-5.2",
+        name: "GPT-5.2",
+        reasoning: true,
+      },
+      "gpt-5.2-codex": {
+        id: "gpt-5.2-codex",
+        name: "GPT-5.2 Codex",
+        reasoning: true,
+      },
+      "gpt-5.1-codex": {
+        id: "gpt-5.1-codex",
+        name: "GPT-5.1 Codex",
+        reasoning: true,
+      },
+      "gpt-5.1-codex-max": {
+        id: "gpt-5.1-codex-max",
+        name: "GPT-5.1 Codex Max",
+        reasoning: true,
+      },
+      "gpt-5.1-codex-mini": {
+        id: "gpt-5.1-codex-mini",
+        name: "GPT-5.1 Codex Mini",
         reasoning: true,
       },
     },
@@ -163,6 +272,198 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
       },
     },
   },
+  opencode: {
+    id: "opencode",
+    name: "OpenCode Zen",
+    models: {
+      "gpt-5.5": {
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.4": {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.1-codex-mini": {
+        id: "gpt-5.1-codex-mini",
+        name: "GPT-5.1 Codex Mini",
+        reasoning: true,
+        limit: { context: 400_000, output: 128_000 },
+      },
+      "claude-sonnet-4-5": {
+        id: "claude-sonnet-4-5",
+        name: "Claude Sonnet 4.5",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 64_000 },
+      },
+      "gemini-3.1-pro": {
+        id: "gemini-3.1-pro",
+        name: "Gemini 3.1 Pro",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
+      "glm-5.1": {
+        id: "glm-5.1",
+        name: "GLM-5.1",
+        reasoning: true,
+        limit: { context: 204_800, output: 131_072 },
+      },
+      "kimi-k2.6": {
+        id: "kimi-k2.6",
+        name: "Kimi K2.6",
+        reasoning: true,
+        limit: { context: 262_144, output: 65_536 },
+      },
+      "qwen3.6-plus": {
+        id: "qwen3.6-plus",
+        name: "Qwen3.6 Plus",
+        reasoning: true,
+        limit: { context: 262_144, output: 65_536 },
+      },
+      "minimax-m2.7": {
+        id: "minimax-m2.7",
+        name: "MiniMax M2.7",
+        reasoning: true,
+        limit: { context: 204_800, output: 131_072 },
+      },
+      "deepseek-v4-flash-free": {
+        id: "deepseek-v4-flash-free",
+        name: "DeepSeek V4 Flash Free",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+    },
+  },
+  opencode_go: {
+    id: "opencode_go",
+    name: "OpenCode Go",
+    models: {
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "glm-5": {
+        id: "glm-5",
+        name: "GLM-5",
+        reasoning: true,
+        limit: { context: 202_752, output: 32_768 },
+      },
+      "glm-5.1": {
+        id: "glm-5.1",
+        name: "GLM-5.1",
+        reasoning: true,
+        limit: { context: 202_752, output: 32_768 },
+      },
+      "kimi-k2.5": {
+        id: "kimi-k2.5",
+        name: "Kimi K2.5",
+        reasoning: true,
+        limit: { context: 262_144, output: 65_536 },
+      },
+      "kimi-k2.6": {
+        id: "kimi-k2.6",
+        name: "Kimi K2.6",
+        reasoning: true,
+        limit: { context: 262_144, output: 65_536 },
+      },
+      "mimo-v2.5": {
+        id: "mimo-v2.5",
+        name: "MiMo V2.5",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 128_000 },
+      },
+      "mimo-v2.5-pro": {
+        id: "mimo-v2.5-pro",
+        name: "MiMo V2.5 Pro",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 128_000 },
+      },
+      "minimax-m2.5": {
+        id: "minimax-m2.5",
+        name: "MiniMax M2.5",
+        reasoning: true,
+        limit: { context: 204_800, output: 65_536 },
+      },
+      "minimax-m2.7": {
+        id: "minimax-m2.7",
+        name: "MiniMax M2.7",
+        reasoning: true,
+        limit: { context: 204_800, output: 131_072 },
+      },
+      "qwen3.5-plus": {
+        id: "qwen3.5-plus",
+        name: "Qwen3.5 Plus",
+        reasoning: true,
+        limit: { context: 262_144, output: 65_536 },
+      },
+      "qwen3.6-plus": {
+        id: "qwen3.6-plus",
+        name: "Qwen3.6 Plus",
+        reasoning: true,
+        limit: { context: 262_144, output: 65_536 },
+      },
+    },
+  },
+  openrouter: {
+    id: "openrouter",
+    name: "OpenRouter",
+    models: {
+      "openai/gpt-5.5": {
+        id: "openai/gpt-5.5",
+        name: "OpenAI GPT-5.5",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "openai/gpt-5.4": {
+        id: "openai/gpt-5.4",
+        name: "OpenAI GPT-5.4",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "anthropic/claude-sonnet-4.5": {
+        id: "anthropic/claude-sonnet-4.5",
+        name: "Claude Sonnet 4.5",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 64_000 },
+      },
+      "google/gemini-2.5-pro": {
+        id: "google/gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
+      "deepseek/deepseek-v4-pro": {
+        id: "deepseek/deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 393_216 },
+      },
+      "moonshotai/kimi-k2.6": {
+        id: "moonshotai/kimi-k2.6",
+        name: "Kimi K2.6",
+        reasoning: true,
+        limit: { context: 262_144, output: 262_144 },
+      },
+      "qwen/qwen3.6-plus": {
+        id: "qwen/qwen3.6-plus",
+        name: "Qwen3.6 Plus",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 65_536 },
+      },
+    },
+  },
   anthropic: {
     id: "anthropic",
     name: "Anthropic",
@@ -216,6 +517,66 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
       },
     },
   },
+  groq: {
+    id: "groq",
+    name: "Groq",
+    models: {
+      "openai/gpt-oss-120b": {
+        id: "openai/gpt-oss-120b",
+        name: "GPT OSS 120B",
+        reasoning: true,
+        limit: { context: 131_072, output: 65_536 },
+      },
+      "openai/gpt-oss-20b": {
+        id: "openai/gpt-oss-20b",
+        name: "GPT OSS 20B",
+        reasoning: true,
+        limit: { context: 131_072, output: 65_536 },
+      },
+      "qwen/qwen3-32b": {
+        id: "qwen/qwen3-32b",
+        name: "Qwen3 32B",
+        reasoning: true,
+        limit: { context: 131_072, output: 40_960 },
+      },
+      "groq/compound-mini": {
+        id: "groq/compound-mini",
+        name: "Compound Mini",
+        reasoning: true,
+        limit: { context: 131_072, output: 8_192 },
+      },
+    },
+  },
+  xai: {
+    id: "xai",
+    name: "xAI",
+    models: {
+      "grok-4.3": {
+        id: "grok-4.3",
+        name: "Grok 4.3",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 30_000 },
+      },
+      "grok-4-1-fast": {
+        id: "grok-4-1-fast",
+        name: "Grok 4.1 Fast",
+        reasoning: true,
+        limit: { context: 2_000_000, output: 30_000 },
+      },
+      "grok-4-fast": {
+        id: "grok-4-fast",
+        name: "Grok 4 Fast",
+        reasoning: true,
+        limit: { context: 2_000_000, output: 30_000 },
+      },
+      "grok-code-fast-1": {
+        id: "grok-code-fast-1",
+        name: "Grok Code Fast 1",
+        reasoning: true,
+        limit: { context: 256_000, output: 10_000 },
+      },
+    },
+  },
   workers_ai: {
     id: "workers_ai",
     name: "Cloudflare Workers AI",
@@ -257,6 +618,72 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         name: "DeepSeek V4 Flash",
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
+      },
+    },
+  },
+  zenmux: {
+    id: "zenmux",
+    name: "ZenMux",
+    models: {
+      "openai/gpt-5.5": {
+        id: "openai/gpt-5.5",
+        name: "OpenAI GPT-5.5",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "openai/gpt-5.4": {
+        id: "openai/gpt-5.4",
+        name: "OpenAI GPT-5.4",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "anthropic/claude-sonnet-4.5": {
+        id: "anthropic/claude-sonnet-4.5",
+        name: "Claude Sonnet 4.5",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 64_000 },
+      },
+      "google/gemini-2.5-pro": {
+        id: "google/gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+        reasoning: true,
+        limit: { context: 1_048_000, output: 64_000 },
+      },
+      "deepseek/deepseek-v4-pro": {
+        id: "deepseek/deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "moonshotai/kimi-k2.6": {
+        id: "moonshotai/kimi-k2.6",
+        name: "Kimi K2.6",
+        reasoning: true,
+        limit: { context: 262_140, output: 262_140 },
+      },
+      "qwen/qwen3.6-plus": {
+        id: "qwen/qwen3.6-plus",
+        name: "Qwen3.6 Plus",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 64_000 },
+      },
+      "x-ai/grok-4.1-fast": {
+        id: "x-ai/grok-4.1-fast",
+        name: "Grok 4.1 Fast",
+        reasoning: true,
+        limit: { context: 2_000_000, output: 64_000 },
+      },
+      "z-ai/glm-5.1": {
+        id: "z-ai/glm-5.1",
+        name: "GLM-5.1",
+        reasoning: true,
+        limit: { context: 200_000, output: 131_072 },
+      },
+      "volcengine/doubao-seed-code": {
+        id: "volcengine/doubao-seed-code",
+        name: "Doubao Seed Code",
+        reasoning: true,
+        limit: { context: 256_000, output: 64_000 },
       },
     },
   },
@@ -448,8 +875,14 @@ function modelCatalogProviderId(provider: string): string {
   if (provider === "codex") {
     return "openai";
   }
+  if (provider === "github_copilot") {
+    return "github-copilot";
+  }
   if (provider === "chump_cloud") {
     return "deepseek";
+  }
+  if (provider === "opencode_go") {
+    return "opencode-go";
   }
   if (provider === "workers_ai") {
     return "cloudflare-workers-ai";
@@ -519,6 +952,41 @@ function modelRank(provider: string, model: string): number {
       "deepseek-v4-pro",
       "deepseek-v4-flash",
     ],
+    opencode: [
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.1-codex-mini",
+      "claude-sonnet-4-5",
+      "gemini-3.1-pro",
+      "glm-5.1",
+      "kimi-k2.6",
+      "qwen3.6-plus",
+      "minimax-m2.7",
+      "deepseek-v4-flash-free",
+    ],
+    opencode_go: [
+      "kimi-k2.6",
+      "deepseek-v4-flash",
+      "qwen3.6-plus",
+      "glm-5.1",
+      "minimax-m2.7",
+      "mimo-v2.5-pro",
+      "deepseek-v4-pro",
+      "kimi-k2.5",
+      "qwen3.5-plus",
+      "glm-5",
+      "minimax-m2.5",
+      "mimo-v2.5",
+    ],
+    openrouter: [
+      "anthropic/claude-sonnet-4.5",
+      "openai/gpt-5.5",
+      "openai/gpt-5.4",
+      "google/gemini-2.5-pro",
+      "deepseek/deepseek-v4-pro",
+      "moonshotai/kimi-k2.6",
+      "qwen/qwen3.6-plus",
+    ],
     codex: [
       "gpt-5.5",
       "gpt-5.4",
@@ -531,6 +999,15 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.1-codex-mini",
       "gpt-5-codex",
     ],
+    github_copilot: [
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.2",
+      "gpt-5.2-codex",
+      "gpt-5.1-codex",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex-mini",
+    ],
     google: [
       "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
@@ -540,6 +1017,18 @@ function modelRank(provider: string, model: string): number {
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
     ],
+    groq: [
+      "openai/gpt-oss-120b",
+      "qwen/qwen3-32b",
+      "groq/compound-mini",
+      "openai/gpt-oss-20b",
+    ],
+    xai: [
+      "grok-code-fast-1",
+      "grok-4.3",
+      "grok-4-1-fast",
+      "grok-4-fast",
+    ],
     workers_ai: [
       "@cf/moonshotai/kimi-k2.6",
       "@cf/moonshotai/kimi-k2.5",
@@ -547,6 +1036,18 @@ function modelRank(provider: string, model: string): number {
       "@cf/nvidia/nemotron-3-120b-a12b",
     ],
     deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
+    zenmux: [
+      "anthropic/claude-sonnet-4.5",
+      "openai/gpt-5.5",
+      "openai/gpt-5.4",
+      "google/gemini-2.5-pro",
+      "deepseek/deepseek-v4-pro",
+      "moonshotai/kimi-k2.6",
+      "qwen/qwen3.6-plus",
+      "x-ai/grok-4.1-fast",
+      "z-ai/glm-5.1",
+      "volcengine/doubao-seed-code",
+    ],
   };
   const index = priorities[provider]?.indexOf(model) ?? -1;
   return index === -1 ? 1000 : index;
