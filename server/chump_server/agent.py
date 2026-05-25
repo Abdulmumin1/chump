@@ -431,7 +431,11 @@ class ChumpAgent(Agent[dict[str, Any]]):
         keep_start = choose_compaction_start(
             self._messages,
             self._config.compaction_keep_recent_tokens,
-            force=reason == "manual",
+            # Auto compaction is triggered from provider-reported context usage
+            # (the same source shown in the CLI ctx badge). Local text estimates
+            # can undercount tool/image/provider framing, so still compact a
+            # minimal old slice when provider usage crosses the threshold.
+            force=reason in {"auto", "manual"},
         )
         if keep_start <= 1:
             return {

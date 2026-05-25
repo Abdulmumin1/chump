@@ -5,7 +5,10 @@ import { renderError } from "./render.ts";
 import { TranscriptRenderer, transcriptEventFromSse } from "./transcript.ts";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
 
-const EVENT_ERROR_LOG_INTERVAL_MS = 30000;
+// The event stream is expected to fail while the machine is asleep or offline.
+// Keep retrying, but avoid filling the terminal with identical transient errors
+// during long sleep/network outage windows.
+const EVENT_ERROR_LOG_INTERVAL_MS = 10 * 60 * 1000;
 
 let toolActivityHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;

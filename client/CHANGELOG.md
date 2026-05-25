@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.31
+
+### Patch Changes
+
+- Reduce repeated event-stream retry logging during transient outages and start installed servers with `chump-server@latest`.
+
 ## 0.0.30
 
 ### Patch Changes

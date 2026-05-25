@@ -18,7 +18,7 @@ chump connect
 chump
 ```
 
-The installed binary starts the Python backend with `uvx --from chump-server
+The installed binary starts the Python backend with `uvx --from chump-server@latest
 chump-server`, so `uv` must be available on your `PATH`.
 
 For repository development, from the `client/` directory:

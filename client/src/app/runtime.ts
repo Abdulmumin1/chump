@@ -507,7 +507,7 @@ function resolveServerCommand(): ServerCommand {
   } else {
     command = {
       file: "uvx",
-      args: ["--from", "chump-server", "chump-server"],
+      args: ["--from", "chump-server@latest", "chump-server"],
       source: "installed",
     };
   }

@@ -22,7 +22,7 @@ chump-server
 or:
 
 ```bash
-uvx --from chump-server chump-server
+uvx --from chump-server@latest chump-server
 ```
 
 During repository development, `uv` still uses the local editable `../ai-query`

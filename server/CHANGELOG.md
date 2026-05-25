@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.30
+
+- Trigger auto compaction from provider-reported context usage even when local text estimates undercount the session.
+- Document the installed server command with `chump-server@latest`.
+
 ## 0.0.29
 
 - Add provider normalization, defaults, and runtime adapters for GitHub Copilot, OpenRouter, Groq, xAI, OpenCode, and ZenMux.

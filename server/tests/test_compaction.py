@@ -96,3 +96,16 @@ def test_compaction_boundary_keeps_tool_call_with_multiple_results():
     ]
 
     assert choose_compaction_start(messages, keep_recent_tokens=2, force=True) == 1
+
+
+def test_forced_compaction_keeps_recent_messages_when_local_estimate_is_low():
+    messages = [
+        Message(role="user", content="one"),
+        Message(role="assistant", content="two"),
+        Message(role="user", content="three"),
+        Message(role="assistant", content="four"),
+        Message(role="user", content="five"),
+    ]
+
+    assert choose_compaction_start(messages, keep_recent_tokens=200_000) == 1
+    assert choose_compaction_start(messages, keep_recent_tokens=200_000, force=True) == 3
