@@ -292,6 +292,9 @@
         message: string,
         type: "default" | "success" | "error" = "default",
     ) {
+        if (toasts.some((t) => t.message === message)) {
+            return;
+        }
         toastId += 1;
         const id = toastId;
         toasts = [...toasts, { id, message, type }];
@@ -413,6 +416,7 @@
             return;
         }
 
+        connectionError = "";
         composerText = "";
         composerAttachments = [];
         if (isSending) {
@@ -459,6 +463,8 @@
             return;
         }
 
+        connectionError = "";
+
         try {
             await cancelSteering(serverUrl, activeSessionId, index);
         } catch (error) {
@@ -480,6 +486,8 @@
         if (!serverUrl || !activeSessionId) {
             return;
         }
+
+        connectionError = "";
 
         try {
             activeRequestController?.abort();
@@ -723,6 +731,29 @@
             onOpenConnectModal={openConnectModal}
         />
 
+        {#if connectionError && !connectModalOpen}
+            <div class="max-w-4xl mx-auto w-full px-4 md:px-8 mb-4">
+                <div class="bg-bg-toast-err border border-error/30 text-error rounded-[9px] px-3.5 py-2.5 text-[13px] flex items-start gap-2.5 animate-toast-in">
+                    <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div class="flex-1 leading-normal">
+                        <span class="font-bold">Error:</span> {toErrorMessage(connectionError)}
+                    </div>
+                    <button
+                        type="button"
+                        class="text-error opacity-60 hover:opacity-100 transition-opacity shrink-0 cursor-pointer"
+                        onclick={() => { connectionError = ""; }}
+                        aria-label="Dismiss error"
+                    >
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        {/if}
+
         {#if health}
             <ChatComposer
                 bind:composerText
@@ -802,5 +833,19 @@
         background: var(--scroll-thumb-hover);
         border: 2px solid transparent;
         background-clip: padding-box;
+    }
+
+    @keyframes toast-in {
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    .animate-toast-in {
+        animation: toast-in 0.2s ease-out forwards;
     }
 </style>

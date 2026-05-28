@@ -50,7 +50,93 @@ export function stringifyValue(value: unknown): string {
 }
 
 export function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    const extracted = errorMessageValue(error);
+    if (extracted) {
+        return extracted;
+    }
+
+    let message = error instanceof Error ? error.message : stringifyValue(error);
+    message = message.trim();
+
+    if (message.startsWith("{") && message.endsWith("}")) {
+        try {
+            const parsed = JSON.parse(message) as unknown;
+            if (parsed && typeof parsed === "object") {
+                // Handle { error: { message: "..." } }
+                if ("error" in parsed && parsed.error && typeof parsed.error === "object") {
+                    const subError = parsed.error as Record<string, unknown>;
+                    if ("message" in subError && typeof subError.message === "string") {
+                        return subError.message;
+                    }
+                    if ("error" in subError && typeof subError.error === "string") {
+                        return subError.error;
+                    }
+                }
+                // Handle { error: "..." }
+                if ("error" in parsed && typeof parsed.error === "string") {
+                    return parsed.error;
+                }
+                // Handle { message: "..." }
+                if ("message" in parsed && typeof parsed.message === "string") {
+                    return parsed.message;
+                }
+            }
+        } catch {
+            // Ignore JSON parse errors and return original message
+        }
+    }
+
+    return message;
+}
+
+function errorMessageValue(value: unknown): string | null {
+    if (value instanceof Error) {
+        return value.message.trim() || value.name;
+    }
+    if (typeof value === "string") {
+        return errorMessageFromString(value);
+    }
+    if (!value || typeof value !== "object") {
+        return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    for (const key of ["message", "error", "detail", "details"]) {
+        if (!(key in record)) {
+            continue;
+        }
+        const nested = errorMessageValue(record[key]);
+        if (nested) {
+            return nested;
+        }
+    }
+
+    if (Array.isArray(record.errors)) {
+        const messages = record.errors
+            .map((item) => errorMessageValue(item))
+            .filter((item): item is string => Boolean(item));
+        if (messages.length > 0) {
+            return messages.join("; ");
+        }
+    }
+
+    return stringifyValue(value).trim() || null;
+}
+
+function errorMessageFromString(value: string): string | null {
+    const message = value.trim();
+    if (!message) {
+        return null;
+    }
+    if (!message.startsWith("{") || !message.endsWith("}")) {
+        return message;
+    }
+    try {
+        const parsed = JSON.parse(message) as unknown;
+        return errorMessageValue(parsed) ?? message;
+    } catch {
+        return message;
+    }
 }
 
 export function formatDate(value: number | null): string {

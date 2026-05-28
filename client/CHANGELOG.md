@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.32
+
+### Patch Changes
+
+- Only log event stream connection and reconnect errors when CHUMP_DEBUG_EVENTS is enabled to keep terminal output clean.
+
 ## 0.0.31
 
 ### Patch Changes

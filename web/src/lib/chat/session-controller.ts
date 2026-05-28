@@ -344,7 +344,7 @@ export function createSessionController(
                     if (!isCurrentStream(sessionId, currentStreamToken)) {
                         return;
                     }
-                    state.connectionError = error.message;
+                    console.debug("event stream reconnecting", toErrorMessage(error));
                 },
             },
             { lastEventId: state.lastEventId },
@@ -368,6 +368,13 @@ export function createSessionController(
         }
 
         const payload = parseJson(event.data);
+
+        if (event.event === "error") {
+            state.connectionError = toErrorMessage(
+                payload ?? (event.data || "An event stream error occurred"),
+            );
+            return;
+        }
 
         if (event.event === "assistant_text" || event.event === "reasoning") {
             state.messages = applyLiveEventToMessages(

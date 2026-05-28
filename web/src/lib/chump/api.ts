@@ -134,8 +134,10 @@ export async function streamChat(
 
 	let finalText = '';
 	let streamError: string | null = null;
+	let receivedEndEvent = false;
 	await consumeSse(response, (event) => {
 		if (event.event === 'end') {
+			receivedEndEvent = true;
 			finalText = safeParseString(event.data);
 		}
 		if (event.event === 'error') {
@@ -145,6 +147,10 @@ export async function streamChat(
 
 	if (streamError) {
 		throw new Error(streamError);
+	}
+
+	if (!receivedEndEvent && (!signal || !signal.aborted)) {
+		throw new Error('Connection closed abruptly during streaming');
 	}
 
 	return finalText;
@@ -252,7 +258,7 @@ export function openEventStream(
 				}
 				// Aborted = deliberate (close, idle watchdog, visibility, online); fall through to reconnect.
 				if (!controller.signal.aborted) {
-					handlers.onError?.(error instanceof Error ? error : new Error(String(error)));
+					handlers.onError?.(error instanceof Error ? error : new Error(errorMessage(error)));
 				}
 			} finally {
 				clearIdleTimer();
@@ -358,9 +364,9 @@ async function invokeAction<T>(
 		throw new Error(await readErrorResponse(response));
 	}
 
-	const data = (await response.json()) as { result?: T; error?: string };
+	const data = (await response.json()) as { result?: T; error?: unknown };
 	if (!response.ok || data.error) {
-		throw new Error(data.error ?? `action failed with ${response.status}`);
+		throw new Error(data.error ? errorMessage(data.error) : `action failed with ${response.status}`);
 	}
 
 	if (data.result === undefined) {
@@ -392,7 +398,7 @@ function buildAgentUrl(serverUrl: string, agentId: string): string {
 async function readErrorResponse(response: Response): Promise<string> {
 	const body = (await response.text()).trim();
 	if (body) {
-		return body;
+		return errorMessageFromString(body);
 	}
 	return `request failed with ${response.status}`;
 }
@@ -440,25 +446,70 @@ function safeParseString(value: string): string {
 function safeParseError(value: string): string {
 	try {
 		const parsed = JSON.parse(value) as unknown;
-		if (typeof parsed === 'string') {
-			return parsed;
-		}
-		if (isErrorPayload(parsed)) {
-			return parsed.error;
-		}
+		return errorMessage(parsed);
 	} catch {
 		// Fall through to raw SSE data.
 	}
 	return value;
 }
 
-function isErrorPayload(value: unknown): value is { error: string } {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		'error' in value &&
-		typeof value.error === 'string'
-	);
+function errorMessage(value: unknown): string {
+	const extracted = errorMessageValue(value);
+	if (extracted) {
+		return extracted;
+	}
+	try {
+		return JSON.stringify(value);
+	} catch {
+		return String(value);
+	}
+}
+
+function errorMessageValue(value: unknown): string | null {
+	if (value instanceof Error) {
+		return value.message.trim() || value.name;
+	}
+	if (typeof value === 'string') {
+		return errorMessageFromString(value);
+	}
+	if (!value || typeof value !== 'object') {
+		return null;
+	}
+
+	const record = value as Record<string, unknown>;
+	for (const key of ['message', 'error', 'detail', 'details']) {
+		if (!(key in record)) {
+			continue;
+		}
+		const nested = errorMessageValue(record[key]);
+		if (nested) {
+			return nested;
+		}
+	}
+
+	if (Array.isArray(record.errors)) {
+		const messages = record.errors
+			.map((item) => errorMessageValue(item))
+			.filter((item): item is string => Boolean(item));
+		if (messages.length > 0) {
+			return messages.join('; ');
+		}
+	}
+
+	return null;
+}
+
+function errorMessageFromString(value: string): string {
+	const message = value.trim();
+	if (!message.startsWith('{') || !message.endsWith('}')) {
+		return message;
+	}
+	try {
+		const parsed = JSON.parse(message) as unknown;
+		return errorMessageValue(parsed) ?? message;
+	} catch {
+		return message;
+	}
 }
 
 function sanitizeSegment(value: string): string {
