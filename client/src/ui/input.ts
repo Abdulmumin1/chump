@@ -699,9 +699,9 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     // When a turn is already running, keep the prompt frame alive while the
     // steering request is in flight because read() will not be re-armed
-    // immediately. For normal submissions, clear the stale draft right away
-    // and skip the next eager read() paint so the handoff to server-owned
-    // transcript/status updates does not briefly redraw an empty prompt.
+    // immediately. For normal submissions, skip the next eager read() paint
+    // so the subsequent transcript/output flush can clear + redraw atomically
+    // instead of producing a clear → repaint → clear sequence on Enter.
     showIdlePromptFrame = abortHandler !== null;
     skipNextReadPaint =
       !showIdlePromptFrame &&
@@ -712,8 +712,6 @@ function createInteractivePromptReader(): {
       if (frame) {
         output.write(synchronizedFrame(frame));
       }
-    } else if (skipNextReadPaint) {
-      clear();
     }
 
     resolve(submission);
