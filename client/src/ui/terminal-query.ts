@@ -1,5 +1,6 @@
 const OSC11_PREFIX = "\x1b]11;";
 const OSC_ST = "\x1b\\";
+const OSC11_RGB_FRAGMENT = /(?:\x1b\]11;)?rgb:[0-9a-fA-F]+\/[0-9a-fA-F]+\/[0-9a-fA-F]+(?:\x07|\x1b\\)?/g;
 
 let pendingUntil = 0;
 let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -34,15 +35,15 @@ export function stripPendingOsc11Response(chunk: string): string {
   if (!capturing) {
     const start = chunk.indexOf(OSC11_PREFIX);
     if (start === -1) {
-      return chunk;
+      return stripOsc11RgbFragments(chunk);
     }
     capturing = true;
     const before = chunk.slice(0, start);
     const remainder = consumeOsc11Capture(chunk.slice(start));
-    return before + remainder;
+    return stripOsc11RgbFragments(before + remainder);
   }
 
-  return consumeOsc11Capture(chunk);
+  return stripOsc11RgbFragments(consumeOsc11Capture(chunk));
 }
 
 export function clearOsc11ResponseFilter(): void {
@@ -53,6 +54,13 @@ export function clearOsc11ResponseFilter(): void {
     clearTimeout(timeoutHandle);
     timeoutHandle = null;
   }
+}
+
+function stripOsc11RgbFragments(chunk: string): string {
+  if (!chunk || Date.now() > pendingUntil) {
+    return chunk;
+  }
+  return chunk.replace(OSC11_RGB_FRAGMENT, "");
 }
 
 function consumeOsc11Capture(chunk: string): string {

@@ -1,6 +1,6 @@
 {
   "name": "chump-agent",
-  "version": "0.0.32",
+  "version": "0.0.33",
   "private": false,
   "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",
@@ -18,13 +18,14 @@
     "chump": "./dist/chump.js"
   },
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
+    "sync-version": "node scripts/sync-version.mjs",
+    "build": "pnpm run sync-version && tsc --project tsconfig.build.json",
     "dev": "node src/chump.ts",
     "start": "node src/chump.ts",
     "smoke": "node src/smoke.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm run sync-version && tsc --noEmit",
     "check": "pnpm run typecheck && pnpm run build",
-    "build:bin": "bun scripts/build-bin.ts",
+    "build:bin": "pnpm run sync-version && bun scripts/build-bin.ts",
     "prepack": "pnpm run build",
     "bin:install": "pnpm link --global",
     "bin:uninstall": "pnpm unlink --global chump-agent"

@@ -14,7 +14,6 @@ export type TranscriptRendererHooks = {
   onToolActivity?: (() => void) | null;
   onReasoningActivity?: ((payload: Record<string, unknown>) => void) | null;
   onSteeringAccepted?: ((content: string) => void) | null;
-  onUserMessage?: ((payload: Record<string, unknown>) => boolean) | null;
   onAssistantText?: ((content: string) => boolean) | null;
   onAgentStatus?: ((payload: Record<string, unknown>) => void) | null;
   onSteeringQueue?: ((payload: Record<string, unknown>) => void) | null;
@@ -125,9 +124,6 @@ export class TranscriptRenderer {
       if (content.trim()) {
         this.hooks.onSteeringAccepted?.(content);
       }
-    }
-    if (this.hooks.onUserMessage?.(payload)) {
-      return;
     }
     const content = userMessageDisplayFromPayload(payload);
     if (content.trim()) {

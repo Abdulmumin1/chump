@@ -36,6 +36,12 @@ export function parseCliArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (value === "-v" || value === "--version" || value === "version") {
+      mode = "version";
+      autoStartServer = false;
+      continue;
+    }
+
     if (value === "-c" || value === "--connect") {
       const nextValue = argv[index + 1];
       if (!nextValue) {
@@ -57,7 +63,14 @@ export function parseCliArgs(argv: string[]): CliOptions {
       continue;
     }
 
-    if (value === "client" || value === "server" || value === "status" || value === "stop" || value === "connect") {
+    if (
+      value === "client" ||
+      value === "server" ||
+      value === "status" ||
+      value === "stop" ||
+      value === "connect" ||
+      value === "update"
+    ) {
       mode = value;
       if (value !== "server") {
         autoStartServer = false;
@@ -85,8 +98,10 @@ export function printCliUsage(): void {
   console.log("chump client [-c <server-url>] [-s <session-id>]");
   console.log("chump server");
   console.log("chump connect");
+  console.log("chump update");
   console.log("chump status [-c <server-url>] [-s <session-id>]");
   console.log("chump stop");
+  console.log("chump --version");
 }
 
 export async function ensureServerTarget(

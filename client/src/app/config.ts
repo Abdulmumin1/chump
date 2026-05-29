@@ -187,17 +187,32 @@ export function loadConfig(
   };
 }
 
-export function renderBanner(config: ChumpConfig): string {
+export function renderBanner(
+  config: ChumpConfig,
+  options: { workspaceRoot?: string | null } = {},
+): string {
   const sourceLabel = config.serverSource === "managed" ? "managed" : "direct";
+  const workspaceRoot = options.workspaceRoot ?? config.workspaceRoot;
   return [
     "chump",
     `session: ${config.agentId}`,
     `server: ${config.serverUrl} (${sourceLabel})`,
-    `workspace: ${config.workspaceRoot.replace(os.homedir(), "~")}`,
+    `workspace: ${formatWorkspacePath(workspaceRoot)}`,
     "",
     "Live chat, tool activity, sessions, share, and clear commands are enabled.",
     "Type /help for commands, /new for a fresh session, or /quit to exit.",
   ].join("\n");
+}
+
+function formatWorkspacePath(workspaceRoot: string): string {
+  const home = os.homedir();
+  if (workspaceRoot === home) {
+    return "~";
+  }
+  if (workspaceRoot.startsWith(`${home}${path.sep}`)) {
+    return `~${workspaceRoot.slice(home.length)}`;
+  }
+  return workspaceRoot;
 }
 
 export function createSessionId(workspaceRoot: string): string {

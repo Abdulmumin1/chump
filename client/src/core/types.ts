@@ -5,7 +5,16 @@ export type ChumpConfig = {
   workspaceRoot: string;
 };
 
-export type CliMode = "interactive" | "client" | "server" | "status" | "stop" | "connect" | "help";
+export type CliMode =
+  | "interactive"
+  | "client"
+  | "server"
+  | "status"
+  | "stop"
+  | "connect"
+  | "update"
+  | "version"
+  | "help";
 
 export type CliOptions = {
   mode: CliMode;

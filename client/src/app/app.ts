@@ -46,7 +46,6 @@ import {
   setSteeringQueueHook,
   setToolActivityHook,
   setTurnStatusHook,
-  setUserMessageHook,
   startEventStream,
 } from "../ui/events.ts";
 import { createPromptReader } from "../ui/input.ts";
@@ -64,7 +63,7 @@ import {
   renderWorkedFor,
 } from "../ui/render.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
-import { TranscriptRenderer, userMessageDisplayFromPayload } from "../ui/transcript.ts";
+import { TranscriptRenderer } from "../ui/transcript.ts";
 import {
   ensureServerTarget,
   parseCliArgs,
@@ -73,6 +72,11 @@ import {
   startServerCommand,
   stopManagedServer,
 } from "./runtime.ts";
+import {
+  currentClientVersion,
+  maybeRenderUpdateNotice,
+  runUpdateCommand,
+} from "./update.ts";
 import { createSpinner } from "../ui/spinner.ts";
 import type {
   ChumpConfig,
@@ -89,6 +93,16 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   if (options.mode === "help") {
     printCliUsage();
+    return;
+  }
+
+  if (options.mode === "version") {
+    console.log(currentClientVersion());
+    return;
+  }
+
+  if (options.mode === "update") {
+    await runUpdateCommand();
     return;
   }
 
@@ -151,7 +165,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   promptReader.setQueuedLinePopHandler(() => {
     lineQueue.popLast();
   });
-  setUserMessageHook((payload) => liveSync.suppressUserMessage(payload));
   setAgentStatusHook((payload) => {
     const status = payload as {
       provider: string;
@@ -188,7 +201,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   });
   const sharedTurnSync = createSharedTurnSync({
     config: () => config,
-    liveSync,
     promptReader,
     withManagedServerRecovery: <T>(
       task: () => Promise<T>,
@@ -278,7 +290,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   if (target.note) {
     console.log(`[server] ${target.note}`);
   }
-  console.log(renderBanner(config));
+  console.log(renderBanner(config, { workspaceRoot: health.workspace_root }));
+  const updateNotice = await maybeRenderUpdateNotice();
+  if (updateNotice) {
+    console.log(renderMuted(updateNotice));
+  }
   renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
   if (options.sessionId) {
@@ -341,7 +357,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       if (!line.trim() && nextLine.attachments.length === 0) {
         continue;
       }
-      writeOutput(`${renderUserMessage(formatSubmissionForDisplay(nextLine))}\n`);
+      if (parseSlashCommand(line)) {
+        writeOutput(`${renderUserMessage(line)}\n`);
+      }
 
       const commandResult = await handleSlashCommand(line, {
         config,
@@ -446,7 +464,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader.close();
     closeEventStream?.();
     await shareManager.dispose();
-    setUserMessageHook(null);
     setAssistantTextHook(null);
     setAgentStatusHook(null);
     setCompactionStatusHook(null);
@@ -605,7 +622,6 @@ async function runChatTurn(
   requeueSteeredSubmission: (submission: PromptSubmission) => void,
 ): Promise<void> {
   const streamAbortController = new AbortController();
-  liveSync.noteLocalChat(formatSubmissionForDisplay(submission));
   liveSync.beginLocalTurn();
   let aborting = false;
   const activityStatus = createActivityStatusController(setStatus);
@@ -641,7 +657,6 @@ async function runChatTurn(
     if (result.status !== "steered") {
       return false;
     }
-    liveSync.noteLocalSteer(formatSubmissionForDisplay(nextSubmission));
     pendingSteeringSubmissions.push(nextSubmission);
     return true;
   });
@@ -794,36 +809,8 @@ function collectErrorMessages(error: unknown): string[] {
   return messages;
 }
 
-function formatSubmissionForDisplay(submission: PromptSubmission): string {
-  let text = submission.text;
-  for (const attachment of submission.attachments) {
-    if (attachment.type === "text") {
-      text = text.replace(attachment.text, attachment.label);
-    }
-  }
-  const images = submission.attachments
-    .filter((attachment) => attachment.type === "image")
-    .map((attachment) => attachment.label)
-    .filter((label) => !text.includes(label))
-    .join(" ");
-  if (!images) {
-    return text;
-  }
-  return `${text.trimEnd()} ${images}`.trim();
-}
-
 class LiveSyncTracker {
-  private readonly localChats: string[] = [];
-  private readonly localSteers: string[] = [];
   private localTurnCount = 0;
-
-  noteLocalChat(content: string): void {
-    this.push(this.localChats, content);
-  }
-
-  noteLocalSteer(content: string): void {
-    this.push(this.localSteers, content);
-  }
 
   beginLocalTurn(): void {
     this.localTurnCount += 1;
@@ -837,48 +824,13 @@ class LiveSyncTracker {
     return this.localTurnCount > 0;
   }
 
-  suppressUserMessage(payload: Record<string, unknown>): boolean {
-    const content = userMessageDisplayFromPayload(payload).trim();
-    if (!content) {
-      return true;
-    }
-
-    if (payload.steered === true) {
-      this.consume(this.localSteers, content);
-      return false;
-    }
-
-    return this.consume(this.localChats, content);
-  }
-
   suppressAssistantText(): boolean {
     return this.localTurnCount > 0;
-  }
-
-  private push(queue: string[], content: string): void {
-    const normalized = content.trim();
-    if (!normalized) {
-      return;
-    }
-    queue.push(normalized);
-    if (queue.length > 16) {
-      queue.splice(0, queue.length - 16);
-    }
-  }
-
-  private consume(queue: string[], content: string): boolean {
-    const index = queue.findIndex((item) => item === content);
-    if (index === -1) {
-      return false;
-    }
-    queue.splice(index, 1);
-    return true;
   }
 }
 
 function createSharedTurnSync(options: {
   config: () => ChumpConfig;
-  liveSync: LiveSyncTracker;
   promptReader: ReturnType<typeof createPromptReader>;
   withManagedServerRecovery: <T>(
     task: () => Promise<T>,
@@ -913,7 +865,6 @@ function createSharedTurnSync(options: {
     if (result.status !== "steered") {
       return false;
     }
-    options.liveSync.noteLocalSteer(formatSubmissionForDisplay(submission));
     return true;
   };
 
@@ -1263,8 +1214,9 @@ async function handleSlashCommand(
       if (mode === "new") {
         config = switchAgent(config, createSessionId(config.workspaceRoot));
         closeEventStream = await context.restartEventStream(config);
+        const currentStatus = await getStatus(config);
         clearTerminal();
-        writeOutput(`${renderBanner(config)}\n`);
+        writeOutput(`${renderBanner(config, { workspaceRoot: currentStatus.workspace_root })}\n`);
         await renderSwitchedSession(
           config,
           context.shareManager,

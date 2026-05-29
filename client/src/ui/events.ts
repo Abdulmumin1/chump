@@ -11,7 +11,6 @@ const DEBUG_EVENT_STREAM =
 let toolActivityHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringAcceptedHook: ((content: string) => void) | null = null;
-let userMessageHook: ((payload: Record<string, unknown>) => boolean) | null = null;
 let assistantTextHook: ((content: string) => boolean) | null = null;
 let agentStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringQueueHook: ((payload: Record<string, unknown>) => void) | null = null;
@@ -22,7 +21,6 @@ const transcriptRenderer = new TranscriptRenderer({
     onToolActivity: () => toolActivityHook?.(),
     onReasoningActivity: (payload) => reasoningActivityHook?.(payload),
     onSteeringAccepted: (content) => steeringAcceptedHook?.(content),
-    onUserMessage: (payload) => userMessageHook?.(payload) ?? false,
     onAssistantText: (content) => assistantTextHook?.(content) ?? false,
     onAgentStatus: (payload) => agentStatusHook?.(payload),
     onSteeringQueue: (payload) => steeringQueueHook?.(payload),
@@ -43,12 +41,6 @@ export function setReasoningActivityHook(
 
 export function setSteeringAcceptedHook(hook: ((content: string) => void) | null): void {
   steeringAcceptedHook = hook;
-}
-
-export function setUserMessageHook(
-  hook: ((payload: Record<string, unknown>) => boolean) | null,
-): void {
-  userMessageHook = hook;
 }
 
 export function setAssistantTextHook(

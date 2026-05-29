@@ -56,7 +56,9 @@ chump -c <url>                 # Connect to existing server
 chump server                   # Run backend in foreground
 chump status                   # Show server health
 chump stop                     # Stop managed server
+chump update                   # Update an installed CLI/binary
 chump share                    # Share session via tunnel
+chump --version                # Print CLI version
 ```
 
 Resume or switch sessions:

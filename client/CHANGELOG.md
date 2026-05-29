@@ -1,5 +1,12 @@
 # chump-agent
 
+## 0.0.33
+
+### Patch Changes
+
+- Add cached update checks, `chump --version`, and `chump update` for installed CLI and standalone binary users.
+- Let CLI transcript user-message rendering come from the server SSE stream instead of an immediate local echo, so chat submissions render from a single source of truth.
+
 ## 0.0.32
 
 ### Patch Changes

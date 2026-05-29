@@ -1066,14 +1066,14 @@ function isLightTerminal(): boolean {
   }
 
   // OSC 11 query: ask the terminal for its background color synchronously.
-  // We also arm a temporary stdin-side filter for the response in case some
-  // terminals leak the OSC bytes back through the normal input stream.
+  // Some terminals split the answer between /dev/tty and stdin, so stdin-side
+  // filtering also strips bare rgb:R/G/B response fragments while armed.
   if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
 
   try {
     const wasRaw = process.stdin.isRaw;
     process.stdin.setRawMode(true);
-    armOsc11ResponseFilter(300);
+    armOsc11ResponseFilter(1_000);
     process.stdout.write("\x1b]11;?\x1b\\");
 
     const ttyFd = fs.openSync(
@@ -1116,7 +1116,7 @@ function isLightTerminal(): boolean {
       return luminance > 0.5;
     }
   } catch {
-    // If anything fails, fall back to dark
+    // If anything fails, fall back to dark.
   }
 
   return false;

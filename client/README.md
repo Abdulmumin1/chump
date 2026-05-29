@@ -37,6 +37,18 @@ That makes the local `chump` binary available on your machine through
 pnpm run bin:uninstall
 ```
 
+## Updates
+
+Interactive launches check for a newer `chump-agent` release at most once per
+day and print a short notice when one is available. Disable this with
+`CHUMP_NO_UPDATE_CHECK=1`.
+
+Update an installed CLI or prebuilt binary:
+
+```bash
+chump update
+```
+
 ## Development
 
 From the `client/` directory:
