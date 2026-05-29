@@ -48,7 +48,7 @@ Pushing a `chump-server-v*` tag runs the PyPI job and creates a GitHub Release i
 - `CHUMP_PROVIDER`: default `chump_cloud`; also supports `codex`, `github_copilot`, `openai`, `google`, `anthropic`, `workers_ai`, `deepseek`, `openrouter`, `groq`, `xai`, `opencode`, `opencode_go`, and `zenmux`
 - `CHUMP_MODEL`: provider-specific default
 - `CHUMP_CLOUD_BASE_URL`: optional OpenAI-compatible base URL for the `chump_cloud` provider
-- `CHUMP_MAX_STEPS`: default `64`
+- `CHUMP_MAX_STEPS`: default `250`
 - `CHUMP_RETRY_MAX_ATTEMPTS`: provider-call retry attempts; default `3`, set `1` to disable
 - `CHUMP_RETRY_INITIAL_DELAY`: initial retry delay in seconds; default `0.5`
 - `CHUMP_RETRY_MAX_DELAY`: max retry delay in seconds; default `8`

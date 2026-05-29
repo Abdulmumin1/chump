@@ -12,6 +12,7 @@ from typing import Any
 
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 DEFAULT_PROVIDER = "chump_cloud"
+DEFAULT_MAX_STEPS = 250
 DEFAULT_COMPACTION_TOKENS = 200_000
 DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000
 DEFAULT_CHUMP_CLOUD_BASE_URL = "https://chump-cloud.yaqeen.me/v1"
@@ -242,7 +243,7 @@ def load_config() -> ChumpConfig:
         or repo_config.get("max_steps")
         or global_config.get("max_steps")
     )
-    max_steps = int(max_steps_raw) if max_steps_raw is not None else 64
+    max_steps = int(max_steps_raw) if max_steps_raw is not None else DEFAULT_MAX_STEPS
 
     retry_max_attempts_raw = (
         os.environ.get("CHUMP_RETRY_MAX_ATTEMPTS")

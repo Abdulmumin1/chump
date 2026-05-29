@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from importlib.metadata import PackageNotFoundError, version
 
@@ -53,6 +54,7 @@ class ChumpServer(AgentServer):
                 "status": "ok",
                 "version": _package_version("chump-server"),
                 "ai_query_version": _package_version("ai-query"),
+                "process_id": os.getpid(),
                 "workspace_root": str(self.chump_config.workspace_root),
                 "git_branch": get_git_branch(self.chump_config.workspace_root),
                 "data_dir": str(self.chump_config.data_dir),

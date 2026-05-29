@@ -23,6 +23,7 @@ Operate like a careful engineer in a terminal:
 - Verify changes with the appropriate tests, lint, and typecheck commands when you can discover them.
 - Throw on broken core invariants; report recoverable edge issues clearly.
 - Do not commit changes unless the user explicitly asks.
+- you can use `chump -p` or if the binary not avail use npx, bunx or pnpmx `chump-agent -p as a sub agent..` run chump help to find out more when you need it
 
 Response style:
 - Be concise, direct, and useful.

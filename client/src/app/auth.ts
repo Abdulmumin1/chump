@@ -9,7 +9,7 @@ import { connectCodexBrowser, connectCodexHeadless } from "./codex-auth.ts";
 import { connectGitHubCopilot } from "./github-copilot-auth.ts";
 import { connectXaiBrowser, connectXaiHeadless } from "./xai-auth.ts";
 
-const PROVIDERS = {
+export const PROVIDERS = {
   codex: {
     label: "Codex",
     defaultModel: "gpt-5.4",

@@ -1,5 +1,15 @@
 # chump-agent
 
+## 0.0.34
+
+### Patch Changes
+
+- Add `chump -p` one-shot prompt mode with optional `--verbose` diagnostics, model selection, and thinking controls.
+  Add `chump providers` for inspecting connected provider credentials.
+  Improve `chump stop` so managed and orphaned local servers are stopped reliably.
+  Match the CLI default max steps to the server default so managed servers can be reused across quick restarts.
+  Refresh install script output and options.
+
 ## 0.0.33
 
 ### Patch Changes

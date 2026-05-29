@@ -7,11 +7,13 @@ export type ChumpConfig = {
 
 export type CliMode =
   | "interactive"
+  | "print"
   | "client"
   | "server"
   | "status"
   | "stop"
   | "connect"
+  | "providers"
   | "update"
   | "version"
   | "help";
@@ -21,12 +23,17 @@ export type CliOptions = {
   connectUrl: string | null;
   sessionId: string | null;
   autoStartServer: boolean;
+  printPrompt: string | null;
+  verbose: boolean;
+  model: string | null;
+  thinking: string | null;
 };
 
 export type ManagedServerMetadata = {
   url: string;
   port: number;
   pid: number | null;
+  process_group_id?: number | null;
   command: string;
   command_args: string[];
   command_source: "local" | "installed";
@@ -64,6 +71,7 @@ export type ChumpHealth = {
   status: string;
   version: string;
   ai_query_version: string;
+  process_id?: number;
   workspace_root: string;
   data_dir: string;
   provider: string;

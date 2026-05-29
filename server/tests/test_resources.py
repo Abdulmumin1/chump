@@ -96,6 +96,53 @@ class ResourceCatalogTests(unittest.TestCase):
             self.assertIn("singular-global-skill", names)
             self.assertIn("singular-skill", names)
 
+    def test_seeds_default_skill_creator_into_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "workspace"
+            agent_dir = root / "agent-home"
+            workspace.mkdir()
+            agent_dir.mkdir()
+
+            with patch.dict(os.environ, {"CHUMP_AGENT_DIR": str(agent_dir)}):
+                catalog = ResourceCatalog(workspace)
+
+            names = catalog.skill_names()
+            self.assertIn("skill-creator", names)
+            skill = catalog.get_skill("skill-creator")
+            self.assertIsNotNone(skill)
+            self.assertIn(".chump/skills/<skill-name>/SKILL.md", skill.content)
+            self.assertTrue(
+                (workspace / ".chump" / "skills" / "skill-creator" / "SKILL.md").exists()
+            )
+
+    def test_existing_workspace_skill_creator_is_not_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "workspace"
+            agent_dir = root / "agent-home"
+            workspace.mkdir()
+            agent_dir.mkdir()
+
+            override_dir = workspace / ".chump" / "skills" / "skill-creator"
+            override_dir.mkdir(parents=True)
+            (override_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: skill-creator\n"
+                "description: Project override.\n"
+                "---\n\n"
+                "# Project Skill Creator\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"CHUMP_AGENT_DIR": str(agent_dir)}):
+                catalog = ResourceCatalog(workspace)
+
+            skill = catalog.get_skill("skill-creator")
+            self.assertIsNotNone(skill)
+            self.assertEqual(skill.description, "Project override.")
+            self.assertEqual(skill.base_dir, override_dir.resolve())
+
     def test_instruction_files_for_path_finds_nearest_nested_instruction(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

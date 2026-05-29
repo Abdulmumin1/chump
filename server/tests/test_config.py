@@ -3,6 +3,7 @@ import os
 import pytest
 
 from chump_server.config import (
+    DEFAULT_MAX_STEPS,
     DEFAULT_PROVIDER,
     apply_auth_environment,
     load_config,
@@ -14,6 +15,10 @@ from chump_server.config import (
 
 def test_default_provider_is_chump_cloud():
     assert DEFAULT_PROVIDER == "chump_cloud"
+
+
+def test_default_max_steps_is_250():
+    assert DEFAULT_MAX_STEPS == 250
 
 
 def test_normalize_model_name_accepts_provider_model_pair():
@@ -87,6 +92,17 @@ def test_load_config_reads_retry_policy(monkeypatch, tmp_path):
     assert config.retry_max_delay == 4
     assert config.retry_backoff == 1.5
     assert config.retry_jitter is False
+
+
+def test_load_config_uses_default_max_steps(monkeypatch, tmp_path):
+    auth_file = tmp_path / "missing-auth.json"
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("CHUMP_MAX_STEPS", raising=False)
+
+    config = load_config()
+
+    assert config.max_steps == DEFAULT_MAX_STEPS
 
 
 def test_load_config_reads_compaction_env(monkeypatch, tmp_path):

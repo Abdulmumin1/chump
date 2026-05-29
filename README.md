@@ -51,10 +51,14 @@ chump
 
 ```bash
 chump                          # Start interactive CLI
+chump -p "prompt"              # Run one prompt without the TUI
+chump -p --verbose "prompt"    # Run one prompt with tool activity on stderr
+chump -p --model "openai/gpt-5.4" --thinking low "prompt"  # Run with custom model & thinking
 chump client                   # CLI only, no auto-start server
 chump -c <url>                 # Connect to existing server
 chump server                   # Run backend in foreground
 chump status                   # Show server health
+chump providers                # List connected providers and active selection
 chump stop                     # Stop managed server
 chump update                   # Update an installed CLI/binary
 chump share                    # Share session via tunnel

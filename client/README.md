@@ -16,10 +16,18 @@ From npm:
 npm install -g chump-agent
 chump connect
 chump
+chump -p "summarize this repo"
 ```
 
 The installed binary starts the Python backend with `uvx --from chump-server@latest
 chump-server`, so `uv` must be available on your `PATH`.
+
+Use `chump -p "prompt"` for one-shot, non-interactive prompts. Piped stdin is
+merged into the prompt, and stdout is reserved for the assistant response. Add
+`--verbose` to print client-side diagnostics and tool activity to stderr.
+
+You can also specify a model using `--model <provider>/<model>` (e.g., `--model openai/gpt-5.4`)
+and configure thinking limits using `--thinking <none|low|high|xhigh>`.
 
 For repository development, from the `client/` directory:
 

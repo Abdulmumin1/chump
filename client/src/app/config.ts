@@ -95,7 +95,7 @@ export function getResolvedConfig(workspaceRoot: string): ResolvedConfig {
     process.env.CHUMP_MAX_STEPS ??
     localConfig.max_steps ??
     globalConfig.max_steps;
-  const max_steps = maxStepsRaw !== undefined ? Number(maxStepsRaw) : 64;
+  const max_steps = maxStepsRaw !== undefined ? Number(maxStepsRaw) : 250;
 
   const commandTimeoutRaw =
     process.env.CHUMP_COMMAND_TIMEOUT ??

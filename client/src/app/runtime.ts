@@ -27,12 +27,54 @@ export function parseCliArgs(argv: string[]): CliOptions {
   let connectUrl: string | null = null;
   let sessionId: string | null = null;
   let autoStartServer = process.env.CHUMP_SERVER_URL ? false : true;
+  let verbose = false;
+  let model: string | null = null;
+  let thinking: string | null = null;
+  const positional: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
 
+    if (value === "--") {
+      positional.push(...argv.slice(index + 1));
+      break;
+    }
+
     if (value === "-h" || value === "--help") {
       mode = "help";
+      continue;
+    }
+
+    if (value === "-p" || value === "--print") {
+      mode = "print";
+      continue;
+    }
+
+    if (value === "--verbose") {
+      verbose = true;
+      continue;
+    }
+
+    if (value === "--model" || value === "-m") {
+      const nextValue = argv[index + 1];
+      if (!nextValue) {
+        throw new Error("missing model name after -m/--model");
+      }
+      model = nextValue;
+      index += 1;
+      continue;
+    }
+
+    if (value === "--thinking" || value === "-t") {
+      const nextValue = argv[index + 1];
+      if (!nextValue) {
+        throw new Error("missing thinking mode after -t/--thinking");
+      }
+      if (nextValue !== "none" && nextValue !== "low" && nextValue !== "high" && nextValue !== "xhigh") {
+        throw new Error("thinking mode must be one of: none, low, high, xhigh");
+      }
+      thinking = nextValue;
+      index += 1;
       continue;
     }
 
@@ -64,12 +106,16 @@ export function parseCliArgs(argv: string[]): CliOptions {
     }
 
     if (
-      value === "client" ||
-      value === "server" ||
-      value === "status" ||
-      value === "stop" ||
-      value === "connect" ||
-      value === "update"
+      mode !== "print" &&
+      (
+        value === "client" ||
+        value === "server" ||
+        value === "status" ||
+        value === "stop" ||
+        value === "connect" ||
+        value === "providers" ||
+        value === "update"
+      )
     ) {
       mode = value;
       if (value !== "server") {
@@ -78,26 +124,54 @@ export function parseCliArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (!value.startsWith("-")) {
+      positional.push(value);
+      continue;
+    }
+
     throw new Error(`unknown argument: ${value}`);
+  }
+
+  if (mode !== "print" && positional.length > 0) {
+    throw new Error(`unknown argument: ${positional[0]}`);
+  }
+
+  if (mode !== "print" && mode !== "help" && verbose) {
+    throw new Error("--verbose is only supported with -p/--print");
+  }
+
+  if (mode !== "print" && mode !== "help" && (model || thinking)) {
+    throw new Error("--model and --thinking are only supported with -p/--print");
   }
 
   if (connectUrl) {
     autoStartServer = false;
   }
 
-  if (mode === "client" || mode === "status" || mode === "stop" || mode === "connect") {
+  if (mode === "client" || mode === "status" || mode === "stop" || mode === "connect" || mode === "providers") {
     autoStartServer = false;
   }
 
-  return { mode, connectUrl, sessionId, autoStartServer };
+  return {
+    mode,
+    connectUrl,
+    sessionId,
+    autoStartServer,
+    printPrompt: positional.length > 0 ? positional.join(" ") : null,
+    verbose,
+    model,
+    thinking,
+  };
 }
 
 export function printCliUsage(): void {
   console.log("chump [-s <session-id>]");
+  console.log("chump -p [--verbose] [--model <provider>/<model>] [--thinking <none|low|high|xhigh>] <prompt>");
   console.log("chump -c <server-url> [-s <session-id>]");
   console.log("chump client [-c <server-url>] [-s <session-id>]");
   console.log("chump server");
   console.log("chump connect");
+  console.log("chump providers");
   console.log("chump update");
   console.log("chump status [-c <server-url>] [-s <session-id>]");
   console.log("chump stop");
@@ -216,33 +290,97 @@ export async function startServerCommand(workspaceRoot: string): Promise<{
 export async function stopManagedServer(workspaceRoot: string): Promise<string> {
   const metadata = await readManagedServerMetadata(workspaceRoot);
   if (!metadata) {
-    return "no managed server metadata found";
+    const localServer = await findLocalServerWithoutMetadata(workspaceRoot);
+    if (!localServer) {
+      return "no managed server metadata found";
+    }
+    await stopServerTargets(localServer.url, [{ pid: localServer.pid }]);
+    return `stopped ${localServer.url}`;
   }
 
-  if (metadata.pid) {
-    try {
-      process.kill(metadata.pid, "SIGTERM");
-    } catch (error) {
-      if (!isMissingProcessError(error)) {
-        throw error;
-      }
-    }
-  }
+  const health = await readServerHealth(metadata.url);
+  const targets = stopTargetsForMetadata(metadata, health);
+  await signalStopTargets(targets, "SIGTERM");
 
   const stopped = await waitForServerExit(metadata.url, 5_000);
-  if (!stopped && metadata.pid) {
-    try {
-      process.kill(metadata.pid, "SIGKILL");
-    } catch (error) {
-      if (!isMissingProcessError(error)) {
-        throw error;
-      }
-    }
+  if (!stopped) {
+    await signalStopTargets(targets, "SIGKILL");
     await waitForServerExit(metadata.url, 2_000);
   }
 
   await clearManagedServerMetadata(workspaceRoot);
   return `stopped ${metadata.url}`;
+}
+
+type StopTarget = {
+  pid: number;
+  processGroup?: boolean;
+};
+
+function stopTargetsForMetadata(
+  metadata: ManagedServerMetadata,
+  health: Record<string, unknown> | null,
+): StopTarget[] {
+  const targets: StopTarget[] = [];
+
+  if (metadata.process_group_id) {
+    targets.push({ pid: metadata.process_group_id, processGroup: true });
+  }
+  if (metadata.pid) {
+    targets.push({ pid: metadata.pid });
+  }
+
+  const serverPid = processIdFromHealth(health);
+  if (serverPid) {
+    targets.push({ pid: serverPid });
+  }
+
+  return uniqueStopTargets(targets);
+}
+
+function uniqueStopTargets(targets: StopTarget[]): StopTarget[] {
+  const seen = new Set<string>();
+  return targets.filter((target) => {
+    const key = `${target.processGroup ? "group" : "pid"}:${target.pid}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+async function stopServerTargets(url: string, targets: StopTarget[]): Promise<void> {
+  await signalStopTargets(targets, "SIGTERM");
+  const stopped = await waitForServerExit(url, 5_000);
+  if (!stopped) {
+    await signalStopTargets(targets, "SIGKILL");
+    await waitForServerExit(url, 2_000);
+  }
+}
+
+async function signalStopTargets(
+  targets: StopTarget[],
+  signal: NodeJS.Signals,
+): Promise<void> {
+  for (const target of targets) {
+    signalStopTarget(target, signal);
+  }
+}
+
+function signalStopTarget(target: StopTarget, signal: NodeJS.Signals): void {
+  if (target.processGroup && process.platform === "win32") {
+    return;
+  }
+
+  const pid = target.processGroup ? -target.pid : target.pid;
+  try {
+    process.kill(pid, signal);
+  } catch (error) {
+    if (!isMissingProcessError(error)) {
+      throw error;
+    }
+  }
 }
 
 async function ensureManagedServer(workspaceRoot: string): Promise<{
@@ -309,6 +447,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
       url: buildServerUrl(port),
       port,
       pid: child.pid ?? null,
+      process_group_id: null,
       command: command.file,
       command_args: command.args,
       command_source: command.source,
@@ -384,6 +523,7 @@ async function spawnManagedServer(
       url: buildServerUrl(port),
       port,
       pid: child.pid ?? null,
+      process_group_id: process.platform !== "win32" ? child.pid ?? null : null,
       command: command.file,
       command_args: command.args,
       command_source: command.source,
@@ -674,6 +814,71 @@ async function readServerHealth(url: string): Promise<Record<string, unknown> | 
   } catch {
     return null;
   }
+}
+
+async function findLocalServerWithoutMetadata(
+  workspaceRoot: string,
+): Promise<{ url: string; pid: number } | null> {
+  for (const url of localStopCandidateUrls(workspaceRoot)) {
+    const health = await readServerHealth(url);
+    if (!health || !serverHealthMatchesWorkspace(health, workspaceRoot)) {
+      continue;
+    }
+    const pid = processIdFromHealth(health);
+    if (pid) {
+      return { url, pid };
+    }
+  }
+  return null;
+}
+
+function localStopCandidateUrls(workspaceRoot: string): string[] {
+  const resolved = getResolvedConfig(workspaceRoot);
+  const urls = [
+    process.env.CHUMP_SERVER_URL,
+    resolved.serverUrl,
+    buildServerUrl(resolved.port ?? 8080),
+  ].filter((url): url is string => typeof url === "string" && url.length > 0);
+
+  return [...new Set(urls.map(normalizeServerBaseUrl).filter(isLocalServerUrl))];
+}
+
+function normalizeServerBaseUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.pathname = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return url;
+  }
+}
+
+function isLocalServerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function serverHealthMatchesWorkspace(
+  health: Record<string, unknown>,
+  workspaceRoot: string,
+): boolean {
+  return typeof health.workspace_root === "string" &&
+    path.resolve(health.workspace_root) === path.resolve(workspaceRoot);
+}
+
+function processIdFromHealth(health: Record<string, unknown> | null): number | null {
+  const pid = Number(health?.process_id);
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+    return null;
+  }
+  return pid;
 }
 
 async function managedServerMatchesEnvironment(url: string, workspaceRoot: string): Promise<boolean> {

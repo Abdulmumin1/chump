@@ -5,6 +5,7 @@ import {
   abortCurrentTurn,
   cancelLastSteering,
   clearMessages,
+  getEventLog,
   compactMessages,
   getHealth,
   getMessages,
@@ -16,12 +17,13 @@ import {
   steerCurrentTurn,
   streamChat,
 } from "../api/http.ts";
+import { openEventStream } from "../api/sse.ts";
 import {
   parseSlashCommand,
   printHelp,
   switchAgent,
 } from "./commands.ts";
-import { connectProvider, readGlobalAuth, updateGlobalAuth } from "./auth.ts";
+import { connectProvider, readGlobalAuth, updateGlobalAuth, PROVIDERS } from "./auth.ts";
 import { logClientEvent } from "./diagnostics.ts";
 import {
   getModelContextLabel,
@@ -35,6 +37,7 @@ import {
   loadConfig,
   renderBanner,
   resolveWorkspaceRoot,
+  getResolvedConfig,
 } from "./config.ts";
 import {
   consumeToolActivity,
@@ -55,6 +58,7 @@ import {
   renderSessions,
 } from "../ui/output.ts";
 import {
+  createMarkdownStream,
   renderAccent,
   renderError,
   renderFooterStatus,
@@ -63,6 +67,7 @@ import {
   renderWorkedFor,
 } from "../ui/render.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
+import { ToolActivityRenderer } from "../ui/tool-activity.ts";
 import { TranscriptRenderer } from "../ui/transcript.ts";
 import {
   ensureServerTarget,
@@ -80,12 +85,68 @@ import {
 import { createSpinner } from "../ui/spinner.ts";
 import type {
   ChumpConfig,
+  CliOptions,
   ManagedServerMetadata,
   PromptSubmission,
   ShareStatus,
   ChumpStatus,
+  StoredEvent,
+  SseEvent,
   UsageSummary,
 } from "../core/types.ts";
+
+async function runProvidersCommand(): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+  const resolved = getResolvedConfig(workspaceRoot);
+  const auth = await readGlobalAuth();
+  const credentials = auth.credentials ?? {};
+
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  const green = (s: string) => useColor ? `\x1b[32m${s}\x1b[0m` : s;
+  const yellow = (s: string) => useColor ? `\x1b[33m${s}\x1b[0m` : s;
+  const bold = (s: string) => useColor ? `\x1b[1m${s}\x1b[0m` : s;
+  const dim = (s: string) => useColor ? `\x1b[2m${s}\x1b[0m` : s;
+
+  console.log(bold("\nConnected Providers:\n"));
+
+  for (const [id, def] of Object.entries(PROVIDERS)) {
+    let status = "disconnected";
+    let source = "";
+
+    if (id === "chump_cloud") {
+      status = "connected";
+      source = "default cloud (no credentials required)";
+    } else {
+      const hasAuthCreds = credentials[id] && Object.keys(credentials[id]).length > 0;
+      if (hasAuthCreds) {
+        status = "connected";
+        source = "saved credentials";
+      }
+
+      const requiredFields = def.fields.filter((f) => !("optional" in f && f.optional === true));
+      if (requiredFields.length > 0) {
+        const hasEnvCreds = requiredFields.every((f) => process.env[f.key]);
+        if (hasEnvCreds) {
+          status = "connected";
+          source = source ? `${source} & environment variables` : "environment variables";
+        }
+      }
+    }
+
+    const isActive = id === resolved.provider;
+    const prefix = isActive ? "● " : "  ";
+    const statusLabel = status === "connected" ? green("connected") : dim("not connected");
+    const sourceLabel = source ? ` (${dim(`via ${source}`)})` : "";
+    const activeLabel = isActive ? ` ${yellow("(active)")}` : "";
+
+    console.log(`${prefix}${bold(def.label)} (${id})`);
+    console.log(`  Status: ${statusLabel}${sourceLabel}${activeLabel}`);
+    if (def.defaultModel) {
+      console.log(`  Default Model: ${dim(def.defaultModel)}`);
+    }
+    console.log("");
+  }
+}
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const options = parseCliArgs(argv);
@@ -116,11 +177,21 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
+  if (options.mode === "providers") {
+    await runProvidersCommand();
+    return;
+  }
+
   if (options.mode === "server") {
     const result = await startServerCommand(workspaceRoot);
     if (!result.started) {
       console.log(`server already running at ${result.metadata.url}`);
     }
+    return;
+  }
+
+  if (options.mode === "print") {
+    await runPrintPrompt(workspaceRoot, options);
     return;
   }
 
@@ -491,6 +562,256 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     parts.push(`force stop: chump stop`);
     writeOutput(`${renderMuted(parts.join(" · "))}\n`);
   }
+}
+
+async function runPrintPrompt(
+  workspaceRoot: string,
+  options: CliOptions,
+): Promise<void> {
+  const pipedInput = await readPipedStdin();
+  const message = buildPrintPrompt(pipedInput, options.printPrompt);
+  if (!message.trim()) {
+    throw new Error("missing prompt for -p/--print");
+  }
+
+  const target = await ensureServerTarget(workspaceRoot, options);
+  const config = loadConfig({
+    agentId: options.sessionId ?? undefined,
+    serverUrl: target.serverUrl,
+    serverSource: target.serverSource,
+  });
+
+  const startedAt = Date.now();
+  if (options.verbose) {
+    writeVerbosePrintLine(`server: ${config.serverUrl} (${config.serverSource})`);
+    writeVerbosePrintLine(`session: ${config.agentId}`);
+    if (target.note) {
+      writeVerbosePrintLine(target.note);
+    }
+    writeVerbosePrintLine(`prompt: ${message.length} chars`);
+  }
+
+  const hasEnvModel = process.env.CHUMP_MODEL || process.env.CHUMP_PROVIDER;
+  const modelSelector = options.model || (hasEnvModel ? null : "chump_cloud/deepseek-v4-flash");
+
+  if (modelSelector) {
+    const [provider, modelName] = parseModelSelector(modelSelector);
+    if (!provider || !modelName) {
+      throw new Error("model must be in '<provider>/<model>' format (e.g., 'anthropic/claude-3-5-sonnet')");
+    }
+    if (options.verbose) {
+      writeVerbosePrintLine(`setting model to ${provider}/${modelName}...`);
+    }
+    await setModel(config, provider, modelName);
+  }
+
+  if (options.thinking) {
+    if (options.verbose) {
+      writeVerbosePrintLine(`setting thinking to ${options.thinking}...`);
+    }
+    await setReasoning(config, options.thinking);
+  }
+
+  let receivedChunk = false;
+  let receivedEnd = false;
+  let streamError: string | null = null;
+  let lastOutputChar = "";
+  const verboseEvents = options.verbose ? await createPrintVerboseEventLogger(config) : null;
+  const responseRenderer = createPrintResponseRenderer();
+
+  try {
+    await streamChat(config, message, [], {
+      onChunk: (chunk) => {
+        receivedChunk = true;
+        if (chunk) {
+          responseRenderer.write(chunk);
+          lastOutputChar = chunk.at(-1) ?? lastOutputChar;
+        }
+      },
+      onEnd: (finalText) => {
+        receivedEnd = true;
+        if (!receivedChunk && finalText) {
+          responseRenderer.write(finalText);
+          lastOutputChar = finalText.at(-1) ?? lastOutputChar;
+        }
+      },
+      onError: (messageText) => {
+        receivedEnd = true;
+        streamError = messageText;
+      },
+    });
+  } catch (error) {
+    if (!receivedEnd) {
+      await abortCurrentTurn(config).catch(() => {});
+    }
+    throw error;
+  } finally {
+    responseRenderer.end();
+    await verboseEvents?.replayMissed();
+    verboseEvents?.close();
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
+  if (!receivedEnd) {
+    await abortCurrentTurn(config).catch(() => {});
+    throw new Error("chat stream ended before the server sent an end event");
+  }
+  if (!responseRenderer.handlesTrailingNewline && lastOutputChar && lastOutputChar !== "\n") {
+    process.stdout.write("\n");
+  }
+
+  if (options.verbose) {
+    writeVerbosePrintLine(`done: ${Date.now() - startedAt}ms`);
+  }
+}
+
+async function readPipedStdin(): Promise<string | null> {
+  if (input.isTTY) {
+    return null;
+  }
+
+  let content = "";
+  input.setEncoding("utf8");
+  for await (const chunk of input) {
+    content += String(chunk);
+  }
+  return content;
+}
+
+function buildPrintPrompt(pipedInput: string | null, prompt: string | null): string {
+  const parts: string[] = [];
+  const normalizedInput = pipedInput?.trimEnd() ?? "";
+  const normalizedPrompt = prompt?.trim() ?? "";
+  if (normalizedInput) {
+    parts.push(normalizedInput);
+  }
+  if (normalizedPrompt) {
+    parts.push(normalizedPrompt);
+  }
+  return parts.join("\n\n");
+}
+
+function writeVerbosePrintLine(message: string): void {
+  process.stderr.write(`[chump] ${message}\n`);
+}
+
+function createPrintResponseRenderer(): {
+  write: (chunk: string) => void;
+  end: () => void;
+  handlesTrailingNewline: boolean;
+} {
+  if (!process.stdout.isTTY || process.env.NO_COLOR) {
+    return {
+      write(chunk: string) {
+        process.stdout.write(chunk);
+      },
+      end() {},
+      handlesTrailingNewline: false,
+    };
+  }
+
+  const stream = createMarkdownStream((value) => process.stdout.write(value));
+  return {
+    write(chunk: string) {
+      stream.write(chunk);
+    },
+    end() {
+      stream.end();
+    },
+    handlesTrailingNewline: true,
+  };
+}
+
+async function createPrintVerboseEventLogger(config: ChumpConfig): Promise<{
+  close: () => void;
+  replayMissed: () => Promise<void>;
+}> {
+  const renderer = new ToolActivityRenderer((value = "") => {
+    process.stderr.write(`${value}\n`);
+  });
+  const renderedEventIds = new Set<number>();
+  const eventLog = await getEventLog(config).catch(() => ({ events: [] }));
+  const baselineEventId = Math.max(0, ...eventLog.events.map((event) => event.id));
+
+  const renderEvent = (event: StoredEvent): void => {
+    if (event.id <= baselineEventId || renderedEventIds.has(event.id)) {
+      return;
+    }
+    if (renderVerboseToolEvent(event.type, event.data, renderer)) {
+      renderedEventIds.add(event.id);
+    }
+  };
+
+  const close = await openEventStream(
+    config,
+    {
+      onEvent: (event) => {
+        const parsed = storedEventFromSse(event);
+        if (parsed) {
+          renderEvent(parsed);
+        }
+      },
+      onError: (error) => {
+        writeVerbosePrintLine(`events: ${error.message}`);
+      },
+    },
+    {
+      reconnectDelayMs: 250,
+      maxReconnectDelayMs: 2_000,
+    },
+  );
+
+  return {
+    close,
+    replayMissed: async () => {
+      const latest = await getEventLog(config).catch(() => ({ events: [] }));
+      for (const event of latest.events) {
+        renderEvent(event);
+      }
+    },
+  };
+}
+
+function storedEventFromSse(event: SseEvent): StoredEvent | null {
+  const id = Number(event.id);
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+  const data = parseSseData(event.data);
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return null;
+  }
+  return {
+    id,
+    type: event.event,
+    data: data as Record<string, unknown>,
+  };
+}
+
+function parseSseData(data: string): unknown {
+  try {
+    return JSON.parse(data) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function renderVerboseToolEvent(
+  type: string,
+  payload: Record<string, unknown>,
+  renderer: ToolActivityRenderer,
+): boolean {
+  if (type === "tool_call") {
+    renderer.renderToolCall(payload);
+    return true;
+  }
+  if (type === "tool_result") {
+    renderer.renderToolResult(payload);
+    return true;
+  }
+  return false;
 }
 
 function renderLoadedResources(

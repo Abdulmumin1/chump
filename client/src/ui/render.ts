@@ -249,6 +249,18 @@ function foreground(value: string): string {
 export function createMarkdownStream(): {
   write: (chunk: string) => void;
   end: () => void;
+}
+export function createMarkdownStream(
+  write: (value: string) => void,
+): {
+  write: (chunk: string) => void;
+  end: () => void;
+}
+export function createMarkdownStream(
+  write: (value: string) => void = writeOutput,
+): {
+  write: (chunk: string) => void;
+  end: () => void;
 } {
   let buffer = "";
   const state = createMarkdownRenderState();
@@ -278,12 +290,12 @@ export function createMarkdownStream(): {
       }
 
       if (output) {
-        writeOutput(output);
+        write(output);
       }
     },
     end() {
       if (buffer.length > 0) {
-        writeOutput(renderStreamLine(buffer, true));
+        write(renderStreamLine(buffer, true));
         buffer = "";
       }
     },

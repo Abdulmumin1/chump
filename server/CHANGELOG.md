@@ -1,5 +1,12 @@
 # chump-server
 
+## 0.0.31
+
+- Raise the default max steps to 250 and expose it through shared configuration docs.
+- Report the backend process id in `/health` so clients can stop managed and orphaned local servers reliably.
+- Seed a built-in `skill-creator` workspace skill when no project override exists.
+- Document one-shot prompt mode and provider inspection commands.
+
 ## 0.0.30
 
 - Trigger auto compaction from provider-reported context usage even when local text estimates undercount the session.

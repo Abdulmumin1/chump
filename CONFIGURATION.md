@@ -47,7 +47,7 @@ The following fields can be configured in either your local `.chump/config.json`
 | `model` | `string` | `CHUMP_MODEL` | *Depends on provider* | The model name to use under the chosen provider (e.g., `claude-sonnet-4-20250514`, `deepseek-v4-flash`, etc.). |
 | `host` | `string` | `CHUMP_HOST` | `127.0.0.1` | Host address for the backend server. |
 | `port` | `integer` | `CHUMP_PORT` | `8080` | Port for the backend server. |
-| `max_steps` | `integer` | `CHUMP_MAX_STEPS` | `64` | Maximum agent tool-use execution loop steps. |
+| `max_steps` | `integer` | `CHUMP_MAX_STEPS` | `250` | Maximum agent tool-use execution loop steps. |
 | `command_timeout` | `integer` | `CHUMP_COMMAND_TIMEOUT` | `120` | Timeout in seconds for running local bash commands. |
 | `managed_idle_timeout` | `integer` | `CHUMP_MANAGED_SERVER_IDLE_TIMEOUT` | `30` | Idle timeout in seconds before the managed background server automatically shuts down when not in use. |
 | `verbose` | `boolean` | `CHUMP_VERBOSE` | `true` | Enables verbose console logs for the backend server. |
@@ -83,7 +83,7 @@ Here is a fully loaded example of `config.json` configuring Chump to use Anthrop
   "model": "claude-sonnet-4-20250514",
   "port": 9000,
   "theme": "dark",
-  "max_steps": 100,
+  "max_steps": 250,
   "command_timeout": 300,
   "managed_idle_timeout": 60,
   "verbose": false,
