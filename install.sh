@@ -216,22 +216,28 @@ check_rosetta() {
 }
 
 release_tag_from_api() {
-    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' \
+    curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=30" \
+        | sed -n 's/.*"tag_name": *"\(chump-agent@[^"]*\)".*/\1/p' \
         | head -n 1
 }
 
 release_tag_from_redirect() {
-    curl -fsSI "https://github.com/${REPO}/releases/latest" \
+    local location
+    location=$(curl -fsSI "https://github.com/${REPO}/releases/latest" 2>/dev/null \
         | grep -i "^location:" \
         | sed -n 's/.*tag\/\([^[:space:]]*\).*/\1/p' \
         | tr -d '\r' \
-        | head -n 1
+        | head -n 1)
+    if [[ -n "$location" && "$location" == chump-agent@* ]]; then
+        echo "$location"
+        return 0
+    fi
+    return 1
 }
 
 latest_release_tag() {
     local tag
-    tag=$(release_tag_from_api || true)
+    tag=$(release_tag_from_api 2>/dev/null || true)
     if [[ -n "$tag" ]]; then
         echo "$tag"
         return 0

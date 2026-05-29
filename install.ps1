@@ -25,29 +25,35 @@ Write-Muted "Detected: windows-${arch}"
 # Get Latest Version
 Write-Muted "Fetching latest version..."
 try {
-    # Use Invoke-WebRequest with Head method to follow redirects and get the final URL
-    $response = Invoke-WebRequest -Uri "https://github.com/$REPO/releases/latest" -Method Head -MaximumRedirection 0 -ErrorAction SilentlyContinue
+    $response = Invoke-WebRequest -Uri "https://github.com/$REPO/releases/latest" -Method Head -MaximumRedirection 0 -ErrorAction Stop
     if ($response.StatusCode -eq 302) {
         $latestUrl = $response.Headers["Location"]
+        $candidateTag = $latestUrl | Split-Path -Leaf
+        if ($candidateTag -match "^chump-agent@") {
+            $latestTag = $candidateTag
+        }
     } else {
-         # Fallback or error
-         throw "Could not determine latest release"
+        throw "Could not determine latest release"
     }
 } catch {
-    # Try alternate method via API if the head request fails (e.g. rate limits or network issues)
+    # Ignore; will fall through to API below
+}
+
+if (-not $latestTag) {
     try {
-       $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases/latest"
-       $latestTag = $latestRelease.tag_name
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$REPO/releases?per_page=30"
+        foreach ($release in $releases) {
+            if ($release.tag_name -match "^chump-agent@") {
+                $latestTag = $release.tag_name
+                break
+            }
+        }
     } catch {
        Write-Red "Failed to fetch latest version."
        exit 1
     }
-}
-
-if (-not $latestTag) {
-    if ($latestUrl) {
-        $latestTag = $latestUrl | Split-Path -Leaf
-    } else {
+    
+    if (-not $latestTag) {
         Write-Red "Could not determine latest tag."
         exit 1
     }
