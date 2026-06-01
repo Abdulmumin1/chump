@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
@@ -8,6 +9,7 @@ import { CHUMP_CLIENT_VERSION } from "./generated-version.ts";
 
 const PACKAGE_NAME = "chump-agent";
 const NPM_LATEST_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
+const GITHUB_RELEASES_API = "https://api.github.com/repos/Abdulmumin1/chump/releases?per_page=30";
 const GITHUB_RELEASE_BASE = "https://github.com/Abdulmumin1/chump/releases/download";
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 2_500;
@@ -16,15 +18,23 @@ type LatestPackage = {
   version?: unknown;
 };
 
+type GitHubRelease = {
+  tag_name?: unknown;
+};
+
 type UpdateCache = {
   checkedAt: number;
   latestVersion: string;
+  latestServerVersion?: string;
 };
 
 export type UpdateInfo = {
   currentVersion: string;
   latestVersion: string;
   updateAvailable: boolean;
+  currentServerVersion?: string | null;
+  latestServerVersion?: string | null;
+  serverUpdateAvailable?: boolean;
 };
 
 export function currentClientVersion(): string {
@@ -37,14 +47,21 @@ export async function checkForUpdate(options: { force?: boolean } = {}): Promise
   }
 
   const currentVersion = currentClientVersion();
-  const latestVersion =
+  const cached =
     !options.force
-      ? await readCachedLatestVersion()
+      ? await readUpdateCache()
       : null;
 
-  const resolvedLatest = latestVersion ?? await fetchLatestVersion();
+  const [resolvedLatest, latestServerVersion, currentServerVersion] = await Promise.all([
+    cached?.latestVersion ?? fetchLatestVersion(),
+    cached?.latestServerVersion ?? fetchLatestServerVersion(),
+    isStandaloneBinary() ? readBundledServerVersion() : Promise.resolve(null),
+  ]);
   if (resolvedLatest) {
-    await writeUpdateCache(resolvedLatest).catch(() => {});
+    await writeUpdateCache({
+      latestVersion: resolvedLatest,
+      latestServerVersion: latestServerVersion ?? undefined,
+    }).catch(() => {});
   }
 
   if (!resolvedLatest) {
@@ -55,6 +72,11 @@ export async function checkForUpdate(options: { force?: boolean } = {}): Promise
     currentVersion,
     latestVersion: resolvedLatest,
     updateAvailable: compareVersions(resolvedLatest, currentVersion) > 0,
+    currentServerVersion,
+    latestServerVersion,
+    serverUpdateAvailable: currentServerVersion !== null &&
+      latestServerVersion !== null &&
+      compareVersions(latestServerVersion, currentServerVersion) > 0,
   };
 }
 
@@ -72,13 +94,17 @@ export async function runUpdateCommand(): Promise<void> {
     throw new Error("could not check for updates");
   }
 
-  if (!info.updateAvailable && process.env.CHUMP_UPDATE_FORCE !== "1") {
-    console.log(`chump is up to date (${info.currentVersion})`);
+  const force = process.env.CHUMP_UPDATE_FORCE === "1";
+  if (!info.updateAvailable && !info.serverUpdateAvailable && !force) {
+    const serverSuffix = info.currentServerVersion
+      ? `, server ${info.currentServerVersion}`
+      : "";
+    console.log(`chump is up to date (${info.currentVersion}${serverSuffix})`);
     return;
   }
 
   if (isStandaloneBinary()) {
-    await updateStandaloneBinary(info.latestVersion);
+    await updateStandaloneBinary(info);
     return;
   }
 
@@ -111,7 +137,35 @@ async function fetchLatestVersion(): Promise<string | null> {
   }
 }
 
-async function updateStandaloneBinary(version: string): Promise<void> {
+async function fetchLatestServerVersion(): Promise<string | null> {
+  const tag = await fetchLatestServerTag();
+  return tag?.replace(/^chump-server-v/, "") ?? null;
+}
+
+async function fetchLatestServerTag(): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(GITHUB_RELEASES_API, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const releases = await response.json() as GitHubRelease[];
+    const tag = releases
+      .map((release) => release.tag_name)
+      .find((value): value is string => typeof value === "string" && value.startsWith("chump-server-v"));
+    return tag ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function updateStandaloneBinary(info: UpdateInfo): Promise<void> {
   const suffix = releasePlatformSuffix();
   if (!suffix) {
     throw new Error(`no standalone package asset is available for ${process.platform}/${process.arch}`);
@@ -123,18 +177,49 @@ async function updateStandaloneBinary(version: string): Promise<void> {
     return;
   }
 
-  const tag = `chump-agent@${version}`;
-  const assetUrl = `${GITHUB_RELEASE_BASE}/${encodeURIComponent(tag)}/chump-${suffix}.tar.gz`;
   const installDir = path.dirname(process.execPath);
-  console.log(`installing ${assetUrl}`);
-  await runCommand("bash", [
-    "-c",
-    "curl -fsSL https://chump.yaqeen.me/install.sh | bash -s -- --install-dir \"$CHUMP_INSTALL_DIR\" --no-modify-path",
-  ], {
-    CHUMP_INSTALL_DIR: installDir,
-    VERSION: tag,
-  });
-  console.log(`updated chump to ${version}`);
+  if (info.updateAvailable || process.env.CHUMP_UPDATE_FORCE === "1") {
+    const tag = `chump-agent@${info.latestVersion}`;
+    const assetUrl = `${GITHUB_RELEASE_BASE}/${encodeURIComponent(tag)}/chump-${suffix}.tar.gz`;
+    console.log(`installing ${assetUrl}`);
+    await runCommand("bash", [
+      "-c",
+      "curl -fsSL https://chump.yaqeen.me/install.sh | bash -s -- --install-dir \"$CHUMP_INSTALL_DIR\" --no-modify-path",
+    ], {
+      CHUMP_INSTALL_DIR: installDir,
+      VERSION: tag,
+    });
+    console.log(`updated chump to ${info.latestVersion}`);
+  }
+
+  if (info.serverUpdateAvailable || process.env.CHUMP_UPDATE_FORCE === "1") {
+    const latestServerTag = info.latestServerVersion
+      ? `chump-server-v${info.latestServerVersion}`
+      : await fetchLatestServerTag();
+    if (!latestServerTag) {
+      throw new Error("could not determine latest chump-server release");
+    }
+    await updateBundledServerBinary(latestServerTag, installDir, suffix);
+    console.log(`updated bundled chump-server to ${latestServerTag.replace(/^chump-server-v/, "")}`);
+  }
+}
+
+async function updateBundledServerBinary(tag: string, installDir: string, suffix: string): Promise<void> {
+  const serverName = serverAssetName(suffix);
+  const url = `${GITHUB_RELEASE_BASE}/${encodeURIComponent(tag)}/${serverName}`;
+  const target = path.join(installDir, serverName);
+  const staged = path.join(installDir, `.${serverName}.update-${process.pid}`);
+  await downloadFile(url, staged);
+  await runCommand("chmod", ["755", staged]);
+  await runCommand("mv", ["-f", staged, target]);
+}
+
+async function downloadFile(url: string, targetPath: string): Promise<void> {
+  const response = await fetch(url, { headers: { accept: "application/octet-stream" } });
+  if (!response.ok) {
+    throw new Error(`failed to download ${url}: HTTP ${response.status}`);
+  }
+  await writeFile(targetPath, Buffer.from(await response.arrayBuffer()));
 }
 
 async function updateNpmInstall(): Promise<void> {
@@ -179,6 +264,76 @@ function releasePlatformSuffix(): string | null {
   return null;
 }
 
+function serverAssetName(suffix: string): string {
+  return process.platform === "win32"
+    ? `chump-server-${suffix}.exe`
+    : `chump-server-${suffix}`;
+}
+
+async function readBundledServerVersion(): Promise<string | null> {
+  const suffix = releasePlatformSuffix();
+  if (!suffix) {
+    return null;
+  }
+  const serverPath = path.join(path.dirname(process.execPath), serverAssetName(suffix));
+  if (!existsSync(serverPath)) {
+    return null;
+  }
+  const port = 20_000 + Math.floor(Math.random() * 20_000);
+  let failedToStart = false;
+  const child = spawn(serverPath, [], {
+    env: {
+      ...process.env,
+      CHUMP_PORT: String(port),
+      CHUMP_MANAGED_SERVER_IDLE_TIMEOUT: "5",
+    },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  child.on("error", () => {
+    failedToStart = true;
+  });
+  try {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const version = await fetchServerHealthVersion(port);
+      if (version) {
+        return version;
+      }
+      if (failedToStart || child.exitCode !== null) {
+        return "0.0.0";
+      }
+      await delay(100);
+    }
+    return "0.0.0";
+  } finally {
+    child.kill();
+  }
+}
+
+async function fetchServerHealthVersion(port: number): Promise<string | null> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`);
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as { version?: unknown };
+    return typeof payload.version === "string" ? normalizeReleaseVersion(payload.version) : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeReleaseVersion(version: string): string {
+  if (version.includes(".dev") || version.includes("+")) {
+    return "0.0.0";
+  }
+  return version.split(/[+-]/)[0].replace(/\.dev\d*$/, "");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isStandaloneBinary(): boolean {
   const name = path.basename(process.execPath).toLowerCase();
   if (name === "node" || name === "node.exe" || name === "bun" || name === "bun.exe") {
@@ -196,31 +351,23 @@ function isSourceCheckout(): boolean {
     entrypoint.includes(`${path.sep}client${path.sep}dist${path.sep}`);
 }
 
-async function readCachedLatestVersion(): Promise<string | null> {
-  const cache = await readUpdateCache();
-  if (!cache) {
-    return null;
-  }
-  if (Date.now() - cache.checkedAt > UPDATE_CHECK_INTERVAL_MS) {
-    return null;
-  }
-  return cache.latestVersion;
-}
-
 async function readUpdateCache(): Promise<UpdateCache | null> {
   try {
     const raw = await readFile(updateCachePath(), "utf8");
     const cache = JSON.parse(raw) as UpdateCache;
+    if (Date.now() - cache.checkedAt > UPDATE_CHECK_INTERVAL_MS) {
+      return null;
+    }
     return typeof cache.latestVersion === "string" && Number.isFinite(cache.checkedAt) ? cache : null;
   } catch {
     return null;
   }
 }
 
-async function writeUpdateCache(latestVersion: string): Promise<void> {
+async function writeUpdateCache(cache: Omit<UpdateCache, "checkedAt">): Promise<void> {
   const cachePath = updateCachePath();
   await mkdir(path.dirname(cachePath), { recursive: true });
-  await writeFile(cachePath, `${JSON.stringify({ checkedAt: Date.now(), latestVersion }, null, 2)}\n`, "utf8");
+  await writeFile(cachePath, `${JSON.stringify({ checkedAt: Date.now(), ...cache }, null, 2)}\n`, "utf8");
 }
 
 function updateCachePath(): string {

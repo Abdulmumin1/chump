@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.36
+
+### Patch Changes
+
+- Make `chump update` check bundled `chump-server` releases and update the adjacent server binary when a server-only release is newer than the installed bundle.
+
 ## 0.0.35
 
 ### Patch Changes
