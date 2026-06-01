@@ -7,6 +7,15 @@ on:
     tags:
       - "chump-server-v*"
   workflow_dispatch:
+    inputs:
+      client_tag:
+        description: "Existing chump-agent release tag to upload client archives to, e.g. chump-agent@0.0.35"
+        required: false
+        type: string
+      server_tag:
+        description: "Existing chump-server release tag to upload server binaries to, e.g. chump-server-v0.0.32"
+        required: false
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -65,14 +74,14 @@ jobs:
   binaries:
     name: binaries (${{ matrix.os }})
     needs: npm
-    if: needs.npm.outputs.published == 'true'
+    if: always() && (needs.npm.outputs.published == 'true' || inputs.client_tag != '')
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
           - os: ubuntu-24.04-arm
-          - os: macos-13
+          - os: macos-15-intel
           - os: macos-14
           - os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -120,11 +129,21 @@ jobs:
       - name: Build client archive
         run: pnpm --dir client run build:bin
 
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [[ -n "${{ inputs.client_tag }}" ]]; then
+            echo "tag=${{ inputs.client_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ needs.npm.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: client/dist/packages/*.tar.gz
-          tag_name: ${{ needs.npm.outputs.tag }}
+          tag_name: ${{ steps.release_tag.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -187,14 +206,14 @@ jobs:
   server-binaries:
     name: server binaries (${{ matrix.os }})
     needs: pypi
-    if: startsWith(github.ref, 'refs/tags/chump-server-v')
+    if: always() && (startsWith(github.ref, 'refs/tags/chump-server-v') || inputs.server_tag != '')
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
           - os: ubuntu-24.04-arm
-          - os: macos-13
+          - os: macos-15-intel
           - os: macos-14
           - os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -221,10 +240,20 @@ jobs:
       - name: Build server binary
         run: python server/scripts/build_binary.py
 
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [[ -n "${{ inputs.server_tag }}" ]]; then
+            echo "tag=${{ inputs.server_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload server binary
         uses: softprops/action-gh-release@v2
         with:
           files: server/dist/bin/chump-server-*
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.release_tag.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
