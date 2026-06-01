@@ -6,7 +6,6 @@ from ai_query.model import LanguageModel
 from ai_query.providers import (
     anthropic,
     deepseek,
-    google,
     groq,
     openai,
     openrouter,
@@ -22,6 +21,7 @@ from ..config import (
 )
 from ..providers.codex import codex_model
 from ..providers.github_copilot import github_copilot_model
+from ..providers.google import google_model
 from ..providers.openai_compatible import (
     opencode_go_model,
     opencode_model,
@@ -57,7 +57,7 @@ def resolve_model(config: ChumpConfig):
             model_id=config.model,
         )
     if provider_name == "google":
-        return google(config.model)
+        return google_model(config.model)
     if provider_name == "anthropic":
         return anthropic(config.model, base_url=os.environ.get("ANTHROPIC_BASE_URL"))
     if provider_name == "workers_ai":

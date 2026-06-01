@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.33
+
+- Route Google models through Chump's Google provider adapter.
+- Map normalized Google reasoning budgets to Gemini thinking config without requesting thought text.
+- Include the workspace `skill-creator` skill file in the repository release state.
+
 ## 0.0.32
 
 - Bundle standalone backend binaries for Chump releases and server-only sandbox deployments.
