@@ -558,6 +558,11 @@ install_from_release() {
 
     run mkdir -p "$extract_dir"
     run tar -xzf "$tmp_file" -C "$extract_dir"
+    if [[ "$dry_run" == "true" ]]; then
+        info "dry-run: validate archive contains chump and chump-server binaries"
+        return 0
+    fi
+
     if [[ ! -f "$package_dir/chump" ]]; then
         fail "Release archive is missing chump binary"
         exit 1
