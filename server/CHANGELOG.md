@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.34
+
+- Allow the PyInstaller build script to produce one-folder runtimes for bundled client archives while keeping single-file server release binaries.
+- Make repeated server binary builds replace either old single-file artifacts or runtime directories cleanly.
+
 ## 0.0.33
 
 - Route Google models through Chump's Google provider adapter.

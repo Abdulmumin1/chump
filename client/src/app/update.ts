@@ -271,11 +271,7 @@ function serverAssetName(suffix: string): string {
 }
 
 async function readBundledServerVersion(): Promise<string | null> {
-  const suffix = releasePlatformSuffix();
-  if (!suffix) {
-    return null;
-  }
-  const serverPath = path.join(path.dirname(process.execPath), serverAssetName(suffix));
+  const serverPath = bundledServerPath();
   if (!existsSync(serverPath)) {
     return null;
   }
@@ -308,6 +304,31 @@ async function readBundledServerVersion(): Promise<string | null> {
   } finally {
     child.kill();
   }
+}
+
+function bundledServerPath(): string {
+  const suffix = releasePlatformSuffix();
+  if (!suffix) {
+    return "";
+  }
+  const installDir = path.dirname(process.execPath);
+  const names = [
+    serverAssetName(suffix),
+    process.platform === "win32" ? "chump-server.exe" : "chump-server",
+  ];
+  const roots = [
+    installDir,
+    path.join(installDir, "server"),
+  ];
+  for (const root of roots) {
+    for (const name of names) {
+      const candidate = path.join(root, name);
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return path.join(installDir, serverAssetName(suffix));
 }
 
 async function fetchServerHealthVersion(port: number): Promise<string | null> {

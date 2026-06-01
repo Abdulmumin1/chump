@@ -515,7 +515,7 @@ download_binary() {
 }
 
 install_from_release() {
-    local os arch package_name latest_tag url tmp_file extract_dir package_dir server_file
+    local os arch package_name latest_tag url tmp_file extract_dir package_dir server_path
     os=$(detect_os)
     arch=$(check_rosetta)
 
@@ -559,7 +559,7 @@ install_from_release() {
     run mkdir -p "$extract_dir"
     run tar -xzf "$tmp_file" -C "$extract_dir"
     if [[ "$dry_run" == "true" ]]; then
-        info "dry-run: validate archive contains chump and chump-server binaries"
+        info "dry-run: validate archive contains chump and chump-server runtime"
         return 0
     fi
 
@@ -567,24 +567,33 @@ install_from_release() {
         fail "Release archive is missing chump binary"
         exit 1
     fi
-    server_file=$(find "$package_dir" -maxdepth 1 -type f -name 'chump-server-*' | head -n 1)
-    if [[ -z "$server_file" ]]; then
-        fail "Release archive is missing chump-server binary"
+    if [[ -d "$package_dir/server" ]]; then
+        server_path="$package_dir/server"
+    else
+        server_path=$(find "$package_dir" -maxdepth 1 -type f -name 'chump-server-*' | head -n 1)
+    fi
+    if [[ -z "$server_path" ]]; then
+        fail "Release archive is missing chump-server runtime"
         exit 1
     fi
 
-    local staged_app staged_server installed_server
+    local staged_app staged_server
     staged_app="$INSTALL_DIR/.$APP.install-${$}"
-    installed_server="$INSTALL_DIR/$(basename "$server_file")"
-    staged_server="$INSTALL_DIR/.$(basename "$server_file").install-${$}"
+    staged_server="$INSTALL_DIR/.server.install-${$}"
 
     run cp "$package_dir/chump" "$staged_app"
-    run cp "$server_file" "$staged_server"
+    if [[ -d "$server_path" ]]; then
+        run cp -R "$server_path" "$staged_server"
+    else
+        run mkdir -p "$staged_server"
+        run cp "$server_path" "$staged_server/$(basename "$server_path")"
+    fi
     run chmod 755 "$staged_app"
-    run chmod 755 "$staged_server"
+    run find "$staged_server" -type f -name 'chump-server*' -exec chmod 755 {} \;
     run mv -f "$staged_app" "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
-    run mv -f "$staged_server" "$installed_server"
+    run rm -rf "$INSTALL_DIR/server"
+    run mv -f "$staged_server" "$INSTALL_DIR/server"
     run rm -rf "$extract_dir" "$tmp_file"
 }
 
@@ -592,6 +601,7 @@ uninstall_chump() {
     step "Removing chump from $INSTALL_DIR"
     run rm -f "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
+    run rm -rf "$INSTALL_DIR/server"
     if [[ -d "$INSTALL_DIR" ]]; then
         run rmdir "$INSTALL_DIR" 2>/dev/null || true
     fi

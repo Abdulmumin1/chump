@@ -4,10 +4,20 @@ import platform
 import shutil
 import subprocess
 import sys
+from argparse import ArgumentParser
 from pathlib import Path
 
 
 def main() -> None:
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        choices=("onefile", "onedir"),
+        default="onefile",
+        help="Build a single executable for server-only releases or a directory runtime for bundled client archives.",
+    )
+    args = parser.parse_args()
+
     server_dir = Path(__file__).resolve().parents[1]
     dist_dir = server_dir / "dist" / "bin"
     build_dir = server_dir / "build" / "pyinstaller"
@@ -28,8 +38,9 @@ def main() -> None:
         "--with",
         "pyinstaller",
         "pyinstaller",
+        "-y",
         "--clean",
-        "--onefile",
+        f"--{args.mode}",
         "--copy-metadata",
         "chump-server",
         "--copy-metadata",
@@ -46,13 +57,27 @@ def main() -> None:
     ]
     subprocess.run(command, cwd=server_dir, check=True)
 
-    executable = build_dir / executable_name(name)
+    executable = (
+        build_dir / executable_name(name)
+        if args.mode == "onefile"
+        else build_dir / name / executable_name(name)
+    )
     if not executable.exists():
         raise SystemExit(f"missing built executable: {executable}")
 
-    target = dist_dir / executable_name(f"chump-server-{platform_suffix()}")
-    shutil.copy2(executable, target)
-    target.chmod(0o755)
+    if args.mode == "onefile":
+        target = dist_dir / executable_name(f"chump-server-{platform_suffix()}")
+        shutil.copy2(executable, target)
+        target.chmod(0o755)
+    else:
+        target = dist_dir / f"chump-server-{platform_suffix()}"
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        shutil.copytree(build_dir / name, target)
+        (target / executable_name(name)).chmod(0o755)
     print(target)
 
 

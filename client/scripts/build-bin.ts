@@ -1,5 +1,5 @@
 import { $ } from "bun";
-import { chmod, copyFile, mkdir, rm } from "node:fs/promises";
+import { chmod, copyFile, cp, mkdir, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -72,10 +72,11 @@ async function packageTarget({
   await rm(packageRoot, { recursive: true, force: true });
   await mkdir(packageRoot, { recursive: true });
   await copyFile(cliBinary, path.join(packageRoot, cliName));
-  await copyFile(serverBinary, path.join(packageRoot, serverExecutableName(platform)));
+  const serverTarget = path.join(packageRoot, "server");
+  await copyServerRuntime(serverBinary, serverTarget, platform);
   if (!platform.startsWith("windows")) {
     await chmod(path.join(packageRoot, cliName), 0o755);
-    await chmod(path.join(packageRoot, serverExecutableName(platform)), 0o755);
+    await chmod(path.join(serverTarget, serverRuntimeExecutableName(serverBinary, platform)), 0o755);
   }
 
   const archive = `chump-${platform}.tar.gz`;
@@ -88,9 +89,32 @@ async function packageTarget({
 function serverBinaryPath(platform: string): string | null {
   const candidates = [
     path.join("..", "server", "dist", "bin", serverExecutableName(platform)),
+    path.join("..", "server", "dist", "bin", `chump-server-${platform}`),
     path.join("vendor", "chump-server", serverExecutableName(platform)),
+    path.join("vendor", "chump-server", `chump-server-${platform}`),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+async function copyServerRuntime(source: string, target: string, platform: string): Promise<void> {
+  await rm(target, { recursive: true, force: true });
+  await mkdir(target, { recursive: true });
+  const sourceStat = await stat(source);
+  if (sourceStat.isDirectory()) {
+    await cp(source, target, { recursive: true });
+    return;
+  }
+  await copyFile(source, path.join(target, serverExecutableName(platform)));
+}
+
+function serverRuntimeExecutableName(source: string, platform: string): string {
+  return existsSync(path.join(source, pyinstallerExecutableName(platform)))
+    ? pyinstallerExecutableName(platform)
+    : serverExecutableName(platform);
+}
+
+function pyinstallerExecutableName(platform: string): string {
+  return platform.startsWith("windows") ? "chump-server.exe" : "chump-server";
 }
 
 function serverExecutableName(platform: string): string {

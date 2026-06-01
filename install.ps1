@@ -93,20 +93,29 @@ if (-not (Test-Path "$packageDir\chump.exe")) {
     exit 1
 }
 
+$serverDir = "$packageDir\server"
 $server = Get-ChildItem -Path $packageDir -Filter "chump-server-*.exe" | Select-Object -First 1
-if (-not $server) {
-    Write-Red "Release archive is missing chump-server executable"
+if ((-not (Test-Path $serverDir)) -and (-not $server)) {
+    Write-Red "Release archive is missing chump-server runtime"
     exit 1
 }
 
 $stagedApp = "$destDir\.chump.install-$PID.exe"
-$stagedServer = "$destDir\.$($server.Name).install-$PID"
+$stagedServer = "$destDir\.server.install-$PID"
 
 Copy-Item "$packageDir\chump.exe" $stagedApp -Force
-Copy-Item $server.FullName $stagedServer -Force
+if (Test-Path $serverDir) {
+    Copy-Item $serverDir $stagedServer -Recurse -Force
+} else {
+    New-Item -ItemType Directory -Force -Path $stagedServer | Out-Null
+    Copy-Item $server.FullName "$stagedServer\$($server.Name)" -Force
+}
 Move-Item $stagedApp $dest -Force
 Get-ChildItem -Path $destDir -Filter "chump-server-*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
-Move-Item $stagedServer "$destDir\$($server.Name)" -Force
+if (Test-Path "$destDir\server") {
+    Remove-Item -Recurse -Force "$destDir\server"
+}
+Move-Item $stagedServer "$destDir\server" -Force
 Remove-Item -Recurse -Force $extractDir
 Remove-Item -Force $archive
 

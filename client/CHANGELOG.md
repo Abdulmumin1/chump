@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.37
+
+### Patch Changes
+
+- Package the bundled server as a one-folder runtime for faster warm startup and install it under the archive's server directory.
+
 ## 0.0.36
 
 ### Patch Changes
