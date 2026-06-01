@@ -302,10 +302,14 @@ export async function stopManagedServer(workspaceRoot: string): Promise<string> 
   const targets = stopTargetsForMetadata(metadata, health);
   await signalStopTargets(targets, "SIGTERM");
 
-  const stopped = await waitForServerExit(metadata.url, 5_000);
+  let stopped = await waitForServerExit(metadata.url, 5_000);
   if (!stopped) {
     await signalStopTargets(targets, "SIGKILL");
-    await waitForServerExit(metadata.url, 2_000);
+    stopped = await waitForServerExit(metadata.url, 2_000);
+  }
+
+  if (!stopped) {
+    throw new Error(`failed to stop ${metadata.url}`);
   }
 
   await clearManagedServerMetadata(workspaceRoot);
@@ -352,10 +356,13 @@ function uniqueStopTargets(targets: StopTarget[]): StopTarget[] {
 
 async function stopServerTargets(url: string, targets: StopTarget[]): Promise<void> {
   await signalStopTargets(targets, "SIGTERM");
-  const stopped = await waitForServerExit(url, 5_000);
+  let stopped = await waitForServerExit(url, 5_000);
   if (!stopped) {
     await signalStopTargets(targets, "SIGKILL");
-    await waitForServerExit(url, 2_000);
+    stopped = await waitForServerExit(url, 2_000);
+  }
+  if (!stopped) {
+    throw new Error(`failed to stop ${url}`);
   }
 }
 
@@ -642,38 +649,123 @@ function managedIdleTimeoutSeconds(): string {
 type ServerCommand = {
   file: string;
   args: string[];
-  source: "local" | "installed";
+  source: "env" | "local" | "bundled";
 };
 
 function resolveServerCommand(): ServerCommand {
+  const override = resolveServerCommandOverride();
+  if (override) {
+    return override;
+  }
+
+  const bundled = resolveBundledServerCommand();
+  if (bundled) {
+    return bundled;
+  }
+
   const sourcePath = fileURLToPath(import.meta.url);
   const appDir = path.dirname(sourcePath);
   const repoRoot = path.resolve(appDir, "..", "..", "..");
   const siblingServerDir = path.join(repoRoot, "server");
   const siblingProject = path.join(siblingServerDir, "pyproject.toml");
 
-  let command: ServerCommand;
   if (existsSync(siblingProject)) {
-    command = {
+    const command = {
       file: "uv",
       args: ["run", "--directory", siblingServerDir, "chump-server"],
       source: "local",
-    };
-  } else {
-    command = {
-      file: "uvx",
-      args: ["--from", "chump-server@latest", "chump-server"],
-      source: "installed",
-    };
+    } satisfies ServerCommand;
+    if (!commandIsAvailableSync(command.file)) {
+      throw new Error(
+        `${command.file} is not installed or not in PATH.\n\nInstall uv for repository development:\n${getUvInstallInstructions()}`,
+      );
+    }
+    return command;
   }
 
-  if (!commandIsAvailableSync(command.file)) {
-    throw new Error(
-      `${command.file} is not installed or not in PATH.\n\nInstall uv:\n${getUvInstallInstructions()}`,
-    );
-  }
+  throw new Error(
+    "No bundled chump-server binary was found.\n\n" +
+      "Install Chump from the platform archive, or set CHUMP_SERVER_BIN to a server executable for development.",
+  );
+}
 
-  return command;
+function resolveServerCommandOverride(): ServerCommand | null {
+  const file = process.env.CHUMP_SERVER_BIN?.trim();
+  if (!file) {
+    return null;
+  }
+  const args = parseServerArgs(process.env.CHUMP_SERVER_ARGS);
+  return {
+    file,
+    args,
+    source: "env",
+  };
+}
+
+function resolveBundledServerCommand(): ServerCommand | null {
+  for (const candidate of bundledServerCandidates()) {
+    if (!existsSync(candidate)) {
+      continue;
+    }
+    return {
+      file: candidate,
+      args: [],
+      source: "bundled",
+    };
+  }
+  return null;
+}
+
+function bundledServerCandidates(): string[] {
+  const names = bundledServerExecutableNames();
+  const execDir = path.dirname(process.execPath);
+  const sourcePath = fileURLToPath(import.meta.url);
+  const appDir = path.dirname(sourcePath);
+  const packageRoot = path.resolve(appDir, "..", "..");
+  const roots = [
+    execDir,
+    path.join(execDir, "server"),
+    path.join(execDir, "vendor"),
+    path.join(packageRoot, "vendor", "chump-server"),
+    path.join(packageRoot, "dist", "server"),
+  ];
+  const candidates: string[] = [];
+  for (const root of roots) {
+    for (const name of names) {
+      candidates.push(path.join(root, name));
+    }
+  }
+  return [...new Set(candidates)];
+}
+
+function bundledServerExecutableNames(): string[] {
+  const exe = process.platform === "win32" ? ".exe" : "";
+  return [
+    `chump-server-${platformAssetSuffix()}${exe}`,
+    `chump-server${exe}`,
+  ];
+}
+
+function platformAssetSuffix(): string {
+  const platform =
+    process.platform === "darwin"
+      ? "darwin"
+      : process.platform === "win32"
+        ? "windows"
+        : process.platform;
+  const arch = process.arch === "x64" ? "x64" : process.arch;
+  return `${platform}-${arch}`;
+}
+
+function parseServerArgs(raw: string | undefined): string[] {
+  if (!raw?.trim()) {
+    return [];
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed) || !parsed.every((value) => typeof value === "string")) {
+    throw new Error("CHUMP_SERVER_ARGS must be a JSON array of strings");
+  }
+  return parsed;
 }
 
 function commandIsAvailableSync(command: string): boolean {
@@ -829,6 +921,16 @@ async function findLocalServerWithoutMetadata(
       return { url, pid };
     }
   }
+
+  for (const candidate of localChumpServerProcessCandidates()) {
+    const health = await readServerHealth(candidate.url);
+    if (!health || !serverHealthMatchesWorkspace(health, workspaceRoot)) {
+      continue;
+    }
+    const pid = processIdFromHealth(health) ?? candidate.pid;
+    return { url: candidate.url, pid };
+  }
+
   return null;
 }
 
@@ -841,6 +943,72 @@ function localStopCandidateUrls(workspaceRoot: string): string[] {
   ].filter((url): url is string => typeof url === "string" && url.length > 0);
 
   return [...new Set(urls.map(normalizeServerBaseUrl).filter(isLocalServerUrl))];
+}
+
+function localChumpServerProcessCandidates(): Array<{ url: string; pid: number }> {
+  if (process.platform === "win32") {
+    return [];
+  }
+
+  const pids = localChumpServerPids();
+  const candidates: Array<{ url: string; pid: number }> = [];
+  for (const pid of pids) {
+    for (const url of listeningUrlsForPid(pid)) {
+      candidates.push({ url, pid });
+    }
+  }
+  return candidates;
+}
+
+function localChumpServerPids(): number[] {
+  const result = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+
+  const currentPid = process.pid;
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(.+)$/);
+      if (!match) {
+        return null;
+      }
+      const pid = Number(match[1]);
+      const command = match[2];
+      if (
+        !Number.isInteger(pid) ||
+        pid <= 0 ||
+        pid === currentPid ||
+        !/Chump Agent \(Server\)|chump-server/.test(command)
+      ) {
+        return null;
+      }
+      return pid;
+    })
+    .filter((pid): pid is number => pid !== null);
+}
+
+function listeningUrlsForPid(pid: number): string[] {
+  const result = spawnSync("lsof", ["-nP", "-a", "-p", String(pid), "-iTCP", "-sTCP:LISTEN"], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+
+  const urls: string[] = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const match = line.match(/TCP\s+(?:\[::1\]|::1|127\.0\.0\.1|localhost):(\d+)\s+\(LISTEN\)/);
+    if (!match) {
+      continue;
+    }
+    urls.push(buildServerUrl(Number(match[1])));
+  }
+  return [...new Set(urls)];
 }
 
 function normalizeServerBaseUrl(url: string): string {

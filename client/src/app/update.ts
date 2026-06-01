@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
@@ -79,7 +79,6 @@ export async function runUpdateCommand(): Promise<void> {
 
   if (isStandaloneBinary()) {
     await updateStandaloneBinary(info.latestVersion);
-    console.log(`updated chump to ${info.latestVersion}`);
     return;
   }
 
@@ -113,9 +112,9 @@ async function fetchLatestVersion(): Promise<string | null> {
 }
 
 async function updateStandaloneBinary(version: string): Promise<void> {
-  const asset = releaseAssetName();
-  if (!asset) {
-    throw new Error(`no standalone binary asset is available for ${process.platform}/${process.arch}`);
+  const suffix = releasePlatformSuffix();
+  if (!suffix) {
+    throw new Error(`no standalone package asset is available for ${process.platform}/${process.arch}`);
   }
 
   if (process.platform === "win32") {
@@ -125,21 +124,17 @@ async function updateStandaloneBinary(version: string): Promise<void> {
   }
 
   const tag = `chump-agent@${version}`;
-  const url = `${GITHUB_RELEASE_BASE}/${encodeURIComponent(tag)}/${asset}`;
-  const installPath = process.execPath;
-  const tempPath = path.join(path.dirname(installPath), `.${path.basename(installPath)}.update-${process.pid}`);
-
-  await downloadFile(url, tempPath);
-  await chmod(tempPath, 0o755);
-  try {
-    await rename(tempPath, installPath);
-  } catch (error) {
-    await rm(tempPath, { force: true }).catch(() => {});
-    throw new Error(
-      `failed to replace ${installPath}: ${error instanceof Error ? error.message : String(error)}\n` +
-        "try: curl -fsSL https://chump.yaqeen.me/install.sh | bash",
-    );
-  }
+  const assetUrl = `${GITHUB_RELEASE_BASE}/${encodeURIComponent(tag)}/chump-${suffix}.tar.gz`;
+  const installDir = path.dirname(process.execPath);
+  console.log(`installing ${assetUrl}`);
+  await runCommand("bash", [
+    "-c",
+    "curl -fsSL https://chump.yaqeen.me/install.sh | bash -s -- --install-dir \"$CHUMP_INSTALL_DIR\" --no-modify-path",
+  ], {
+    CHUMP_INSTALL_DIR: installDir,
+    VERSION: tag,
+  });
+  console.log(`updated chump to ${version}`);
 }
 
 async function updateNpmInstall(): Promise<void> {
@@ -147,9 +142,13 @@ async function updateNpmInstall(): Promise<void> {
   await runCommand(npm, ["install", "-g", `${PACKAGE_NAME}@latest`]);
 }
 
-async function runCommand(command: string, args: string[]): Promise<void> {
+async function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "inherit", windowsHide: true });
+    const child = spawn(command, args, {
+      env: { ...process.env, ...env },
+      stdio: "inherit",
+      windowsHide: true,
+    });
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) {
@@ -161,30 +160,21 @@ async function runCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
-async function downloadFile(url: string, targetPath: string): Promise<void> {
-  const response = await fetch(url, { headers: { accept: "application/octet-stream" } });
-  if (!response.ok) {
-    throw new Error(`failed to download ${url}: HTTP ${response.status}`);
-  }
-  const body = Buffer.from(await response.arrayBuffer());
-  await writeFile(targetPath, body);
-}
-
-function releaseAssetName(): string | null {
+function releasePlatformSuffix(): string | null {
   if (process.platform === "darwin" && process.arch === "arm64") {
-    return "chump-darwin-arm64";
+    return "darwin-arm64";
   }
   if (process.platform === "darwin" && process.arch === "x64") {
-    return "chump-darwin-x64";
+    return "darwin-x64";
   }
   if (process.platform === "linux" && process.arch === "arm64") {
-    return "chump-linux-arm64";
+    return "linux-arm64";
   }
   if (process.platform === "linux" && process.arch === "x64") {
-    return "chump-linux-x64";
+    return "linux-x64";
   }
   if (process.platform === "win32" && process.arch === "x64") {
-    return "chump-windows-x64.exe";
+    return "windows-x64";
   }
   return null;
 }

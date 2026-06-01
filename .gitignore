@@ -18,6 +18,7 @@ server/.venv/
 server/.pytest_cache/
 server/.mypy_cache/
 server/.ruff_cache/
+server/build/
 server/.coverage
 server/.chump/
 server/*.db

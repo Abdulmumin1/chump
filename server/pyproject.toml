@@ -13,6 +13,9 @@ keywords = ["ai", "agent", "cli", "backend", "chump"]
 [project.scripts]
 chump-server = "chump_server.main:main"
 
+[tool.uv]
+package = true
+
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"

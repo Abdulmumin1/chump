@@ -30,6 +30,7 @@ from .runtime.messages import (
 )
 from .runtime.model import resolve_model
 from .runtime.usage import (
+    context_usage_dict,
     default_usage_summary,
     latest_usage_context_tokens,
     merge_usage_dicts,
@@ -409,10 +410,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self._compact_messages(reason="auto", estimated_tokens=estimate)
 
     def _context_token_estimate(self) -> int:
-        return max(
-            estimate_messages_tokens(self._messages),
-            latest_usage_context_tokens(self._usage_summary) or 0,
-        )
+        return latest_usage_context_tokens(self._usage_summary) or 0
 
     async def _compact_messages(
         self,
@@ -470,11 +468,15 @@ class ChumpAgent(Agent[dict[str, Any]]):
         before_count = len(self._messages)
         self._messages = [summary_message, *recent_messages]
         await self._persist_messages()
+        tokens_after = estimate_messages_tokens(self._messages)
+        self._usage_summary["last_step"] = context_usage_dict(tokens_after)
+        self._usage_summary["current_turn"] = zero_usage_dict()
 
         now = time.time()
         compaction = {
             "reason": reason,
             "tokens_before": estimated_tokens,
+            "tokens_after": tokens_after,
             "messages_before": before_count,
             "messages_after": len(self._messages),
             "compacted_messages": len(compacted_messages),
@@ -485,6 +487,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self.update_state(
             compaction=compaction,
             updated_at=now,
+            usage_summary=self._usage_summary,
         )
         await self.emit("compaction", compaction)
         await self.emit("agent_status", await self.status())

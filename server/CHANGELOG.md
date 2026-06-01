@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.32
+
+- Bundle standalone backend binaries for Chump releases and server-only sandbox deployments.
+- Use provider-reported `last_step.total_tokens` as the context token source of truth.
+- Emit post-compaction token counts so connected clients can update context badges immediately.
+
 ## 0.0.31
 
 - Raise the default max steps to 250 and expose it through shared configuration docs.

@@ -48,6 +48,7 @@ export type CompactionResult = {
 	status: string;
 	reason?: string;
 	tokens_before?: number;
+	tokens_after?: number;
 	messages_before?: number;
 	messages_after?: number;
 	compacted_messages?: number;

@@ -493,6 +493,7 @@ install_from_binary() {
 
     step "Installing local binary"
     run mkdir -p "$INSTALL_DIR"
+    run rm -f "$INSTALL_DIR"/chump-server-*
     run cp "$binary_path" "$INSTALL_DIR/$APP"
     run chmod 755 "$INSTALL_DIR/$APP"
 }
@@ -514,7 +515,7 @@ download_binary() {
 }
 
 install_from_release() {
-    local os arch filename latest_tag url tmp_file
+    local os arch package_name latest_tag url tmp_file extract_dir package_dir server_file
     os=$(detect_os)
     arch=$(check_rosetta)
 
@@ -523,10 +524,7 @@ install_from_release() {
         exit 1
     fi
 
-    filename="chump-${os}-${arch}"
-    if [[ "$os" == "windows" ]]; then
-        filename="${filename}.exe"
-    fi
+    package_name="chump-${os}-${arch}.tar.gz"
 
     step "Detected ${os}-${arch}"
 
@@ -544,24 +542,44 @@ install_from_release() {
         exit 1
     fi
 
-    url="https://github.com/${REPO}/releases/download/${latest_tag}/${filename}"
-    tmp_file="${TMPDIR:-/tmp}/chump-install-${$}-${filename}"
+    url="https://github.com/${REPO}/releases/download/${latest_tag}/${package_name}"
+    tmp_file="${TMPDIR:-/tmp}/chump-install-${$}-${package_name}"
+    extract_dir="${TMPDIR:-/tmp}/chump-install-${$}"
+    package_dir="$extract_dir/chump-${os}-${arch}"
 
     step "Installing ${BOLD}${latest_tag}${NC}${TEXT} into ${INSTALL_DIR}"
     run mkdir -p "$INSTALL_DIR"
+    run rm -rf "$extract_dir"
 
     if ! download_binary "$url" "$tmp_file"; then
         fail "Download failed: $url"
         exit 1
     fi
 
-    run mv "$tmp_file" "$INSTALL_DIR/$APP"
+    run mkdir -p "$extract_dir"
+    run tar -xzf "$tmp_file" -C "$extract_dir"
+    if [[ ! -f "$package_dir/chump" ]]; then
+        fail "Release archive is missing chump binary"
+        exit 1
+    fi
+    server_file=$(find "$package_dir" -maxdepth 1 -type f -name 'chump-server-*' | head -n 1)
+    if [[ -z "$server_file" ]]; then
+        fail "Release archive is missing chump-server binary"
+        exit 1
+    fi
+
+    run rm -f "$INSTALL_DIR"/chump-server-*
+    run cp "$package_dir/chump" "$INSTALL_DIR/$APP"
+    run cp "$server_file" "$INSTALL_DIR/$(basename "$server_file")"
     run chmod 755 "$INSTALL_DIR/$APP"
+    run chmod 755 "$INSTALL_DIR/$(basename "$server_file")"
+    run rm -rf "$extract_dir" "$tmp_file"
 }
 
 uninstall_chump() {
     step "Removing chump from $INSTALL_DIR"
     run rm -f "$INSTALL_DIR/$APP"
+    run rm -f "$INSTALL_DIR"/chump-server-*
     if [[ -d "$INSTALL_DIR" ]]; then
         run rmdir "$INSTALL_DIR" 2>/dev/null || true
     fi

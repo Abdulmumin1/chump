@@ -19,7 +19,7 @@ if ($arch -eq "AMD64") {
     exit 1
 }
 
-$filename = "chump-windows-${arch}.exe"
+$filename = "chump-windows-${arch}.tar.gz"
 Write-Muted "Detected: windows-${arch}"
 
 # Get Latest Version
@@ -64,6 +64,9 @@ Write-Muted "Installing version: $latestTag"
 # Download
 $url = "https://github.com/$REPO/releases/download/$latestTag/$filename"
 $destDir = $INSTALL_DIR
+$archive = "$env:TEMP\chump-install-$PID-$filename"
+$extractDir = "$env:TEMP\chump-install-$PID"
+$packageDir = "$extractDir\chump-windows-${arch}"
 $dest = "$destDir\chump.exe"
 
 if (-not (Test-Path $destDir)) {
@@ -72,12 +75,35 @@ if (-not (Test-Path $destDir)) {
 
 Write-Muted "Downloading..."
 try {
-    Invoke-WebRequest -Uri $url -OutFile $dest
+    Invoke-WebRequest -Uri $url -OutFile $archive
 } catch {
     Write-Red "Download failed from $url"
     Write-Red "Please check if the release exists for your architecture."
     exit 1
 }
+
+if (Test-Path $extractDir) {
+    Remove-Item -Recurse -Force $extractDir
+}
+New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+tar -xzf $archive -C $extractDir
+
+if (-not (Test-Path "$packageDir\chump.exe")) {
+    Write-Red "Release archive is missing chump.exe"
+    exit 1
+}
+
+$server = Get-ChildItem -Path $packageDir -Filter "chump-server-*.exe" | Select-Object -First 1
+if (-not $server) {
+    Write-Red "Release archive is missing chump-server executable"
+    exit 1
+}
+
+Copy-Item "$packageDir\chump.exe" $dest -Force
+Get-ChildItem -Path $destDir -Filter "chump-server-*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
+Copy-Item $server.FullName "$destDir\$($server.Name)" -Force
+Remove-Item -Recurse -Force $extractDir
+Remove-Item -Force $archive
 
 # Add to PATH
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")

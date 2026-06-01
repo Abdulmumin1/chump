@@ -12,21 +12,24 @@ uv run chump-server
 
 ## Install
 
-Once published, the backend package can be installed or run directly with `uv`:
+End-user Chump release archives bundle a platform-specific `chump-server`
+binary next to the CLI. The PyPI package remains useful for development,
+debugging, and direct backend runs:
 
 ```bash
-uv tool install chump-server
-chump-server
-```
-
-or:
-
-```bash
-uvx --from chump-server@latest chump-server
+uv run chump-server
 ```
 
 During repository development, `uv` still uses the local editable `../ai-query`
 source from `pyproject.toml`.
+
+Build a local standalone backend binary:
+
+```bash
+python scripts/build_binary.py
+```
+
+The output is written to `dist/bin/chump-server-<platform>`.
 
 ## Release
 
@@ -38,6 +41,8 @@ git push origin chump-server-v0.1.0
 ```
 
 Pushing a `chump-server-v*` tag runs the PyPI job and creates a GitHub Release in `.github/workflows/release.yml`.
+The same release also gets platform-specific standalone backend binaries named
+`chump-server-<platform>` attached for sandbox/server-only deployments.
 
 ## Environment
 

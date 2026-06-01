@@ -1,6 +1,8 @@
 from ai_query.types import Message
 
+from chump_server.agent import ChumpAgent
 from chump_server.runtime.compaction import choose_compaction_start
+from chump_server.runtime.usage import context_usage_dict, latest_usage_context_tokens
 
 
 def test_compaction_boundary_keeps_tool_call_with_single_result():
@@ -109,3 +111,47 @@ def test_forced_compaction_keeps_recent_messages_when_local_estimate_is_low():
 
     assert choose_compaction_start(messages, keep_recent_tokens=200_000) == 1
     assert choose_compaction_start(messages, keep_recent_tokens=200_000, force=True) == 3
+
+
+def test_context_token_estimate_uses_last_step_total_as_source_of_truth():
+    agent = ChumpAgent.__new__(ChumpAgent)
+    agent._usage_summary = {
+        "last_step": {
+            "input_tokens": 45_000,
+            "output_tokens": 1_000,
+            "cached_tokens": 0,
+            "total_tokens": 46_000,
+        },
+        "current_turn": {
+            "input_tokens": 900_000,
+            "output_tokens": 20_000,
+            "cached_tokens": 0,
+            "total_tokens": 920_000,
+        },
+        "last_turn": {
+            "input_tokens": 800_000,
+            "output_tokens": 20_000,
+            "cached_tokens": 0,
+            "total_tokens": 820_000,
+        },
+        "session_total": {
+            "input_tokens": 5_000_000,
+            "output_tokens": 100_000,
+            "cached_tokens": 0,
+            "total_tokens": 5_100_000,
+        },
+    }
+
+    assert agent._context_token_estimate() == 46_000
+
+
+def test_post_compaction_usage_updates_last_step_total():
+    usage = {
+        "last_step": context_usage_dict(12_345),
+        "current_turn": context_usage_dict(900_000),
+        "last_turn": context_usage_dict(800_000),
+        "session_total": context_usage_dict(5_100_000),
+    }
+
+    assert usage["last_step"]["total_tokens"] == 12_345
+    assert latest_usage_context_tokens(usage) == 12_345

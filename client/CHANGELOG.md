@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.35
+
+### Patch Changes
+
+- Bundle the managed backend into standalone release packages, remove the uvx runtime fallback, and keep context token badges synchronized from provider-reported usage after compaction.
+
 ## 0.0.34
 
 ### Patch Changes

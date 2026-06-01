@@ -5,7 +5,6 @@ TypeScript CLI package for `chump`.
 ## Requirements
 
 - Node.js `>=22`
-- uv
 - pnpm `>=10` for repository development
 
 ## Local Install
@@ -19,8 +18,12 @@ chump
 chump -p "summarize this repo"
 ```
 
-The installed binary starts the Python backend with `uvx --from chump-server@latest
-chump-server`, so `uv` must be available on your `PATH`.
+Standalone release archives include both `chump` and the matching
+`chump-server` backend binary. The CLI starts that bundled backend directly;
+`uv` is not required for normal installs.
+
+Use the platform archives or installer scripts for the no-`uv` path. The npm
+package is still useful for development and JS-package consumers.
 
 Use `chump -p "prompt"` for one-shot, non-interactive prompts. Piped stdin is
 merged into the prompt, and stdout is reserved for the assistant response. Add
@@ -69,8 +72,18 @@ pnpm run build
 
 ## Packaging
 
-The npm package ships compiled JavaScript from `dist/`; TypeScript sources are
-not published as the executable path.
+GitHub release archives are platform-specific and contain both executables:
+
+```text
+chump-<platform>/
+  chump
+  chump-server-<platform>
+```
+
+Repository development still uses the local Python backend through `uv run`.
+Override backend startup with `CHUMP_SERVER_BIN=/path/to/chump-server` and,
+when needed, `CHUMP_SERVER_ARGS='["--flag"]'` while testing custom server
+builds.
 
 ## Publishing
 

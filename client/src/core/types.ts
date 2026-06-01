@@ -36,7 +36,7 @@ export type ManagedServerMetadata = {
   process_group_id?: number | null;
   command: string;
   command_args: string[];
-  command_source: "local" | "installed";
+  command_source: "env" | "local" | "bundled";
   workspace_root: string;
   data_dir: string;
   log_path: string;
@@ -202,6 +202,7 @@ export type CompactionResult = {
   status: string;
   reason?: string;
   tokens_before?: number;
+  tokens_after?: number;
   messages_before?: number;
   messages_after?: number;
   compacted_messages?: number;

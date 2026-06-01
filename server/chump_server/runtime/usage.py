@@ -22,6 +22,16 @@ def zero_usage_dict() -> dict[str, int]:
     }
 
 
+def context_usage_dict(total_tokens: int) -> dict[str, int]:
+    total = max(0, int(total_tokens))
+    return {
+        "input_tokens": total,
+        "output_tokens": 0,
+        "cached_tokens": 0,
+        "total_tokens": total,
+    }
+
+
 def usage_to_dict(usage: Any) -> dict[str, int] | None:
     if usage is None:
         return None
@@ -71,13 +81,12 @@ def normalize_usage_summary(raw: Any) -> dict[str, Any]:
 
 
 def latest_usage_context_tokens(usage_summary: dict[str, Any]) -> int | None:
-    for key in ("last_step", "current_turn", "last_turn"):
-        value = usage_summary.get(key)
-        if not isinstance(value, dict):
-            continue
-        total = int(value.get("total_tokens", 0) or 0)
-        if total > 0:
-            return total
+    value = usage_summary.get("last_step")
+    if not isinstance(value, dict):
+        return None
+    total = int(value.get("total_tokens", 0) or 0)
+    if total > 0:
+        return total
     return None
 
 

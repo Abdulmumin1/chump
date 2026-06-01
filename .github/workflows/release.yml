@@ -17,6 +17,9 @@ jobs:
     name: npm
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/heads/')
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      tag: ${{ steps.get_version.outputs.tag }}
     permissions:
       contents: write
       pull-requests: write
@@ -51,18 +54,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Bun
-        if: steps.changesets.outputs.published == 'true'
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
-      - name: Build Binaries
-        if: steps.changesets.outputs.published == 'true'
-        run: |
-          cd client
-          bun run build:bin
-
       - name: Get Released Version
         if: steps.changesets.outputs.published == 'true'
         id: get_version
@@ -71,19 +62,76 @@ jobs:
           VERSION=$(echo $PUBLISHED_PACKAGES | jq -r '.[] | select(.name == "chump-agent") | .version')
           echo "tag=chump-agent@$VERSION" >> $GITHUB_OUTPUT
 
+  binaries:
+    name: binaries (${{ matrix.os }})
+    needs: npm
+    if: needs.npm.outputs.published == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-13
+          - os: macos-14
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout ai-query for server build
+        uses: actions/checkout@v4
+        with:
+          repository: Abdulmumin1/ai-query
+          path: ai-query
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server binary
+        run: python server/scripts/build_binary.py
+
+      - name: Build client archive
+        run: pnpm --dir client run build:bin
+
       - name: Upload Release Assets
-        if: steps.changesets.outputs.published == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: client/dist/bin/*
-          tag_name: ${{ steps.get_version.outputs.tag }}
+          files: client/dist/packages/*.tar.gz
+          tag_name: ${{ needs.npm.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   pypi:
     name: PyPI
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/chump-server-v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/chump-server-v')
     permissions:
       id-token: write
       contents: write
@@ -133,3 +181,50 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: server/.release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  server-binaries:
+    name: server binaries (${{ matrix.os }})
+    needs: pypi
+    if: startsWith(github.ref, 'refs/tags/chump-server-v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-13
+          - os: macos-14
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout ai-query for server build
+        uses: actions/checkout@v4
+        with:
+          repository: Abdulmumin1/ai-query
+          path: ai-query
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build server binary
+        run: python server/scripts/build_binary.py
+
+      - name: Upload server binary
+        uses: softprops/action-gh-release@v2
+        with:
+          files: server/dist/bin/chump-server-*
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
