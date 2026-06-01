@@ -573,11 +573,18 @@ install_from_release() {
         exit 1
     fi
 
+    local staged_app staged_server installed_server
+    staged_app="$INSTALL_DIR/.$APP.install-${$}"
+    installed_server="$INSTALL_DIR/$(basename "$server_file")"
+    staged_server="$INSTALL_DIR/.$(basename "$server_file").install-${$}"
+
+    run cp "$package_dir/chump" "$staged_app"
+    run cp "$server_file" "$staged_server"
+    run chmod 755 "$staged_app"
+    run chmod 755 "$staged_server"
+    run mv -f "$staged_app" "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
-    run cp "$package_dir/chump" "$INSTALL_DIR/$APP"
-    run cp "$server_file" "$INSTALL_DIR/$(basename "$server_file")"
-    run chmod 755 "$INSTALL_DIR/$APP"
-    run chmod 755 "$INSTALL_DIR/$(basename "$server_file")"
+    run mv -f "$staged_server" "$installed_server"
     run rm -rf "$extract_dir" "$tmp_file"
 }
 

@@ -99,9 +99,14 @@ if (-not $server) {
     exit 1
 }
 
-Copy-Item "$packageDir\chump.exe" $dest -Force
+$stagedApp = "$destDir\.chump.install-$PID.exe"
+$stagedServer = "$destDir\.$($server.Name).install-$PID"
+
+Copy-Item "$packageDir\chump.exe" $stagedApp -Force
+Copy-Item $server.FullName $stagedServer -Force
+Move-Item $stagedApp $dest -Force
 Get-ChildItem -Path $destDir -Filter "chump-server-*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
-Copy-Item $server.FullName "$destDir\$($server.Name)" -Force
+Move-Item $stagedServer "$destDir\$($server.Name)" -Force
 Remove-Item -Recurse -Force $extractDir
 Remove-Item -Force $archive
 
