@@ -222,6 +222,23 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let connectionCountAtQuit: number | null = null;
   let recoveryPromise: Promise<void> | null = null;
   let localCompactionActive = false;
+
+  const statusValues = new Map<string, string | null>();
+  const setCoordinatedStatus = (source: string, statusText: string | null) => {
+    statusValues.set(source, statusText);
+    const compaction = statusValues.get("compaction");
+    if (compaction) {
+      promptReader.setStatus(compaction);
+      return;
+    }
+    const turn = statusValues.get("turn");
+    if (turn) {
+      promptReader.setStatus(turn);
+      return;
+    }
+    promptReader.setStatus(null);
+  };
+
   const [health, status, sessions] = await Promise.all([
     getHealth(config),
     getStatus(config),
@@ -257,7 +274,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader.setQueuedDisplay(steeringQueueSubmissions(payload));
   });
   const compactionStatus = createActivityStatusController(
-    (status) => promptReader.setStatus(status),
+    (status) => setCoordinatedStatus("compaction", status),
     { label: "Compacting" },
   );
   setCompactionStatusHook((payload) => {
@@ -273,6 +290,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const sharedTurnSync = createSharedTurnSync({
     config: () => config,
     promptReader,
+    setStatus: (status) => setCoordinatedStatus("turn", status),
     withManagedServerRecovery: <T>(
       task: () => Promise<T>,
       options?: { canRetry?: (error: unknown) => boolean },
@@ -398,7 +416,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         shareManager,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
-        setStatus: (statusText) => promptReader.setStatus(statusText),
+        setStatus: (statusText) => setCoordinatedStatus("turn", statusText),
         setLocalCompactionActive: (active) => {
           localCompactionActive = active;
         },
@@ -438,7 +456,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         shareManager,
         metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
-        setStatus: (statusText) => promptReader.setStatus(statusText),
+        setStatus: (statusText) => setCoordinatedStatus("turn", statusText),
         setLocalCompactionActive: (active) => {
           localCompactionActive = active;
         },
@@ -467,7 +485,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
             commandResult.submission,
             liveSync,
             withManagedServerRecovery,
-            (status) => promptReader.setStatus(status),
+            (status) => setCoordinatedStatus("turn", status),
             (handler) => promptReader.setAbortHandler(handler),
             (handler) => {
               activeSteerHandler = handler;
@@ -499,7 +517,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         nextLine,
         liveSync,
         withManagedServerRecovery,
-        (status) => promptReader.setStatus(status),
+        (status) => setCoordinatedStatus("turn", status),
         (handler) => promptReader.setAbortHandler(handler),
         (handler) => {
           activeSteerHandler = handler;
@@ -1153,6 +1171,7 @@ class LiveSyncTracker {
 function createSharedTurnSync(options: {
   config: () => ChumpConfig;
   promptReader: ReturnType<typeof createPromptReader>;
+  setStatus: (status: string | null) => void;
   withManagedServerRecovery: <T>(
     task: () => Promise<T>,
     options?: { canRetry?: (error: unknown) => boolean },
@@ -1175,7 +1194,7 @@ function createSharedTurnSync(options: {
     if (!remoteTurnRunning && status !== null) {
       return;
     }
-    options.promptReader.setStatus(status);
+    options.setStatus(status);
   });
   const remoteSteerHandler = async (submission: PromptSubmission): Promise<boolean> => {
     const result = await options.withManagedServerRecovery(() => steerCurrentTurn(

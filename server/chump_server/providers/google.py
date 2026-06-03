@@ -30,8 +30,12 @@ class ChumpGoogleProvider(GoogleProvider):
                 f"{self.name} provider does not support normalized reasoning fields: {', '.join(sorted(unsupported))}."
             )
 
-        updated, options = self._get_or_create_provider_options_namespace(provider_options)
-        conflicts = [key for key in ["thinking_config", "thinkingConfig"] if key in options]
+        updated, options = self._get_or_create_provider_options_namespace(
+            provider_options
+        )
+        conflicts = [
+            key for key in ["thinking_config", "thinkingConfig"] if key in options
+        ]
         if conflicts:
             self._raise_reasoning_conflict(model=model, conflicting_keys=conflicts)
 
@@ -39,7 +43,7 @@ class ChumpGoogleProvider(GoogleProvider):
         if budget is not None:
             options["thinking_config"] = {
                 "thinking_budget": budget,
-                "include_thoughts": False,
+                "include_thoughts": True,
             }
 
         return updated

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.38
+
+### Patch Changes
+
+- Coordinate CLI prompt status updates so compaction activity is not overwritten by turn-status refreshes.
+
 ## 0.0.37
 
 ### Patch Changes

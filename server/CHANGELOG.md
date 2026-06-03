@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.35
+
+- Request Gemini thought text when normalized reasoning budgets are applied through the Google provider adapter.
+
 ## 0.0.34
 
 - Allow the PyInstaller build script to produce one-folder runtimes for bundled client archives while keeping single-file server release binaries.

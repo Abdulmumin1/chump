@@ -1,7 +1,7 @@
 from chump_server.providers.google import ChumpGoogleProvider
 
 
-def test_google_reasoning_budget_does_not_request_thought_text():
+def test_google_reasoning_budget_requests_thought_text():
     provider = ChumpGoogleProvider(api_key="test-key")
 
     options = provider.apply_reasoning(None, {"budget": 8192}, model="gemini-3.5-flash")
@@ -10,7 +10,7 @@ def test_google_reasoning_budget_does_not_request_thought_text():
         "google": {
             "thinking_config": {
                 "thinking_budget": 8192,
-                "include_thoughts": False,
+                "include_thoughts": True,
             }
         }
     }
