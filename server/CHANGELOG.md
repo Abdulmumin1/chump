@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.36
+
+- Add Cloudflare Workers AI catalog support for Kimi K2.7 Code.
+
 ## 0.0.35
 
 - Request Gemini thought text when normalized reasoning budgets are applied through the Google provider adapter.

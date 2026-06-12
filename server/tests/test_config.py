@@ -68,6 +68,13 @@ def test_normalize_model_name_rejects_cross_provider_model_pair():
         normalize_model_name("deepseek", "@cf/moonshotai/kimi-k2.6")
 
 
+def test_workers_ai_accepts_kimi_k2_7_code():
+    assert (
+        normalize_model_name("workers_ai", "@cf/moonshotai/kimi-k2.7-code")
+        == "@cf/moonshotai/kimi-k2.7-code"
+    )
+
+
 def test_normalize_model_name_uses_provider_default_when_not_strict():
     assert (
         normalize_model_name("deepseek", "@cf/moonshotai/kimi-k2.6", strict=False)

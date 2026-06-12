@@ -100,6 +100,7 @@ PROVIDER_MODELS = {
         "@cf/nvidia/nemotron-3-120b-a12b",
         "@cf/moonshotai/kimi-k2.5",
         "@cf/moonshotai/kimi-k2.6",
+        "@cf/moonshotai/kimi-k2.7-code",
     },
     "deepseek": {
         "deepseek-v4-pro",

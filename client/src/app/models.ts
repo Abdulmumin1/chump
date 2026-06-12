@@ -109,6 +109,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "@cf/nvidia/nemotron-3-120b-a12b",
     "@cf/moonshotai/kimi-k2.5",
     "@cf/moonshotai/kimi-k2.6",
+    "@cf/moonshotai/kimi-k2.7-code",
   ]),
   deepseek: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
   zenmux: new Set([
@@ -601,6 +602,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         name: "Kimi K2.6",
         reasoning: true,
       },
+      "@cf/moonshotai/kimi-k2.7-code": {
+        id: "@cf/moonshotai/kimi-k2.7-code",
+        name: "Kimi K2.7 Code",
+        reasoning: true,
+        limit: { context: 262_144, output: 262_144 },
+      },
     },
   },
   deepseek: {
@@ -1030,6 +1037,7 @@ function modelRank(provider: string, model: string): number {
       "grok-4-fast",
     ],
     workers_ai: [
+      "@cf/moonshotai/kimi-k2.7-code",
       "@cf/moonshotai/kimi-k2.6",
       "@cf/moonshotai/kimi-k2.5",
       "@cf/zai-org/glm-4.7-flash",

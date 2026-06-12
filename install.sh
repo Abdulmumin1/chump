@@ -197,6 +197,13 @@ detect_os() {
     esac
 }
 
+supports_trace_progress() {
+    # Git Bash / MSYS / Cygwin on Windows can mis-handle curl trace output for
+    # binary downloads and dump raw archive bytes into the terminal. Fall back
+    # to curl's native progress bar there.
+    [[ "$(detect_os)" != "windows" ]]
+}
+
 detect_arch() {
     case "$(uname -m)" in
         x86_64|amd64) echo "x64" ;;
@@ -295,6 +302,10 @@ download_with_progress() {
     local tracefile
 
     if [[ ! -t 2 || "${NO_COLOR:-}" == "1" ]]; then
+        return 1
+    fi
+
+    if ! supports_trace_progress; then
         return 1
     fi
 
