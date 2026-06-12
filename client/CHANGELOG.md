@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.0.39
+
+### Patch Changes
+
+- Add Cloudflare Workers AI catalog support for Kimi K2.7 Code.
+
 ## 0.0.38
 
 ### Patch Changes
