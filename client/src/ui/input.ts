@@ -4,7 +4,12 @@ import process, { stdin as input, stdout as output } from "node:process";
 
 import { completeSlashCommand } from "../app/commands.ts";
 import { logClientEvent } from "../app/diagnostics.ts";
-import type { ChatAttachment, ImageAttachment, PromptSubmission } from "../core/types.ts";
+import type {
+  ChatAttachment,
+  FileSearchResult,
+  ImageAttachment,
+  PromptSubmission,
+} from "../core/types.ts";
 import type {
   SessionSummary,
   SlashCommandMenuContext,
@@ -85,6 +90,9 @@ export function createPromptReader(fallbackRl: Interface | null): {
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
   setRuleBadge: (badge: string | null) => void;
+  setFileSearch: (
+    search: ((query: string) => Promise<FileSearchResult[]>) | null,
+  ) => void;
 } {
   if (!input.isTTY) {
     return {
@@ -103,6 +111,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       setStatus: () => {},
       setFooter: () => {},
       setRuleBadge: () => {},
+      setFileSearch: () => {},
     };
   }
 
@@ -127,6 +136,9 @@ function createInteractivePromptReader(): {
   setStatus: (status: string | null) => void;
   setFooter: (footer: string | null) => void;
   setRuleBadge: (badge: string | null) => void;
+  setFileSearch: (
+    search: ((query: string) => Promise<FileSearchResult[]>) | null,
+  ) => void;
 } {
   readline.emitKeypressEvents(input);
   input.setRawMode(true);
@@ -145,6 +157,12 @@ function createInteractivePromptReader(): {
   let skipNextReadPaint = false;
   let closed = false;
   let slashSelection = 0;
+  let fileSelection = 0;
+  let fileSuggestions: FileSearchResult[] = [];
+  let fileSearch: ((query: string) => Promise<FileSearchResult[]>) | null = null;
+  let fileMention: { start: number; end: number; query: string } | null = null;
+  let fileSearchSequence = 0;
+  let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [], skills: [] };
   let abortHandler: (() => void) | null = null;
   let popQueuedLine: (() => void) | null = null;
@@ -243,6 +261,7 @@ function createInteractivePromptReader(): {
     const lines = value.split("\n");
     const target = cursorPosition(value, cursor);
     const slashMenu = getVisibleSlashMenu();
+    const fileMenu = getVisibleFileMenu();
     const inputIndent = " ";
     const columns = terminalColumns();
     const wrapWidth = terminalWrapWidth(columns);
@@ -252,12 +271,13 @@ function createInteractivePromptReader(): {
     const statusRow = escHintActive
       ? (statusBase ? `${statusBase}  ${renderEscHint()}` : renderEscHint())
       : statusBase;
+    const activeMenu = fileMenu.items.length > 0 ? fileMenu : slashMenu;
     const menuLines = renderSlashCommandMenu(
-      slashMenu.items,
-      slashMenu.selectedIndex,
+      activeMenu.items,
+      activeMenu.selectedIndex,
       {
-        hiddenAbove: slashMenu.hiddenAbove,
-        hiddenBelow: slashMenu.hiddenBelow,
+        hiddenAbove: activeMenu.hiddenAbove,
+        hiddenBelow: activeMenu.hiddenBelow,
       },
     );
     const queueLines = queuedDisplay.length > 0
@@ -696,6 +716,7 @@ function createInteractivePromptReader(): {
     value = "";
     cursor = 0;
     attachments = [];
+    closeFileMenu();
     historyIndex = inputHistory.length;
     // When a turn is already running, keep the prompt frame alive while the
     // steering request is in flight because read() will not be re-armed
@@ -723,6 +744,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
+    refreshFileSuggestions();
     forceRedraw = true;
     requestRedraw();
   }
@@ -788,6 +810,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
+    refreshFileSuggestions();
     forceRedraw = true;
     requestRedraw();
   }
@@ -830,6 +853,7 @@ function createInteractivePromptReader(): {
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
+    refreshFileSuggestions();
     forceRedraw = true;
     requestRedraw();
   }
@@ -854,6 +878,7 @@ function createInteractivePromptReader(): {
       return;
     }
     cursor = clampedCursor;
+    refreshFileSuggestions();
     forceRedraw = true;
     requestRedraw();
   }
@@ -888,6 +913,7 @@ function createInteractivePromptReader(): {
     cursor = value.length;
     slashSelection = 0;
     syncSlashSelection();
+    refreshFileSuggestions();
     forceRedraw = true;
     requestRedraw();
   }
@@ -944,6 +970,118 @@ function createInteractivePromptReader(): {
     };
   }
 
+  function getVisibleFileMenu(): {
+    items: SlashCommandSuggestionView[];
+    selectedIndex: number;
+    hiddenAbove: number;
+    hiddenBelow: number;
+    lineCount: number;
+  } {
+    if (!fileMention || fileSuggestions.length === 0) {
+      return {
+        items: [],
+        selectedIndex: 0,
+        hiddenAbove: 0,
+        hiddenBelow: 0,
+        lineCount: 0,
+      };
+    }
+    const maxVisible = 6;
+    const total = fileSuggestions.length;
+    const start = Math.max(
+      0,
+      Math.min(total - maxVisible, fileSelection - Math.floor(maxVisible / 2)),
+    );
+    const end = Math.min(total, start + maxVisible);
+    return {
+      items: fileSuggestions.slice(start, end).map((file) => ({
+        label: file.path,
+        command: `@${file.path}`,
+        description: "",
+        kind: "file",
+      })),
+      selectedIndex: fileSelection - start,
+      hiddenAbove: start,
+      hiddenBelow: total - end,
+      lineCount: end - start,
+    };
+  }
+
+  function refreshFileSuggestions(): void {
+    const beforeCursor = value.slice(0, cursor);
+    const match = beforeCursor.match(/(?:^|\s)@([^\s@]*)$/);
+    if (!match || !fileSearch) {
+      closeFileMenu();
+      return;
+    }
+    const query = match[1] ?? "";
+    fileMention = {
+      start: cursor - query.length - 1,
+      end: cursor,
+      query,
+    };
+    fileSelection = 0;
+    fileSuggestions = [];
+    const sequence = ++fileSearchSequence;
+    const runSearch = fileSearch;
+    if (fileSearchTimer) clearTimeout(fileSearchTimer);
+    fileSearchTimer = setTimeout(() => {
+      fileSearchTimer = null;
+      void runSearch(query)
+        .then((files) => {
+          if (sequence !== fileSearchSequence) return;
+          fileSuggestions = files;
+          fileSelection = 0;
+          forceRedraw = true;
+          requestRedraw();
+        })
+        .catch(() => {
+          if (sequence !== fileSearchSequence) return;
+          fileSuggestions = [];
+          forceRedraw = true;
+          requestRedraw();
+        });
+    }, 400);
+  }
+
+  function closeFileMenu(): void {
+    fileSearchSequence += 1;
+    if (fileSearchTimer) {
+      clearTimeout(fileSearchTimer);
+      fileSearchTimer = null;
+    }
+    fileMention = null;
+    fileSuggestions = [];
+    fileSelection = 0;
+  }
+
+  function moveFileSelection(direction: -1 | 1): boolean {
+    if (!fileMention || fileSuggestions.length === 0) return false;
+    fileSelection =
+      (fileSelection + direction + fileSuggestions.length) %
+      fileSuggestions.length;
+    forceRedraw = true;
+    requestRedraw();
+    return true;
+  }
+
+  function applyFileSelection(): boolean {
+    if (!fileMention) return false;
+    const selected = fileSuggestions[fileSelection];
+    if (!selected) return false;
+    const replacement = `@${selected.path} `;
+    value =
+      value.slice(0, fileMention.start) +
+      replacement +
+      value.slice(fileMention.end);
+    cursor = fileMention.start + replacement.length;
+    historyIndex = inputHistory.length;
+    closeFileMenu();
+    forceRedraw = true;
+    requestRedraw();
+    return true;
+  }
+
   function syncSlashSelection(): void {
     const state = getSlashMenuState();
     if (state.suggestions.length === 0) {
@@ -991,6 +1129,9 @@ function createInteractivePromptReader(): {
   }
 
   function moveVertical(direction: -1 | 1): void {
+    if (moveFileSelection(direction)) {
+      return;
+    }
     if (moveSlashSelection(direction)) {
       return;
     }
@@ -1106,6 +1247,12 @@ function createInteractivePromptReader(): {
     }
 
     if (sequence === "\x1b") {
+      if (fileMention) {
+        closeFileMenu();
+        forceRedraw = true;
+        requestRedraw();
+        return;
+      }
       const now = Date.now();
       if (abortHandler && now - lastEscapeAt <= 600) {
         lastEscapeAt = 0;
@@ -1149,6 +1296,9 @@ function createInteractivePromptReader(): {
     }
 
     if (sequence === "\t") {
+      if (applyFileSelection()) {
+        return;
+      }
       if (!value.includes("\n") && value.startsWith("/")) {
         if (!applySlashSelection(false)) {
           moveSlashSelection(1);
@@ -1221,6 +1371,9 @@ function createInteractivePromptReader(): {
     }
 
     if (sequence === "\r") {
+      if (applyFileSelection()) {
+        return;
+      }
       if (value.startsWith("/") && applySlashSelection(true)) {
         return;
       }
@@ -1273,6 +1426,7 @@ function createInteractivePromptReader(): {
         attachments = [];
         nextImageNumber = 1;
         slashSelection = 0;
+        closeFileMenu();
         historyIndex = inputHistory.length;
         pendingResolve = resolve;
         forceRedraw = true;
@@ -1299,6 +1453,7 @@ function createInteractivePromptReader(): {
         escHintTimer = null;
       }
       cancelSoftRedraw();
+      closeFileMenu();
       stdinBuffer.destroy();
       const resolve = pendingResolve;
       pendingResolve = null;
@@ -1402,6 +1557,10 @@ function createInteractivePromptReader(): {
         return;
       }
       softRequestRedraw();
+    },
+    setFileSearch(search) {
+      fileSearch = search;
+      refreshFileSuggestions();
     },
   };
 }

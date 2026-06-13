@@ -14,6 +14,7 @@ import {
   getStatus,
   setModel,
   setReasoning,
+  searchFiles,
   steerCurrentTurn,
   streamChat,
 } from "../api/http.ts";
@@ -213,6 +214,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   const fallbackRl = input.isTTY ? null : createInterface({ input, output });
   const promptReader = createPromptReader(fallbackRl);
+  promptReader.setFileSearch((query) => searchFiles(config, query, 20));
   const lineQueue = new AsyncLineQueue();
   const liveSync = new LiveSyncTracker();
   const shareManager = new ShareManager();

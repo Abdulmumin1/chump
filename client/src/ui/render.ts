@@ -1177,7 +1177,7 @@ export function renderSlashCommandMenu(
   items: Array<{
     label: string;
     description: string;
-    kind?: "model" | "session" | "skill" | "command";
+    kind?: "model" | "session" | "skill" | "command" | "file";
     columns?: {
       updated: string;
       created: string;
@@ -1195,10 +1195,15 @@ export function renderSlashCommandMenu(
   const terminalCols = process.stdout.columns ?? 80;
   const width = Math.max(20, terminalCols - 1);
   const hasModelItems = items.some((item) => item.kind === "model");
+  const hasFileItems = items.some((item) => item.kind === "file");
   const commandWidth = Math.max(
     12,
     Math.min(
-      hasModelItems ? Math.max(28, width - 18) : 18,
+      hasFileItems
+        ? width
+        : hasModelItems
+          ? Math.max(28, width - 18)
+          : 18,
       items.reduce((max, item) => Math.max(max, item.label.length), 0) + 2,
     ),
   );
@@ -1274,7 +1279,7 @@ function renderSlashCommandMenuItem(
   width: number,
   commandWidth: number,
 ): string {
-  const gap = "    ";
+  const gap = description ? "    " : "";
   const commandText = clipPlain(command, commandWidth).padEnd(
     commandWidth,
     " ",

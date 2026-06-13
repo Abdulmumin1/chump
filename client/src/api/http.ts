@@ -8,6 +8,7 @@ import type {
   ChumpStatus,
   CompactionResult,
   ChatAttachment,
+  FileSearchResult,
   SessionsResponse,
 } from "../core/types.ts";
 import { consumeSse } from "./sse.ts";
@@ -84,6 +85,22 @@ export async function getSessions(
     throw new Error(await readErrorResponse(response));
   }
   return (await response.json()) as SessionsResponse;
+}
+
+export async function searchFiles(
+  config: ChumpConfig,
+  query: string,
+  limit = 20,
+): Promise<FileSearchResult[]> {
+  const url = new URL(`${config.serverUrl}/files`);
+  url.searchParams.set("query", query);
+  url.searchParams.set("limit", String(limit));
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(await readErrorResponse(response));
+  }
+  const result = (await response.json()) as { files?: FileSearchResult[] };
+  return result.files ?? [];
 }
 
 export async function clearMessages(

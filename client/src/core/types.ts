@@ -133,6 +133,12 @@ export type PromptSubmission = {
   attachments: ChatAttachment[];
 };
 
+export type FileSearchResult = {
+  path: string;
+  name: string;
+  score: number;
+};
+
 export type SteeringQueueItem = {
   content: string;
   display_content?: string;
@@ -271,7 +277,7 @@ export type SlashCommandSuggestionView = {
     created: string;
     conversation: string;
   };
-  kind?: "model" | "session" | "skill" | "command";
+  kind?: "model" | "session" | "skill" | "command" | "file";
 };
 
 export type SlashCommand =
