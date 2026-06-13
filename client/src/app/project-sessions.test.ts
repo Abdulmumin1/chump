@@ -57,6 +57,37 @@ test("returns null for unknown projects and rejects invalid runtime responses", 
   );
 });
 
+test("forwards session requests only to the selected project runtime", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const runtimes = {
+    start: async (projectId: string) => ({
+      projectId,
+      status: "running",
+      serverUrl: `http://127.0.0.1/${projectId}`,
+      pid: 123,
+    }),
+  } as unknown as ProjectRuntimeSupervisor;
+  const router = new ProjectSessionRouter(runtimes, {
+    fetch: async (input, init) => {
+      requests.push({ url: String(input), init });
+      return Response.json({ state: { workspace_root: "/workspace" } });
+    },
+  });
+
+  const response = await router.request("project-one", "session/one", {
+    method: "GET",
+    path: "state",
+    query: "?detail=full",
+  });
+
+  assert.equal(response?.status, 200);
+  assert.equal(
+    requests[0]?.url,
+    "http://127.0.0.1/project-one/agent/session%2Fone/state?detail=full",
+  );
+  assert.equal(requests[0]?.init?.method, "GET");
+});
+
 function session(id: string) {
   return {
     id,

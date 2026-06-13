@@ -259,6 +259,48 @@ async function handleRequest(
       return;
     }
 
+    const sessionRouteMatch =
+      /^\/projects\/([^/]+)\/sessions\/([^/]+)\/(state|messages|action\/[^/]+)$/
+        .exec(url.pathname);
+    if (sessionRouteMatch) {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+      const projectId = decodeURIComponent(sessionRouteMatch[1]!);
+      const sessionId = decodeURIComponent(sessionRouteMatch[2]!);
+      const route = sessionRouteMatch[3]!;
+      const allowedMethods =
+        route === "state" || route === "messages"
+          ? ["GET"]
+          : ["POST"];
+      if (!allowedMethods.includes(method)) {
+        sendMethodNotAllowed(response, allowedMethods);
+        return;
+      }
+      const body =
+        method === "GET"
+          ? undefined
+          : Buffer.from(await readBody(request)).toString("utf8");
+      const upstream = await context.sessionRouter.request(
+        projectId,
+        sessionId,
+        {
+          method,
+          path: route as "state" | "messages" | `action/${string}`,
+          query: url.search,
+          headers: forwardedRequestHeaders(request),
+          body,
+        },
+      );
+      if (!upstream) {
+        sendJson(response, 404, { error: "project_not_found" });
+        return;
+      }
+      await sendUpstreamResponse(response, upstream);
+      return;
+    }
+
     sendJson(response, 404, { error: "not_found" });
   } catch (error) {
     if (error instanceof RequestError) {
@@ -276,6 +318,15 @@ async function handleRequest(
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const body = await readBody(request);
+  try {
+    return JSON.parse(Buffer.from(body).toString("utf8"));
+  } catch {
+    throw new RequestError(400, "invalid_json", "request body must be valid JSON");
+  }
+}
+
+async function readBody(request: IncomingMessage): Promise<Uint8Array> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
@@ -286,11 +337,7 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
     }
     chunks.push(buffer);
   }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new RequestError(400, "invalid_json", "request body must be valid JSON");
-  }
+  return Buffer.concat(chunks);
 }
 
 function isAllowedBrowserOrigin(origin: string): boolean {
@@ -308,6 +355,30 @@ function isAllowedBrowserOrigin(origin: string): boolean {
 function setCorsHeaders(response: ServerResponse, origin: string): void {
   response.setHeader("access-control-allow-origin", origin);
   response.setHeader("vary", "Origin");
+}
+
+function forwardedRequestHeaders(
+  request: IncomingMessage,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const name of ["accept", "content-type", "last-event-id"]) {
+    const value = request.headers[name];
+    if (typeof value === "string") headers[name] = value;
+  }
+  return headers;
+}
+
+async function sendUpstreamResponse(
+  response: ServerResponse,
+  upstream: Response,
+): Promise<void> {
+  response.statusCode = upstream.status;
+  for (const name of ["content-type", "cache-control"]) {
+    const value = upstream.headers.get(name);
+    if (value) response.setHeader(name, value);
+  }
+  const body = new Uint8Array(await upstream.arrayBuffer());
+  response.end(body);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

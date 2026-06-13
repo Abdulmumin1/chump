@@ -318,6 +318,88 @@ test("lists sessions for a selected project through the daemon", async (t) => {
   });
 });
 
+test("forwards project session state, messages, and actions", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath);
+  const forwarded: Array<{
+    projectId: string;
+    sessionId: string;
+    method: string;
+    path: string;
+    body?: string;
+  }> = [];
+  const sessionRouter = {
+    request: async (
+      projectId: string,
+      sessionId: string,
+      request: {
+        method: string;
+        path: string;
+        body?: string;
+      },
+    ) => {
+      forwarded.push({
+        projectId,
+        sessionId,
+        method: request.method,
+        path: request.path,
+        body: request.body,
+      });
+      return Response.json({ ok: true });
+    },
+  } as unknown as ProjectSessionRouter;
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    sessionRouter,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+  const headers = {
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+  };
+  const base =
+    `${daemon.url}/projects/${project.id}/sessions/session-one`;
+
+  for (const path of ["state", "messages"]) {
+    const response = await fetch(`${base}/${path}`, { headers });
+    assert.equal(response.status, 200);
+  }
+  const actionResponse = await fetch(`${base}/action/status`, {
+    method: "POST",
+    headers,
+    body: "{}",
+  });
+  assert.equal(actionResponse.status, 200);
+  assert.deepEqual(forwarded, [
+    {
+      projectId: project.id,
+      sessionId: "session-one",
+      method: "GET",
+      path: "state",
+      body: undefined,
+    },
+    {
+      projectId: project.id,
+      sessionId: "session-one",
+      method: "GET",
+      path: "messages",
+      body: undefined,
+    },
+    {
+      projectId: project.id,
+      sessionId: "session-one",
+      method: "POST",
+      path: "action/status",
+      body: "{}",
+    },
+  ]);
+});
+
 async function createFixture(): Promise<{
   workspacePath: string;
   registryPath: string;

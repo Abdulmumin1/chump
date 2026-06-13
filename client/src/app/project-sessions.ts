@@ -13,22 +13,31 @@ export type ProjectSessionDependencies = {
   ) => Promise<Response>;
 };
 
+export type SessionRequest = {
+  method: string;
+  path: "state" | "messages" | `action/${string}`;
+  query?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  signal?: AbortSignal;
+};
+
 export class ProjectSessionRouter {
   private readonly runtimes: ProjectRuntimeSupervisor;
-  private readonly request;
+  private readonly fetchRequest;
 
   constructor(
     runtimes: ProjectRuntimeSupervisor,
     dependencies: ProjectSessionDependencies = {},
   ) {
     this.runtimes = runtimes;
-    this.request = dependencies.fetch ?? fetch;
+    this.fetchRequest = dependencies.fetch ?? fetch;
   }
 
   async list(projectId: string): Promise<ProjectSessions | null> {
     const runtime = await this.runtimes.start(projectId);
     if (!runtime?.serverUrl) return null;
-    const response = await this.request(`${runtime.serverUrl}/sessions`);
+    const response = await this.fetchRequest(`${runtime.serverUrl}/sessions`);
     if (!response.ok) {
       throw new Error(`project session request failed with ${response.status}`);
     }
@@ -40,6 +49,26 @@ export class ProjectSessionRouter {
       projectId,
       sessions: body.sessions,
     };
+  }
+
+  async request(
+    projectId: string,
+    sessionId: string,
+    request: SessionRequest,
+  ): Promise<Response | null> {
+    const runtime = await this.runtimes.start(projectId);
+    if (!runtime?.serverUrl) return null;
+    const sessionPath = encodeURIComponent(sessionId);
+    const target = new URL(
+      `${runtime.serverUrl}/agent/${sessionPath}/${request.path}`,
+    );
+    if (request.query) target.search = request.query;
+    return await this.fetchRequest(target, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      signal: request.signal,
+    });
   }
 }
 
