@@ -52,6 +52,7 @@
     } from "$lib/models";
     import {
         createDaemonProjectSession,
+        discoverLocalDaemon,
         listDaemonProjects,
         normalizeDaemonConnection,
         startDaemonProject,
@@ -733,8 +734,21 @@
             sessionStorage.getItem("chump:active-project") ?? "";
         if (daemonUrl && daemonToken) {
             void connectToDaemon();
-        } else if (serverUrl.trim()) {
-            void sessionController.connectToServer();
+        } else {
+            void discoverLocalDaemon()
+                .then((connection) => {
+                    if (connection) {
+                        daemonUrl = connection.url;
+                        daemonToken = connection.token;
+                        return connectToDaemon();
+                    }
+                    if (serverUrl.trim()) {
+                        return sessionController.connectToServer();
+                    }
+                })
+                .catch((error) => {
+                    connectionError = toErrorMessage(error);
+                });
         }
 
         return () => {

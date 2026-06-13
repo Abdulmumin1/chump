@@ -29,6 +29,30 @@ export type DaemonConnection = {
     token: string;
 };
 
+export async function discoverLocalDaemon(): Promise<DaemonConnection | null> {
+    const response = await fetch("/api/local-daemon/bootstrap", {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+    });
+    if (response.status === 404) {
+        return null;
+    }
+    if (!response.ok) {
+        throw new Error(`daemon discovery failed with ${response.status}`);
+    }
+    const connection = (await response.json()) as Partial<DaemonConnection>;
+    if (
+        typeof connection.url !== "string" ||
+        typeof connection.token !== "string"
+    ) {
+        throw new Error("daemon discovery returned an invalid connection");
+    }
+    return normalizeDaemonConnection({
+        url: connection.url,
+        token: connection.token,
+    });
+}
+
 export async function listDaemonProjects(
     connection: DaemonConnection,
 ): Promise<DaemonProject[]> {
