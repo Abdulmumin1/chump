@@ -13,6 +13,7 @@ test("global state can be isolated from workspace server state", () => {
   try {
     const paths = getGlobalStatePaths();
     assert.equal(paths.dataDir, path.resolve("./tmp/global-state"));
+    assert.equal(paths.daemonAuthPath, path.resolve("./tmp/global-state/daemon-auth.json"));
     assert.equal(paths.daemonMetadataPath, path.resolve("./tmp/global-state/daemon.json"));
     assert.equal(paths.daemonLockDir, path.resolve("./tmp/global-state/daemon.lock"));
     assert.equal(paths.daemonLogPath, path.resolve("./tmp/global-state/daemon.log"));

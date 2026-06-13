@@ -18,6 +18,7 @@ test("publishes metadata and removes it after shutdown", async () => {
     pid: 123,
     version: "test-version",
     startedAt: "2026-06-13T00:00:00.000Z",
+    authToken: "test-token-that-is-long-enough-for-auth",
   });
 
   assert.deepEqual(await metadataStore.read(), daemon.metadata);
@@ -37,6 +38,7 @@ test("does not remove metadata replaced by another daemon", async () => {
   const daemon = await startDaemon({
     metadataStore,
     pid: 123,
+    authToken: "test-token-that-is-long-enough-for-auth",
   });
   const replacement = {
     ...daemon.metadata,

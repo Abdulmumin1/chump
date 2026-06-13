@@ -18,6 +18,7 @@ test("serves health and projects from a loopback-only server", async (t) => {
     projectStore: store,
     version: "test-version",
     now: () => 1_000,
+    authToken: "test-token-that-is-long-enough-for-auth",
   });
   t.after(() => daemon.close());
 
@@ -33,7 +34,14 @@ test("serves health and projects from a loopback-only server", async (t) => {
   assert.equal(health.version, "test-version");
   assert.equal(health.protocolVersion, 1);
 
-  const projectsResponse = await fetch(`${daemon.url}/projects`);
+  const unauthorizedResponse = await fetch(`${daemon.url}/projects`);
+  assert.equal(unauthorizedResponse.status, 401);
+
+  const projectsResponse = await fetch(`${daemon.url}/projects`, {
+    headers: {
+      authorization: "Bearer test-token-that-is-long-enough-for-auth",
+    },
+  });
   assert.equal(projectsResponse.status, 200);
   assert.deepEqual(await projectsResponse.json(), { projects: [project] });
 });
@@ -44,11 +52,15 @@ test("rejects unsupported methods and unknown routes", async (t) => {
     projectStore: new ProjectRegistryStore({
       registryPath: fixture.registryPath,
     }),
+    authToken: "test-token-that-is-long-enough-for-auth",
   });
   t.after(() => daemon.close());
 
   const methodResponse = await fetch(`${daemon.url}/projects`, {
     method: "POST",
+    headers: {
+      authorization: "Bearer test-token-that-is-long-enough-for-auth",
+    },
   });
   assert.equal(methodResponse.status, 405);
   assert.equal(methodResponse.headers.get("allow"), "GET");

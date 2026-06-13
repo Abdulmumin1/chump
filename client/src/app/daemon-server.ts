@@ -6,6 +6,7 @@ import {
 } from "node:http";
 
 import { currentClientVersion } from "./update.ts";
+import { authorizeBearerHeader, DaemonAuthStore } from "./daemon-auth.ts";
 import { DAEMON_PROTOCOL_VERSION } from "./daemon-metadata.ts";
 import { ProjectRegistryStore } from "./projects.ts";
 
@@ -16,6 +17,7 @@ export type DaemonServerOptions = {
   projectStore?: ProjectRegistryStore;
   version?: string;
   now?: () => number;
+  authToken?: string;
 };
 
 export type RunningDaemonServer = {
@@ -31,11 +33,13 @@ export async function startDaemonServer(
   const projectStore = options.projectStore ?? new ProjectRegistryStore();
   const version = options.version ?? currentClientVersion();
   const startedAt = options.now?.() ?? Date.now();
+  const authToken = options.authToken ?? await new DaemonAuthStore().getOrCreateToken();
   const server = createServer((request, response) => {
     void handleRequest(request, response, {
       projectStore,
       version,
       startedAt,
+      authToken,
     });
   });
 
@@ -58,6 +62,7 @@ type RequestContext = {
   projectStore: ProjectRegistryStore;
   version: string;
   startedAt: number;
+  authToken: string;
 };
 
 async function handleRequest(
@@ -85,6 +90,10 @@ async function handleRequest(
     }
 
     if (url.pathname === "/projects") {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
       if (method !== "GET") {
         sendMethodNotAllowed(response, ["GET"]);
         return;

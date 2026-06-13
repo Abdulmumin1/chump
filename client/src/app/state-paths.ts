@@ -21,6 +21,7 @@ export type WorkspaceStatePaths = {
 
 export type GlobalStatePaths = {
   dataDir: string;
+  daemonAuthPath: string;
   daemonMetadataPath: string;
   daemonLockDir: string;
   daemonLogPath: string;
@@ -34,6 +35,7 @@ export function getGlobalStatePaths(): GlobalStatePaths {
   mkdirSync(dataDir, { recursive: true });
   return {
     dataDir,
+    daemonAuthPath: path.join(dataDir, "daemon-auth.json"),
     daemonMetadataPath: path.join(dataDir, "daemon.json"),
     daemonLockDir: path.join(dataDir, "daemon.lock"),
     daemonLogPath: path.join(dataDir, "daemon.log"),
