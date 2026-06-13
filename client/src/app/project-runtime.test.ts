@@ -50,6 +50,36 @@ test("starts, reports, and stops a registered project runtime", async () => {
   assert.equal(await supervisor.start("missing"), null);
 });
 
+test("stops every running registered project", async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-"));
+  const projects = new ProjectRegistryStore({
+    registryPath: path.join(rootPath, "projects.json"),
+  });
+  const runningPaths = new Set<string>();
+  for (const name of ["one", "two", "three"]) {
+    const workspacePath = path.join(rootPath, name);
+    await mkdir(workspacePath);
+    const project = await projects.register(workspacePath);
+    if (name !== "two") runningPaths.add(project.workspacePath);
+  }
+  const stopped: string[] = [];
+  const supervisor = new ProjectRuntimeSupervisor(projects, {
+    readServer: async (workspacePath) =>
+      runningPaths.has(workspacePath) ? createMetadata(workspacePath) : null,
+    stopServer: async (workspacePath) => {
+      stopped.push(workspacePath);
+      return "stopped";
+    },
+  });
+
+  await supervisor.stopAll();
+
+  assert.deepEqual(
+    stopped.map((item) => path.basename(item)).sort(),
+    ["one", "three"],
+  );
+});
+
 function createMetadata(workspaceRoot: string): ManagedServerMetadata {
   return {
     url: "http://127.0.0.1:9000",

@@ -60,6 +60,22 @@ export class ProjectRuntimeSupervisor {
     await this.stopServer(project.workspacePath);
     return stoppedRuntime(projectId);
   }
+
+  async stopAll(): Promise<void> {
+    const projects = await this.projects.list();
+    const results = await Promise.allSettled(
+      projects.map(async (project) => {
+        const metadata = await this.readServer(project.workspacePath);
+        if (metadata) {
+          await this.stopServer(project.workspacePath);
+        }
+      }),
+    );
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure) throw failure.reason;
+  }
 }
 
 function runtimeFromMetadata(

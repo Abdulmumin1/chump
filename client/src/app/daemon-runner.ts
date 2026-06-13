@@ -4,6 +4,8 @@ import {
   type DaemonServerOptions,
   type RunningDaemonServer,
 } from "./daemon-server.ts";
+import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
+import { ProjectRegistryStore } from "./projects.ts";
 
 export type DaemonRunnerOptions = DaemonServerOptions & {
   metadataStore?: DaemonMetadataStore;
@@ -20,7 +22,14 @@ export async function startDaemon(
   options: DaemonRunnerOptions = {},
 ): Promise<RunningDaemon> {
   const metadataStore = options.metadataStore ?? new DaemonMetadataStore();
-  const server = await startDaemonServer(options);
+  const projectStore = options.projectStore ?? new ProjectRegistryStore();
+  const runtimeSupervisor =
+    options.runtimeSupervisor ?? new ProjectRuntimeSupervisor(projectStore);
+  const server = await startDaemonServer({
+    ...options,
+    projectStore,
+    runtimeSupervisor,
+  });
   const metadata = createDaemonMetadata(
     options.pid ?? process.pid,
     server.port,
@@ -38,7 +47,12 @@ export async function startDaemon(
   return {
     metadata,
     close() {
-      closePromise ??= closeDaemon(server, metadataStore, metadata.pid);
+      closePromise ??= closeDaemon(
+        server,
+        runtimeSupervisor,
+        metadataStore,
+        metadata.pid,
+      );
       return closePromise;
     },
   };
@@ -46,6 +60,7 @@ export async function startDaemon(
 
 async function closeDaemon(
   server: RunningDaemonServer,
+  runtimeSupervisor: ProjectRuntimeSupervisor,
   metadataStore: DaemonMetadataStore,
   pid: number,
 ): Promise<void> {
@@ -54,6 +69,12 @@ async function closeDaemon(
     await server.close();
   } catch (error) {
     serverError = error;
+  }
+
+  try {
+    await runtimeSupervisor.stopAll();
+  } catch (error) {
+    serverError ??= error;
   }
 
   await metadataStore.clear(pid);

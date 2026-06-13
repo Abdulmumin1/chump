@@ -15,6 +15,7 @@ import type {
 } from "../core/types.ts";
 import { getWorkspaceStatePaths } from "./state-paths.ts";
 import { getResolvedConfig } from "./config.ts";
+import { ensureDaemonProjectTarget } from "./daemon-client.ts";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
@@ -199,6 +200,38 @@ export async function ensureServerTarget(
     };
   }
 
+  const envServerUrl = process.env.CHUMP_SERVER_URL;
+  if (envServerUrl) {
+    await assertServerHealthy(envServerUrl);
+    return {
+      serverUrl: envServerUrl,
+      serverSource: "direct",
+      note: null,
+      metadata: null,
+    };
+  }
+
+  if (options.autoStartServer) {
+    try {
+      const daemonTarget = await ensureDaemonProjectTarget(workspaceRoot);
+      return {
+        serverUrl: daemonTarget.runtime.serverUrl,
+        serverSource: "managed",
+        note: `connected through daemon at ${daemonTarget.daemon.url}`,
+        metadata: null,
+      };
+    } catch (error) {
+      const started = await ensureManagedServer(workspaceRoot);
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        serverUrl: started.metadata.url,
+        serverSource: "managed",
+        note: `daemon unavailable (${reason}); using local server at ${started.metadata.url}`,
+        metadata: started.metadata,
+      };
+    }
+  }
+
   const metadata = await readManagedServerMetadata(workspaceRoot);
   if (metadata && await isServerHealthy(metadata.url)) {
     if (!(await managedServerIsReusable(metadata, workspaceRoot))) {
@@ -227,17 +260,6 @@ export async function ensureServerTarget(
     };
   }
 
-  const envServerUrl = process.env.CHUMP_SERVER_URL;
-  if (envServerUrl) {
-    await assertServerHealthy(envServerUrl);
-    return {
-      serverUrl: envServerUrl,
-      serverSource: "direct",
-      note: null,
-      metadata: null,
-    };
-  }
-
   if (!options.autoStartServer) {
     const fallbackUrl = metadata?.url ?? DEFAULT_SERVER_URL;
     await assertServerHealthy(fallbackUrl);
@@ -249,13 +271,7 @@ export async function ensureServerTarget(
     };
   }
 
-  const started = await ensureManagedServer(workspaceRoot);
-  return {
-    serverUrl: started.metadata.url,
-    serverSource: "managed",
-    note: started.started ? `started local server at ${started.metadata.url}` : `reusing local server at ${started.metadata.url}`,
-    metadata: started.metadata,
-  };
+  throw new Error("unreachable server target state");
 }
 
 export async function recoverManagedServer(
