@@ -234,3 +234,9 @@ export type ChatAttachment = {
 	mime: string;
 	data: string;
 };
+
+export type FileSearchResult = {
+	path: string;
+	name: string;
+	score: number;
+};

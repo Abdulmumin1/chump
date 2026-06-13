@@ -19,11 +19,12 @@ from .bash import bind_bash
 from .web_fetch import bind_web_fetch
 from .website import bind_website
 from .skill import bind_skill
+from .search import bind_search
 
 MAX_CHANGE_RECORDS = 200
 
 
-def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
+def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
     guard = WorkspaceGuard(config.workspace_root)
 
     def log(message: str) -> None:
@@ -207,6 +208,7 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
         )
         or "- none",
     )
+    search_tool = bind_search(search=search, wrap_tool=wrap_tool)
 
     return {
         "read_file": read_file,
@@ -215,5 +217,6 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog):
         "skill": skill,
         "web_fetch": web_fetch,
         "website": website,
+        "search": search_tool,
         "bash": bash,
     }

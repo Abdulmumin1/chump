@@ -48,6 +48,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
     enable_event_log = True
     _server_config: ChumpConfig | None = None
     _server_resources: ResourceCatalog | None = None
+    _server_search: Any = None
 
     @classmethod
     def configure(cls, config: ChumpConfig, resources: ResourceCatalog) -> None:
@@ -85,7 +86,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
         self._config = config
         self._resources = resources
-        self.tools = build_tools(self, config, resources)
+        self.tools = build_tools(self, config, resources, self._server_search)
         self._last_step_records: list[dict[str, Any]] = []
         self._current_turn: AgentTurn | None = None
         self._pending_steering_events: list[dict[str, Any]] = []

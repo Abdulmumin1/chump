@@ -757,6 +757,7 @@
         {#if health}
             <ChatComposer
                 bind:composerText
+                {serverUrl}
                 bind:composerAttachments
                 {canSend}
                 {isSending}

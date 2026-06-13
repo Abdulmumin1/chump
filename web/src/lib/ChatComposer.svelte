@@ -4,6 +4,7 @@
     import CommandMenu from "$lib/CommandMenu.svelte";
     import AttachmentTray from "$lib/chat/composer/AttachmentTray.svelte";
     import CommandSuggestions from "$lib/chat/composer/CommandSuggestions.svelte";
+    import FileSuggestions from "$lib/chat/composer/FileSuggestions.svelte";
     import ComposerMetaBar from "$lib/chat/composer/ComposerMetaBar.svelte";
     import QueuedSteeringList from "$lib/chat/composer/QueuedSteeringList.svelte";
     import {
@@ -18,6 +19,8 @@
     import { shortenModel } from "$lib/chat/helpers";
     import type { SteeringQueueItem } from "$lib/chat/types";
     import type { ChatAttachment } from "$lib/chump/types";
+    import type { FileSearchResult } from "$lib/chump/types";
+    import { searchFiles } from "$lib/chump/api";
     import type { ModelChoice } from "$lib/models";
 
     let {
@@ -29,6 +32,7 @@
         models = [],
         currentModel = "",
         workspaceRoot = "",
+        serverUrl = "",
         gitBranch = "",
         currentProvider = "",
         reasoningInfo = null,
@@ -51,6 +55,7 @@
         currentModel: string;
         currentProvider: string;
         workspaceRoot: string;
+        serverUrl: string;
         gitBranch: string;
         reasoningInfo: { effort: string | null; budget: number | null } | null;
         contextUsageLabel: string | null;
@@ -70,11 +75,17 @@
     let menuOpen = $state(false);
     let isDraggingOver = $state(false);
     let dragCounter = 0;
+    let fileSuggestions = $state<FileSearchResult[]>([]);
+    let fileMenuOpen = $state(false);
+    let fileSearchLoading = $state(false);
+    let mentionRange = $state<{ start: number; end: number } | null>(null);
+    let searchSequence = 0;
 
     const suggestions = $derived(
         buildComposerSuggestions(composerText, models, currentProvider),
     );
     const visible = $derived(suggestions.length > 0 && menuOpen);
+    const fileVisible = $derived(fileMenuOpen && mentionRange !== null);
     const isCommand = $derived(composerText.trim().startsWith("/"));
     const currentThinking = $derived(reasoningInfo?.effort ?? "");
     const hasAttachments = $derived(composerAttachments.length > 0);
@@ -159,6 +170,39 @@
     }
 
     function handleKeydown(event: KeyboardEvent) {
+        if (fileVisible) {
+            switch (event.key) {
+                case "ArrowDown":
+                    event.preventDefault();
+                    if (fileSuggestions.length > 0) {
+                        selectedIndex =
+                            (selectedIndex + 1) % fileSuggestions.length;
+                        scrollSelectedIntoView();
+                    }
+                    return;
+                case "ArrowUp":
+                    event.preventDefault();
+                    if (fileSuggestions.length > 0) {
+                        selectedIndex =
+                            (selectedIndex - 1 + fileSuggestions.length) %
+                            fileSuggestions.length;
+                        scrollSelectedIntoView();
+                    }
+                    return;
+                case "Enter":
+                case "Tab":
+                    if (fileSuggestions[selectedIndex]) {
+                        event.preventDefault();
+                        acceptFileSuggestion(fileSuggestions[selectedIndex]);
+                    }
+                    return;
+                case "Escape":
+                    event.preventDefault();
+                    closeFileMenu();
+                    return;
+            }
+        }
+
         if (!visible) {
             if (event.key === "/" && !composerText) {
                 menuOpen = true;
@@ -256,12 +300,71 @@
     }
 
     function handleInput() {
+        updateFileSuggestions();
         if (!composerText.startsWith("/")) {
             menuOpen = false;
             return;
         }
         menuOpen = true;
         selectedIndex = 0;
+    }
+
+    function updateFileSuggestions() {
+        const cursor = textareaElement?.selectionStart ?? composerText.length;
+        const beforeCursor = composerText.slice(0, cursor);
+        const match = beforeCursor.match(/(?:^|\s)@([^\s@]*)$/);
+        if (!match || !serverUrl) {
+            closeFileMenu();
+            return;
+        }
+
+        const query = match[1] ?? "";
+        mentionRange = {
+            start: cursor - query.length - 1,
+            end: cursor,
+        };
+        fileMenuOpen = true;
+        menuOpen = false;
+        selectedIndex = 0;
+        const sequence = ++searchSequence;
+        fileSearchLoading = true;
+        void searchFiles(serverUrl, query, 20)
+            .then((files) => {
+                if (sequence !== searchSequence) return;
+                fileSuggestions = files;
+            })
+            .catch(() => {
+                if (sequence !== searchSequence) return;
+                fileSuggestions = [];
+            })
+            .finally(() => {
+                if (sequence === searchSequence) {
+                    fileSearchLoading = false;
+                }
+            });
+    }
+
+    function acceptFileSuggestion(file: FileSearchResult) {
+        if (!mentionRange) return;
+        const replacement = `@${file.path} `;
+        composerText =
+            composerText.slice(0, mentionRange.start) +
+            replacement +
+            composerText.slice(mentionRange.end);
+        const cursor = mentionRange.start + replacement.length;
+        closeFileMenu();
+        void tick().then(() => {
+            textareaElement?.focus();
+            textareaElement?.setSelectionRange(cursor, cursor);
+        });
+    }
+
+    function closeFileMenu() {
+        searchSequence += 1;
+        fileMenuOpen = false;
+        fileSearchLoading = false;
+        mentionRange = null;
+        fileSuggestions = [];
     }
 </script>
 
@@ -468,6 +571,14 @@
             {suggestions}
             {selectedIndex}
             onSelect={acceptSuggestion}
+        />
+    {/if}
+    {#if fileVisible}
+        <FileSuggestions
+            files={fileSuggestions}
+            selectedIndex={selectedIndex}
+            loading={fileSearchLoading}
+            onSelect={acceptFileSuggestion}
         />
     {/if}
 </div>

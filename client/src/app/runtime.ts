@@ -444,6 +444,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
         CHUMP_WORKSPACE_ROOT: workspaceRoot,
         CHUMP_STATE_DIR: paths.dataDir,
         CHUMP_AUTH_FILE: globalAuthFilePath(),
+        CHUMP_FFF_COMMAND: fffSearchCommand(),
         CHUMP_HOST: "127.0.0.1",
         CHUMP_PORT: String(port),
       },
@@ -517,6 +518,7 @@ async function spawnManagedServer(
         CHUMP_WORKSPACE_ROOT: workspaceRoot,
         CHUMP_STATE_DIR: paths.dataDir,
         CHUMP_AUTH_FILE: globalAuthFilePath(),
+        CHUMP_FFF_COMMAND: fffSearchCommand(),
         CHUMP_HOST: "127.0.0.1",
         CHUMP_PORT: String(port),
         CHUMP_MANAGED_SERVER_IDLE_TIMEOUT: managedIdleTimeoutSeconds(),
@@ -644,6 +646,15 @@ function globalAuthFilePath(): string {
 
 function managedIdleTimeoutSeconds(): string {
   return process.env.CHUMP_MANAGED_SERVER_IDLE_TIMEOUT ?? String(DEFAULT_MANAGED_IDLE_TIMEOUT_SECONDS);
+}
+
+function fffSearchCommand(): string {
+  const entrypoint = fileURLToPath(import.meta.url);
+  const sourceEntrypoint = path.resolve(path.dirname(entrypoint), "..", "chump.ts");
+  const command = process.execPath.endsWith("node")
+    ? ["bun", sourceEntrypoint, "__fff-search"]
+    : [process.execPath, "__fff-search"];
+  return JSON.stringify(command);
 }
 
 type ServerCommand = {

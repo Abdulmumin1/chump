@@ -15,6 +15,7 @@ from .config import ChumpConfig, load_config
 from .managed_idle import is_resume_gap
 from .process_title import set_process_title
 from .resources import ResourceCatalog
+from .search import WorkspaceSearch
 from .server.connections import active_connection_count
 from .server.sessions import stored_sessions
 
@@ -23,6 +24,8 @@ class ChumpServer(AgentServer):
     def __init__(self, config: ChumpConfig):
         resources = ResourceCatalog(config.workspace_root)
         ChumpAgent.configure(config, resources)
+        self.search = WorkspaceSearch(config.workspace_root)
+        ChumpAgent._server_search = self.search
         # `allowed_origins=None` makes ai-query's CORS middleware reply with `*`
         # for any origin, which is fine when the server is only reachable on
         # loopback. As soon as it's exposed via an onlocal share the wildcard
@@ -45,8 +48,13 @@ class ChumpServer(AgentServer):
         app.router.add_get("/health", self.health)
         app.router.add_get("/version", self.version)
         app.router.add_get("/sessions", self.sessions)
+        app.router.add_get("/files", self.files)
         app.on_startup.append(self._start_managed_idle_shutdown)
         app.on_cleanup.append(self._stop_managed_idle_shutdown)
+        app.on_cleanup.append(self._close_search)
+
+    async def _close_search(self, app: web.Application) -> None:
+        await self.search.close()
 
     async def health(self, request: web.Request) -> web.Response:
         return web.json_response(
@@ -89,6 +97,16 @@ class ChumpServer(AgentServer):
 
     async def sessions(self, request: web.Request) -> web.Response:
         return web.json_response({"sessions": self._stored_sessions()})
+
+    async def files(self, request: web.Request) -> web.Response:
+        query = request.query.get("query", "")
+        try:
+            limit = int(request.query.get("limit", "20"))
+        except ValueError:
+            raise web.HTTPBadRequest(text="limit must be an integer")
+        return web.json_response(
+            {"files": await self.search.files(query, max(1, min(limit, 100)))}
+        )
 
     def _stored_sessions(self) -> list[dict[str, Any]]:
         db_path = self.chump_config.data_dir / "chump.sqlite3"

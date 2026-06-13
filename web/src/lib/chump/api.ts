@@ -11,6 +11,7 @@ import type {
 	SessionsResponse,
 	SseEvent
 } from '$lib/chump/types';
+import type { FileSearchResult } from '$lib/chump/types';
 
 export function normalizeServerUrl(value: string): string {
 	return value.trim().replace(/\/+$/, '');
@@ -72,6 +73,18 @@ export async function loadSkill(
 	args = ''
 ): Promise<{ name: string; prompt: string }> {
 	return await invokeAction<{ name: string; prompt: string }>(serverUrl, agentId, 'load_skill', { name, args });
+}
+
+export async function searchFiles(
+	serverUrl: string,
+	query: string,
+	limit = 20
+): Promise<FileSearchResult[]> {
+	const url = new URL(`${normalizeServerUrl(serverUrl)}/files`);
+	url.searchParams.set('query', query);
+	url.searchParams.set('limit', String(limit));
+	const result = await fetchJson<{ files: FileSearchResult[] }>(url.toString());
+	return result.files;
 }
 
 export async function clearMessages(
