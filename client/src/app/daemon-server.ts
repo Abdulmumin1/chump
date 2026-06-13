@@ -4,6 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import { once } from "node:events";
 
 import { currentClientVersion } from "./update.ts";
 import { authorizeBearerHeader, DaemonAuthStore } from "./daemon-auth.ts";
@@ -301,6 +302,55 @@ async function handleRequest(
       return;
     }
 
+    const sessionStreamMatch =
+      /^\/projects\/([^/]+)\/sessions\/([^/]+)\/(chat|events)$/
+        .exec(url.pathname);
+    if (sessionStreamMatch) {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+      const projectId = decodeURIComponent(sessionStreamMatch[1]!);
+      const sessionId = decodeURIComponent(sessionStreamMatch[2]!);
+      const route = sessionStreamMatch[3] as "chat" | "events";
+      const expectedMethod = route === "chat" ? "POST" : "GET";
+      if (method !== expectedMethod) {
+        sendMethodNotAllowed(response, [expectedMethod]);
+        return;
+      }
+      const controller = new AbortController();
+      const abortUpstream = () => controller.abort();
+      request.once("aborted", abortUpstream);
+      response.once("close", abortUpstream);
+      try {
+        const body =
+          route === "chat"
+            ? Buffer.from(await readBody(request)).toString("utf8")
+            : undefined;
+        const upstream = await context.sessionRouter.request(
+          projectId,
+          sessionId,
+          {
+            method,
+            path: route,
+            query: url.search,
+            headers: forwardedRequestHeaders(request),
+            body,
+            signal: controller.signal,
+          },
+        );
+        if (!upstream) {
+          sendJson(response, 404, { error: "project_not_found" });
+          return;
+        }
+        await streamUpstreamResponse(response, upstream, controller.signal);
+      } finally {
+        request.off("aborted", abortUpstream);
+        response.off("close", abortUpstream);
+      }
+      return;
+    }
+
     sendJson(response, 404, { error: "not_found" });
   } catch (error) {
     if (error instanceof RequestError) {
@@ -379,6 +429,52 @@ async function sendUpstreamResponse(
   }
   const body = new Uint8Array(await upstream.arrayBuffer());
   response.end(body);
+}
+
+async function streamUpstreamResponse(
+  response: ServerResponse,
+  upstream: Response,
+  signal: AbortSignal,
+): Promise<void> {
+  response.statusCode = upstream.status;
+  copyUpstreamHeaders(response, upstream, [
+    "content-type",
+    "cache-control",
+    "connection",
+  ]);
+  if (!upstream.body) {
+    response.end();
+    return;
+  }
+
+  const reader = upstream.body.getReader();
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!response.write(value)) {
+        await once(response, "drain");
+      }
+    }
+  } finally {
+    if (signal.aborted) {
+      await reader.cancel().catch(() => undefined);
+    }
+  }
+  if (!response.destroyed && !response.writableEnded) {
+    response.end();
+  }
+}
+
+function copyUpstreamHeaders(
+  response: ServerResponse,
+  upstream: Response,
+  names: string[],
+): void {
+  for (const name of names) {
+    const value = upstream.headers.get(name);
+    if (value) response.setHeader(name, value);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

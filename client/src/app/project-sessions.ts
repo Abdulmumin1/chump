@@ -15,7 +15,7 @@ export type ProjectSessionDependencies = {
 
 export type SessionRequest = {
   method: string;
-  path: "state" | "messages" | `action/${string}`;
+  path: "state" | "messages" | "chat" | "events" | `action/${string}`;
   query?: string;
   headers?: Record<string, string>;
   body?: string;

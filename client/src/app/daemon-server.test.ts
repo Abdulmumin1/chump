@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp } from "node:fs/promises";
+import { get as httpGet } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -400,6 +401,136 @@ test("forwards project session state, messages, and actions", async (t) => {
   ]);
 });
 
+test("streams chat and events without buffering", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath);
+  const forwarded: Array<{ path: string; body?: string }> = [];
+  const sessionRouter = {
+    request: async (
+      _projectId: string,
+      _sessionId: string,
+      request: { path: string; body?: string },
+    ) => {
+      forwarded.push({ path: request.path, body: request.body });
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("data: first\n\n"));
+            controller.enqueue(new TextEncoder().encode("data: second\n\n"));
+            controller.close();
+          },
+        }),
+        {
+          headers: {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+          },
+        },
+      );
+    },
+  } as unknown as ProjectSessionRouter;
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    sessionRouter,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+  const headers = {
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+  };
+  const base =
+    `${daemon.url}/projects/${project.id}/sessions/session-one`;
+
+  const chatResponse = await fetch(`${base}/chat?stream=true`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ message: "hello" }),
+  });
+  assert.equal(chatResponse.headers.get("content-type"), "text/event-stream");
+  assert.equal(
+    await chatResponse.text(),
+    "data: first\n\ndata: second\n\n",
+  );
+
+  const eventsResponse = await fetch(`${base}/events`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(
+    await eventsResponse.text(),
+    "data: first\n\ndata: second\n\n",
+  );
+  assert.deepEqual(forwarded, [
+    {
+      path: "chat",
+      body: JSON.stringify({ message: "hello" }),
+    },
+    {
+      path: "events",
+      body: undefined,
+    },
+  ]);
+});
+
+test("aborts the upstream event stream when the client disconnects", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath);
+  let upstreamSignal: AbortSignal | undefined;
+  const sessionRouter = {
+    request: async (
+      _projectId: string,
+      _sessionId: string,
+      request: { signal?: AbortSignal },
+    ) => {
+      upstreamSignal = request.signal;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("data: first\n\n"));
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  } as unknown as ProjectSessionRouter;
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    sessionRouter,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+
+  await new Promise<void>((resolve, reject) => {
+    const request = httpGet(
+      `${daemon.url}/projects/${project.id}/sessions/session-one/events`,
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      },
+      (response) => {
+        response.once("data", () => {
+          request.destroy();
+          resolve();
+        });
+      },
+    );
+    request.once("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code !== "ECONNRESET") reject(error);
+    });
+  });
+  await waitFor(() => upstreamSignal?.aborted === true);
+  assert.equal(upstreamSignal?.aborted, true);
+});
+
 async function createFixture(): Promise<{
   workspacePath: string;
   registryPath: string;
@@ -430,4 +561,13 @@ function runtimeMetadata(workspaceRoot: string) {
     log_path: "/tmp/chump/server.log",
     started_at: "2026-06-13T00:00:00.000Z",
   };
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for condition");
 }
