@@ -406,6 +406,16 @@
     });
 
     $effect(() => {
+        if (!browser || !activeProjectId || !activeSessionId) {
+            return;
+        }
+        sessionStorage.setItem(
+            projectSessionStorageKey(activeProjectId),
+            activeSessionId,
+        );
+    });
+
+    $effect(() => {
         const element = transcriptElement;
         if (!element) {
             return;
@@ -714,6 +724,11 @@
             serverUrl = daemonUrl;
             if (browser) {
                 sessionStorage.setItem("chump:active-project", projectId);
+                const previousSessionId = sessionStorage.getItem(
+                    projectSessionStorageKey(projectId),
+                );
+                activeSessionId = previousSessionId ?? "";
+                sessionInput = previousSessionId ?? "";
             }
             await sessionController.connectToServer();
         } catch (error) {
@@ -721,6 +736,10 @@
         } finally {
             isLoadingProject = false;
         }
+    }
+
+    function projectSessionStorageKey(projectId: string): string {
+        return `chump:project:${projectId}:active-session`;
     }
 
     async function connectDirectly(): Promise<void> {
