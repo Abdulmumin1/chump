@@ -37,6 +37,7 @@
         sessionTitle,
         steerCurrentTurn,
         streamChat,
+        type ChumpApiTarget,
     } from "$lib/chump/api";
     import type {
         ChatAttachment,
@@ -55,7 +56,6 @@
         discoverLocalDaemon,
         listDaemonProjects,
         normalizeDaemonConnection,
-        startDaemonProject,
         type DaemonProject,
     } from "$lib/chump/daemon-api";
 
@@ -117,9 +117,22 @@
     const currentProvider = $derived(status ? status.provider : "");
     const transcript = $derived(buildTranscript(messages));
     const canConnect = $derived(serverUrl.trim().length > 0);
+    const apiTarget = $derived.by((): ChumpApiTarget | null => {
+        if (activeProjectId && daemonUrl && daemonToken) {
+            return {
+                kind: "daemon",
+                daemonUrl,
+                token: daemonToken,
+                projectId: activeProjectId,
+            };
+        }
+        return serverUrl
+            ? { kind: "direct", serverUrl }
+            : null;
+    });
     const canSend = $derived(
         Boolean(
-            serverUrl &&
+            apiTarget &&
                 !isLoadingSession &&
                 (composerText.trim().length > 0 ||
                     composerAttachments.length > 0),
@@ -191,6 +204,9 @@
         },
         set serverUrl(value: string) {
             serverUrl = value;
+        },
+        get apiTarget() {
+            return apiTarget;
         },
         get sessionInput() {
             return sessionInput;
@@ -375,7 +391,7 @@
         }
 
         const params = new URLSearchParams();
-        if (serverUrl.trim()) {
+        if (serverUrl.trim() && !activeProjectId) {
             params.set("server", serverUrl.trim());
         }
         if (activeSessionId.trim()) {
@@ -412,7 +428,8 @@
         const message =
             trimmedText ||
             (attachments.length > 0 ? "See attached image." : "");
-        if ((!message && attachments.length === 0) || !serverUrl) {
+        const target = apiTarget;
+        if ((!message && attachments.length === 0) || !target) {
             return;
         }
 
@@ -436,7 +453,7 @@
         if (isSending) {
             try {
                 await steerCurrentTurn(
-                    serverUrl,
+                    target,
                     sessionId,
                     message,
                     attachments,
@@ -454,7 +471,7 @@
 
         try {
             await streamChat(
-                serverUrl,
+                target,
                 sessionId,
                 message,
                 attachments,
@@ -473,14 +490,15 @@
     }
 
     async function deleteSteering(index: number): Promise<void> {
-        if (!serverUrl || !activeSessionId) {
+        const target = apiTarget;
+        if (!target || !activeSessionId) {
             return;
         }
 
         connectionError = "";
 
         try {
-            await cancelSteering(serverUrl, activeSessionId, index);
+            await cancelSteering(target, activeSessionId, index);
         } catch (error) {
             connectionError = toErrorMessage(error);
         }
@@ -497,7 +515,8 @@
     }
 
     async function abortTurn(): Promise<void> {
-        if (!serverUrl || !activeSessionId) {
+        const target = apiTarget;
+        if (!target || !activeSessionId) {
             return;
         }
 
@@ -505,7 +524,7 @@
 
         try {
             activeRequestController?.abort();
-            await abortCurrentTurn(serverUrl, activeSessionId);
+            await abortCurrentTurn(target, activeSessionId);
         } catch (error) {
             connectionError = toErrorMessage(error);
         }
@@ -521,7 +540,8 @@
     }
 
     async function runCommand(command: string, args: string): Promise<void> {
-        if (!serverUrl || !activeSessionId) {
+        const target = apiTarget;
+        if (!target || !activeSessionId) {
             pushToast("Not connected", "error");
             return;
         }
@@ -537,7 +557,7 @@
                     const provider = args.slice(0, separator);
                     const model = args.slice(separator + 1);
                     status = await setModel(
-                        serverUrl,
+                        target,
                         activeSessionId,
                         provider,
                         model,
@@ -554,12 +574,12 @@
                         );
                         return;
                     }
-                    status = await setReasoning(serverUrl, activeSessionId, args);
+                    status = await setReasoning(target, activeSessionId, args);
                     pushToast(`Thinking set to ${args}`, "success");
                     break;
                 }
                 case "clear": {
-                    await clearMessages(serverUrl, activeSessionId);
+                    await clearMessages(target, activeSessionId);
                     await sessionController.refreshSessionSnapshot(activeSessionId);
                     pushToast("Chat cleared", "success");
                     break;
@@ -567,7 +587,7 @@
                 case "compact": {
                     isCompacting = true;
                     try {
-                        const result = await compactMessages(serverUrl, activeSessionId);
+                        const result = await compactMessages(target, activeSessionId);
                         await sessionController.refreshSessionSnapshot(activeSessionId);
                         if (result.status === "ok") {
                             pushToast(
@@ -690,15 +710,8 @@
         sessionInput = "";
         health = null;
         try {
-            const runtime = await startDaemonProject(
-                { url: daemonUrl, token: daemonToken },
-                projectId,
-            );
-            if (!runtime.serverUrl) {
-                throw new Error("project runtime did not provide a server URL");
-            }
             activeProjectId = projectId;
-            serverUrl = runtime.serverUrl;
+            serverUrl = daemonUrl;
             if (browser) {
                 sessionStorage.setItem("chump:active-project", projectId);
             }
@@ -708,6 +721,15 @@
         } finally {
             isLoadingProject = false;
         }
+    }
+
+    async function connectDirectly(): Promise<void> {
+        activeProjectId = "";
+        projects = [];
+        if (browser) {
+            sessionStorage.removeItem("chump:active-project");
+        }
+        await sessionController.connectToServer();
     }
 
     async function createProjectSession(): Promise<void> {
@@ -743,7 +765,7 @@
                         return connectToDaemon();
                     }
                     if (serverUrl.trim()) {
-                        return sessionController.connectToServer();
+                        return connectDirectly();
                     }
                 })
                 .catch((error) => {
@@ -802,7 +824,7 @@
             void sessionController.selectSession(id);
         }}
         onOpenConnectModal={openConnectModal}
-        onConnect={() => void sessionController.connectToServer()}
+        onConnect={() => void connectDirectly()}
         {sessionTitle}
         {formatDate}
         open={sidebarOpen}
@@ -829,7 +851,7 @@
         <ChatTopBar
             {activeSessionId}
             onToggleSidebar={toggleSidebar}
-            onCreateSession={() => void sessionController.createFreshSession()}
+            onCreateSession={() => void createProjectSession()}
         />
 
         <TranscriptPane
@@ -875,6 +897,7 @@
             <ChatComposer
                 bind:composerText
                 {serverUrl}
+                {apiTarget}
                 bind:composerAttachments
                 {canSend}
                 {isSending}
@@ -917,7 +940,7 @@
     {qrScannerError}
     bind:qrVideoElement
     onClose={closeConnectModal}
-    onConnect={() => void sessionController.connectToServer()}
+    onConnect={() => void connectDirectly()}
     onConnectDaemon={() => void connectToDaemon()}
     onStartQrScanner={() => void startQrScanner()}
     onStopQrScanner={stopQrScanner}
