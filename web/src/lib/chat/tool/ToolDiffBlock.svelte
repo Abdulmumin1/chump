@@ -1,10 +1,8 @@
 <script lang="ts">
     import { browser } from "$app/environment";
-    import { tick } from "svelte";
     import { slide } from "svelte/transition";
-    import { DIFFS_TAG_NAME, FileDiff, processPatch } from "@pierre/diffs";
-    // @ts-ignore side-effect web-component bundle is not typed
-    import "../../../../node_modules/@pierre/diffs/dist/components/web-components.js";
+    import { processPatch } from "@pierre/diffs";
+    import PierreDiff from "$lib/PierreDiff.svelte";
     import {
         getDocumentTheme,
         observeDocumentTheme,
@@ -22,8 +20,6 @@
 
     let isMobile = $state(false);
     let isTablet = $state(false);
-    let diffHosts: HTMLElement[] = [];
-    let diffInstances: FileDiff[] = [];
     let showFullDiff = $state(false);
     let diffExpanded = $state(false);
     let appTheme = $state<AppTheme>(getDocumentTheme());
@@ -126,50 +122,6 @@
         showFullDiff = false;
     });
 
-    $effect(() => {
-        appTheme;
-        if (!browser || !shouldRenderDiff || !diffExpanded) {
-            return () => {
-                cleanupDiffs();
-            };
-        }
-
-        const files = diffFiles;
-
-        void tick().then(() => {
-            cleanupDiffs();
-            diffInstances = files.flatMap((file, index) => {
-                const host = diffHosts[index];
-                if (!host) {
-                    return [];
-                }
-
-                const instance = new FileDiff({
-                    theme: {
-                        dark: "pierre-dark",
-                        light: "pierre-light",
-                    },
-                    themeType: appTheme,
-                    diffStyle: "unified",
-                    diffIndicators: "bars",
-                    hunkSeparators: "line-info-basic",
-                    overflow: "scroll",
-                });
-
-                instance.render({
-                    fileDiff: file,
-                    fileContainer: host,
-                });
-
-                return [instance];
-            });
-        });
-
-        return () => {
-            cleanupDiffs();
-        };
-    });
-
     function truncatePath(path: string): string {
         if (!path) return path;
         if (isMobile) {
@@ -184,12 +136,6 @@
         return path;
     }
 
-    function cleanupDiffs(): void {
-        for (const instance of diffInstances) {
-            instance.cleanUp();
-        }
-        diffInstances = [];
-    }
 </script>
 
 {#if shouldRenderDiff}
@@ -335,9 +281,9 @@
                             ? "2000px"
                             : undefined}
                     >
-                        <svelte:element
-                            this={DIFFS_TAG_NAME}
-                            bind:this={diffHosts[index]}
+                        <PierreDiff
+                            file={file}
+                            theme={appTheme}
                             class="block diff-mobile-scale"
                         />
                     </div>
@@ -391,15 +337,3 @@
         {/if}
     </div>
 {/if}
-
-<style>
-    .diff-mobile-scale {
-        font-size: 10px;
-    }
-
-    @media (min-width: 768px) {
-        .diff-mobile-scale {
-            font-size: 12px;
-        }
-    }
-</style>

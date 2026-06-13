@@ -28,7 +28,7 @@
         expandedBlocks: Record<string, boolean>;
         expandedReasoning: Record<string, boolean>;
         onToggleBlock: (id: string) => void;
-        onToggleReasoning: (id: string) => void;
+        onToggleReasoning: (id: string, defaultExpanded?: boolean) => void;
         reasoningSummary: (text: string) => string;
         health?: ChumpHealth | null;
         activeSessionId?: string;

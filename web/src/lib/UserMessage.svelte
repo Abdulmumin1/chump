@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { fade } from "svelte/transition";
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
 
     type UserMessageBlock = {
@@ -14,6 +15,30 @@
 
     let expanded = $state(false);
     let fullHeight = $state(0);
+    let activeZoomImage = $state<string | null>(null);
+
+    function portal(node: HTMLElement) {
+        document.body.appendChild(node);
+
+        const handleClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            // If they click on the backdrop, the close button, or anywhere except the image itself, close it
+            if (target && target.tagName !== "IMG") {
+                activeZoomImage = null;
+            }
+        };
+
+        node.addEventListener("click", handleClick);
+
+        return {
+            destroy() {
+                node.removeEventListener("click", handleClick);
+                if (node.parentNode) {
+                    node.parentNode.removeChild(node);
+                }
+            }
+        };
+    }
 
     const THRESHOLD = 240;
     let isLong = $derived(fullHeight > THRESHOLD);
@@ -39,6 +64,8 @@
         );
     }
 </script>
+
+<svelte:window onkeydown={(e) => { if (activeZoomImage && e.key === "Escape") activeZoomImage = null; }} />
 
 <div class="flex justify-end w-full">
     <div
@@ -70,11 +97,13 @@
                             <figure
                                 class="overflow-hidden rounded-xl border border-border-subtle/20 bg-black/10"
                             >
+                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
                                 <img
                                     src={block.imageSrc}
                                     alt={imageCaption(block)}
-                                    class="block max-h-80 w-full rounded-xl object-cover"
+                                    class="block max-h-80 w-full rounded-xl object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
                                     loading="lazy"
+                                    onclick={() => activeZoomImage = block.imageSrc || null}
                                 />
                                 <figcaption
                                     class="border-t border-border-subtle/15 bg-black/15 px-2.5 py-1.5 text-[11px] text-text-tertiary"
@@ -151,3 +180,36 @@
         {/if}
     </div>
 </div>
+
+{#if activeZoomImage}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+        use:portal
+        transition:fade={{ duration: 150 }}
+        class="fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[9999] p-4 md:p-8 cursor-zoom-out select-none"
+        onclick={() => activeZoomImage = null}
+        role="button"
+        tabindex="0"
+    >
+        <div class="relative max-w-full max-h-full flex flex-col items-center">
+            <img
+                src={activeZoomImage}
+                alt="Zoomed view"
+                class="max-w-[95vw] max-h-[90vh] object-contain rounded-lg"
+            />
+            <button
+                class="absolute -top-12 md:top-4 md:-right-16 bg-black/40 hover:bg-black/80 text-white hover:text-white/80 rounded-full p-2 transition-colors cursor-pointer border border-white/10"
+                onclick={(e) => {
+                    e.stopPropagation();
+                    activeZoomImage = null;
+                }}
+                type="button"
+                aria-label="Close zoomed view"
+            >
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+{/if}

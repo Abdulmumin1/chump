@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.0
+
+### Minor Changes
+
+- Add FFF-powered file mentions and workspace content search. Include a sleek command palette modal (accessible via Cmd/Ctrl+K), polished shadowless dropdown/modal UI, smooth container transitions, dynamic streaming reasoning indicators, and body-teleported responsive image zoom overlays.
+
 ## 0.0.39
 
 ### Patch Changes

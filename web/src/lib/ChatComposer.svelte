@@ -554,6 +554,22 @@
                     {/if}
                 </div>
             </div>
+
+            {#if visible}
+                <CommandSuggestions
+                    {suggestions}
+                    {selectedIndex}
+                    onSelect={acceptSuggestion}
+                />
+            {/if}
+            {#if fileVisible}
+                <FileSuggestions
+                    files={fileSuggestions}
+                    selectedIndex={selectedIndex}
+                    loading={fileSearchLoading}
+                    onSelect={acceptFileSuggestion}
+                />
+            {/if}
         </div>
     </div>
 
@@ -565,20 +581,4 @@
         {shortenModel}
         onOpenModelPicker={() => onCommand("__open_model_picker", "")}
     />
-
-    {#if visible}
-        <CommandSuggestions
-            {suggestions}
-            {selectedIndex}
-            onSelect={acceptSuggestion}
-        />
-    {/if}
-    {#if fileVisible}
-        <FileSuggestions
-            files={fileSuggestions}
-            selectedIndex={selectedIndex}
-            loading={fileSearchLoading}
-            onSelect={acceptFileSuggestion}
-        />
-    {/if}
 </div>

@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.37
+
+- Release updated web client interface with interactive command palette, image zooming improvements, instant reasoning streams, and FFF workspace searches.
+
 ## 0.0.36
 
 - Add Cloudflare Workers AI catalog support for Kimi K2.7 Code.

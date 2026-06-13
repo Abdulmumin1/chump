@@ -27,6 +27,7 @@
 	"dependencies": {
 		"@pierre/diffs": "^1.1.20",
 		"@sveltejs/adapter-cloudflare": "^7.2.8",
+		"bits-ui": "^2.18.1",
 		"marked": "^18.0.3"
 	}
 }

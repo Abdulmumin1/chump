@@ -9,6 +9,7 @@
     import ChatTopBar from "$lib/chat/ChatTopBar.svelte";
     import ConnectServerModal from "$lib/chat/ConnectServerModal.svelte";
     import ModelPickerModal from "$lib/chat/ModelPickerModal.svelte";
+    import CommandPalette from "$lib/chat/CommandPalette.svelte";
     import { sidebarSwipe, type SidebarSwipeState } from "$lib/chat/sidebar-swipe";
     import {
         shortenModel,
@@ -307,8 +308,8 @@
         expandedBlocks[id] = !expandedBlocks[id];
     }
 
-    function toggleReasoning(id: string) {
-        expandedReasoning[id] = !(expandedReasoning[id] ?? true);
+    function toggleReasoning(id: string, defaultExpanded = false) {
+        expandedReasoning[id] = !(expandedReasoning[id] ?? defaultExpanded);
     }
 
     function toggleSidebar() {
@@ -815,6 +816,15 @@
     onSelectModel={(provider, model) => {
         void handleCommand("model", `${provider}/${model}`);
     }}
+/>
+
+<CommandPalette
+    models={availableModels}
+    currentModel={currentModel}
+    currentThinking={reasoningInfo?.effort ?? "none"}
+    onCommand={handleCommand}
+    onToggleSidebar={toggleSidebar}
+    onOpenConnectModal={openConnectModal}
 />
 
 <style>

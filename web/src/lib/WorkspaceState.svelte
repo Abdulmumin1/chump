@@ -1,10 +1,9 @@
 <script lang="ts">
     import { browser } from "$app/environment";
     import { tick } from "svelte";
-    import { DIFFS_TAG_NAME, FileDiff, processPatch } from "@pierre/diffs";
-    // @ts-ignore side-effect web-component bundle is not typed
-    import "../../node_modules/@pierre/diffs/dist/components/web-components.js";
+    import { processPatch } from "@pierre/diffs";
     import type { ChangeRecord, ChumpState } from "$lib/chump/types";
+    import PierreDiff from "$lib/PierreDiff.svelte";
     import {
         getDocumentTheme,
         observeDocumentTheme,
@@ -18,11 +17,28 @@
 
     let modalOpen = $state(false);
     let selectedPath: string | null = $state(null);
+    let userClosedDiff = $state(false);
     let searchQuery = $state("");
     let mobileDiffFontSize = $state(11);
-    let diffHosts: HTMLElement[] = [];
-    let diffInstances: FileDiff[] = [];
+    let isLargeScreen = $state(false);
     let appTheme = $state<AppTheme>(getDocumentTheme());
+
+    $effect(() => {
+        if (!browser) return;
+        const media = window.matchMedia("(min-width: 1024px)");
+        isLargeScreen = media.matches;
+        const listener = (e: MediaQueryListEvent) => {
+            isLargeScreen = e.matches;
+        };
+        media.addEventListener("change", listener);
+        return () => media.removeEventListener("change", listener);
+    });
+
+    $effect(() => {
+        if (isLargeScreen && modalOpen) {
+            modalOpen = false;
+        }
+    });
 
     type DiffRow = {
         kind: "add" | "remove" | "context" | "meta";
@@ -57,18 +73,19 @@
             ? filteredFiles.findIndex((file) => file.path === selectedPath)
             : -1,
     );
-    let selectedRecordPatches = $derived.by(() =>
-        (selectedFile?.records ?? []).map(toUnifiedPatch),
-    );
-    let selectedRecordDiffFiles = $derived.by(() =>
-        selectedRecordPatches.map((patch) => {
-            if (!patch) return [];
-            try {
-                return processPatch(patch, "workspace-state", false).files;
-            } catch {
-                return [];
-            }
-        }),
+    let stackedFiles = $derived.by(() =>
+        filteredFiles.map((file) => ({
+            ...file,
+            recordDiffFiles: file.records.map((record) => {
+                const patch = toUnifiedPatch(record);
+                if (!patch) return [];
+                try {
+                    return processPatch(patch, "workspace-state", false).files;
+                } catch {
+                    return [];
+                }
+            }),
+        })),
     );
 
     $effect(() => {
@@ -87,7 +104,7 @@
     // Only auto-select on desktop to avoid locking mobile users into a diff view
     $effect(() => {
         if (!browser) return;
-        if (window.innerWidth > 768 && !selectedPath && filteredFiles.length > 0) {
+        if (window.innerWidth > 768 && !selectedPath && filteredFiles.length > 0 && !userClosedDiff) {
             selectedPath = filteredFiles[0].path;
         }
     });
@@ -173,29 +190,43 @@
     }
     function openFile(path: string): void {
         selectedPath = path;
-        modalOpen = true;
+        userClosedDiff = false;
+        if (!isLargeScreen) {
+            modalOpen = true;
+        }
+        void scrollToFile(path);
+    }
+
+    async function scrollToFile(path: string): Promise<void> {
+        if (!browser) return;
+        await tick();
+        const sections = document.querySelectorAll<HTMLElement>(
+            "[data-workspace-diff-path]",
+        );
+        const target = Array.from(sections).find(
+            (section) =>
+                section.dataset.workspaceDiffPath === path &&
+                section.getClientRects().length > 0,
+        );
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     function closeModal(): void {
+        userClosedDiff = true;
         modalOpen = false;
     }
 
     function selectPreviousFile(): void {
         if (selectedFileIndex <= 0) return;
-        selectedPath = filteredFiles[selectedFileIndex - 1]?.path ?? selectedPath;
+        const path = filteredFiles[selectedFileIndex - 1]?.path;
+        if (path) openFile(path);
     }
 
     function selectNextFile(): void {
         if (selectedFileIndex < 0 || selectedFileIndex >= filteredFiles.length - 1)
             return;
-        selectedPath = filteredFiles[selectedFileIndex + 1]?.path ?? selectedPath;
-    }
-
-    function cleanupDiffs(): void {
-        for (const instance of diffInstances) {
-            instance.cleanUp();
-        }
-        diffInstances = [];
+        const path = filteredFiles[selectedFileIndex + 1]?.path;
+        if (path) openFile(path);
     }
 
     function describeKind(record: ChangeRecord): string {
@@ -321,49 +352,174 @@
         return [`--- ${prevPath}`, `+++ ${afterPath}`, ...body].join("\n");
     }
 
-    $effect(() => {
-        appTheme;
-        if (!browser || !modalOpen || !selectedFile) {
-            cleanupDiffs();
-            return;
-        }
-
-        const diffGroups = selectedRecordDiffFiles;
-        void tick().then(() => {
-            cleanupDiffs();
-
-            diffInstances = diffGroups.flatMap((files, recordIndex) => {
-                return files.flatMap((file, fileIndex) => {
-                    const host = diffHosts[recordIndex * 8 + fileIndex];
-                    if (!host) return [];
-
-                    const instance = new FileDiff({
-                        theme: {
-                            dark: "pierre-dark",
-                            light: "pierre-light",
-                        },
-                        themeType: appTheme,
-                        diffStyle: "unified",
-                        diffIndicators: "bars",
-                        hunkSeparators: "line-info-basic",
-                        overflow: "scroll",
-                    });
-
-                    instance.render({
-                        fileDiff: file,
-                        fileContainer: host,
-                    });
-
-                    return [instance];
-                });
-            });
-        });
-
-        return () => {
-            cleanupDiffs();
-        };
-    });
 </script>
+
+{#snippet diffPanel()}
+    <div class="flex min-w-0 flex-1 flex-col bg-bg-surface h-full overflow-hidden">
+        <div class="flex items-center justify-between border-b border-border-subtle px-4 md:px-6 py-2 md:py-3 shrink-0 bg-bg-surface">
+            <div class="flex items-center gap-3 min-w-0">
+                <button
+                    class="md:hidden p-1 -ml-2 text-text-tertiary active:bg-bg-hover rounded-full"
+                    aria-label="Back to file list"
+                    onclick={() => selectedPath = null}
+                >
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div class="truncate font-mono text-[11px] md:text-[13px] font-medium text-text-main">
+                    All changes
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="md:hidden text-[10px] text-text-tertiary font-mono tabular-nums">
+                    {selectedFileIndex >= 0 ? selectedFileIndex + 1 : 0}/{filteredFiles.length}
+                </div>
+                <button
+                    type="button"
+                    class="md:hidden h-7 w-7 flex items-center justify-center rounded border border-border-default text-text-tertiary disabled:opacity-35"
+                    onclick={selectPreviousFile}
+                    disabled={selectedFileIndex <= 0}
+                    aria-label="Previous changed file"
+                >
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    class="md:hidden h-7 w-7 flex items-center justify-center rounded border border-border-default text-text-tertiary disabled:opacity-35"
+                    onclick={selectNextFile}
+                    disabled={selectedFileIndex < 0 || selectedFileIndex >= filteredFiles.length - 1}
+                    aria-label="Next changed file"
+                >
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+                <div class="flex items-center gap-3 font-mono text-[12px]">
+                    {#if (selectedFile?.added ?? 0) > 0}<span class="text-text-success">+{selectedFile?.added}</span>{/if}
+                    {#if (selectedFile?.removed ?? 0) > 0}<span class="text-text-error">-{selectedFile?.removed}</span>{/if}
+                </div>
+                {#if isLargeScreen}
+                    <button
+                        type="button"
+                        aria-label="Close diff"
+                        class="hidden md:flex rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary ml-2"
+                        onclick={() => { selectedPath = null; userClosedDiff = true; }}
+                    >
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 6l12 12M18 6L6 18"></path>
+                        </svg>
+                    </button>
+                {/if}
+            </div>
+        </div>
+
+        {#if stackedFiles.length > 0}
+            <div class="md:hidden flex flex-col gap-3 border-b border-border-subtle px-5 py-3 shrink-0">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">Text Size</span>
+                    <button
+                        type="button"
+                        class="text-[10px] font-mono text-text-tertiary hover:text-text-main transition-colors"
+                        onclick={() => (mobileDiffFontSize = 11)}
+                    >
+                        Reset
+                    </button>
+                </div>
+                <div class="relative w-full h-6 flex items-center">
+                    <div class="absolute inset-0 flex items-center justify-between px-[7px] pointer-events-none">
+                        {#each Array(21) as _, i}
+                            {@const val = 9 + (i / 4)}
+                            <div class="w-[1.5px] rounded-full transition-colors duration-150 {i % 4 === 0 ? 'h-3.5' : 'h-1.5'} {mobileDiffFontSize >= val ? 'bg-text-main' : 'bg-border-default'}"></div>
+                        {/each}
+                    </div>
+                    <input
+                        type="range"
+                        min="9"
+                        max="14"
+                        step="0.25"
+                        bind:value={mobileDiffFontSize}
+                        class="creative-slider w-full h-full m-0 cursor-pointer"
+                        aria-label="Diff text size"
+                    />
+                </div>
+            </div>
+        {/if}
+
+        <div class="min-h-0 flex-1 overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0">
+            {#if stackedFiles.length === 0}
+                <div class="flex h-full items-center justify-center text-[13px] text-text-tertiary">
+                    Summary counts available. Full diffs for new edits.
+                </div>
+            {:else}
+                <div class="flex flex-col">
+                    {#each stackedFiles as file (file.path)}
+                        <section
+                            class="scroll-mt-0 border-b-4 border-border-subtle"
+                            data-workspace-diff-path={file.path}
+                        >
+                            <div class="sticky top-0 z-10 flex items-center justify-between border-b border-border-subtle bg-bg-surface px-4 py-2 md:px-6">
+                                <div class="min-w-0 truncate font-mono text-[11px] font-medium text-text-main md:text-[13px]">
+                                    {file.path}
+                                </div>
+                                <div class="ml-4 flex shrink-0 items-center gap-3 font-mono text-[11px]">
+                                    {#if file.added > 0}<span class="text-text-success">+{file.added}</span>{/if}
+                                    {#if file.removed > 0}<span class="text-text-error">-{file.removed}</span>{/if}
+                                </div>
+                            </div>
+                            {#each file.records as record, index (`${file.path}-${index}`)}
+                                <div>
+                                    <div class="flex items-center justify-between bg-bg-elevated/40 px-6 py-1.5 border-b border-border-subtle">
+                                        <div class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">
+                                            {describeKind(record)}
+                                        </div>
+                                    </div>
+                                    {#if file.recordDiffFiles[index] && file.recordDiffFiles[index].length > 0}
+                                        {#each file.recordDiffFiles[index] as fileDiff, fileIndex (`${fileDiff.name}-${fileIndex}`)}
+                                            <div class="overflow-hidden bg-bg-code-block">
+                                                <PierreDiff
+                                                    file={fileDiff}
+                                                    theme={appTheme}
+                                                    class="block diff-mobile-scale"
+                                                    style={`--mobile-diff-font-size:${mobileDiffFontSize}px`}
+                                                />
+                                            </div>
+                                        {/each}
+                                    {:else}
+                                        <div
+                                            class="overflow-x-auto font-mono leading-5 md:leading-6 bg-bg-surface py-1 md:py-2 diff-mobile-scale"
+                                            style={`--mobile-diff-font-size:${mobileDiffFontSize}px`}
+                                        >
+                                            <table class="w-full border-collapse">
+                                                <tbody>
+                                                    {#each buildRows(record) as row (`${row.kind}-${row.oldLine ?? ""}-${row.newLine ?? ""}-${row.text}`)}
+                                                        <tr class="{lineClass(row.kind)} hover:bg-bg-hover/20 transition-colors group">
+                                                            <td class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30">{row.oldLine ?? ""}</td>
+                                                            <td class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30">{row.newLine ?? ""}</td>
+                                                            <td class="whitespace-pre px-3 md:px-4">{row.text}</td>
+                                                        </tr>
+                                                    {/each}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    {/if}
+                                </div>
+                            {/each}
+                        </section>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+    </div>
+{/snippet}
+
+{#if isLargeScreen && selectedPath && selectedFile}
+    <div class="hidden lg:flex flex-col h-full flex-1 min-w-[550px] border-l border-border-subtle bg-bg-surface text-text-main">
+        {@render diffPanel()}
+    </div>
+{/if}
 
 <aside class="hidden md:flex h-full w-80 flex-shrink-0 flex-col border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all">
     <div class="px-4 py-2.5">
@@ -514,7 +670,7 @@
                                 class={`group flex w-full items-center px-4 py-3 md:py-2 text-left transition-colors ${
                                     selectedPath === file.path ? "bg-bg-elevated" : "hover:bg-bg-hover/50"
                                 }`}
-                                onclick={() => { selectedPath = file.path; }}
+                                onclick={() => openFile(file.path)}
                         >
                             <div class="flex-1 min-w-0 flex items-baseline gap-0.5 font-mono text-[12px]">
                                 {#if dir}<span class="text-text-tertiary truncate select-none">{dir}</span>{/if}
@@ -531,135 +687,7 @@
         </div>
 
         <div class="flex min-w-0 flex-1 flex-col bg-bg-surface {!selectedPath ? 'hidden md:flex' : 'flex'}">
-            <div class="flex items-center justify-between border-b border-border-subtle px-4 md:px-6 py-2 md:py-3">
-                <div class="flex items-center gap-3 min-w-0">
-                    <button 
-                        class="md:hidden p-1 -ml-2 text-text-tertiary active:bg-bg-hover rounded-full"
-                        aria-label="Back to file list"
-                        onclick={() => selectedPath = null}
-                    >
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                        </svg>
-                    </button>
-                    <div class="truncate font-mono text-[11px] md:text-[13px] font-medium text-text-main">
-                        {selectedFile?.path ?? ""}
-                    </div>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="md:hidden text-[10px] text-text-tertiary font-mono tabular-nums">
-                        {selectedFileIndex >= 0 ? selectedFileIndex + 1 : 0}/{filteredFiles.length}
-                    </div>
-                    <button
-                        type="button"
-                        class="md:hidden h-7 w-7 flex items-center justify-center rounded border border-border-default text-text-tertiary disabled:opacity-35"
-                        onclick={selectPreviousFile}
-                        disabled={selectedFileIndex <= 0}
-                        aria-label="Previous changed file"
-                    >
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                        </svg>
-                    </button>
-                    <button
-                        type="button"
-                        class="md:hidden h-7 w-7 flex items-center justify-center rounded border border-border-default text-text-tertiary disabled:opacity-35"
-                        onclick={selectNextFile}
-                        disabled={selectedFileIndex < 0 || selectedFileIndex >= filteredFiles.length - 1}
-                        aria-label="Next changed file"
-                    >
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                        </svg>
-                    </button>
-                    <div class="flex items-center gap-3 font-mono text-[12px]">
-                        {#if (selectedFile?.added ?? 0) > 0}<span class="text-text-success">+{selectedFile?.added}</span>{/if}
-                        {#if (selectedFile?.removed ?? 0) > 0}<span class="text-text-error">-{selectedFile?.removed}</span>{/if}
-                    </div>
-                </div>
-            </div>
-
-            {#if selectedFile}
-                <div class="md:hidden flex flex-col gap-3 border-b border-border-subtle px-5 py-3">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">Text Size</span>
-                        <button
-                            type="button"
-                            class="text-[10px] font-mono text-text-tertiary hover:text-text-main transition-colors"
-                            onclick={() => (mobileDiffFontSize = 11)}
-                        >
-                            Reset
-                        </button>
-                    </div>
-                    <div class="relative w-full h-6 flex items-center">
-                        <!-- Ruler marks -->
-                        <div class="absolute inset-0 flex items-center justify-between px-[7px] pointer-events-none">
-                            {#each Array(21) as _, i}
-                                {@const val = 9 + (i / 4)}
-                                <div class="w-[1.5px] rounded-full transition-colors duration-150 {i % 4 === 0 ? 'h-3.5' : 'h-1.5'} {mobileDiffFontSize >= val ? 'bg-text-main' : 'bg-border-default'}"></div>
-                            {/each}
-                        </div>
-                        <input
-                            type="range"
-                            min="9"
-                            max="14"
-                            step="0.25"
-                            bind:value={mobileDiffFontSize}
-                            class="creative-slider w-full h-full m-0 cursor-pointer"
-                            aria-label="Diff text size"
-                        />
-                    </div>
-                </div>
-            {/if}
-
-            <div class="min-h-0 flex-1 overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0">
-                {#if !selectedFile || selectedFile.records.length === 0}
-                    <div class="flex h-full items-center justify-center text-[13px] text-text-tertiary">
-                        Summary counts available. Full diffs for new edits.
-                    </div>
-                {:else}
-                    <div class="flex flex-col">
-                        {#each selectedFile.records as record, index (`${selectedFile.path}-${index}`)}
-                            <section class="border-b border-border-subtle last:border-b-0">
-                                <div class="flex items-center justify-between bg-bg-elevated/40 px-6 py-1.5 border-b border-border-subtle">
-                                    <div class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">
-                                        {describeKind(record)}
-                                    </div>
-                                </div>
-                                {#if selectedRecordDiffFiles[index] && selectedRecordDiffFiles[index].length > 0}
-                                    {#each selectedRecordDiffFiles[index] as fileDiff, fileIndex (`${fileDiff.name}-${fileIndex}`)}
-                                        <div class="overflow-hidden bg-bg-code-block">
-                                            <svelte:element
-                                                this={DIFFS_TAG_NAME}
-                                                bind:this={diffHosts[index * 8 + fileIndex]}
-                                                class="block diff-mobile-scale"
-                                                style={`--mobile-diff-font-size:${mobileDiffFontSize}px`}
-                                            />
-                                        </div>
-                                    {/each}
-                                {:else}
-                                    <div
-                                        class="overflow-x-auto font-mono leading-5 md:leading-6 bg-bg-surface py-1 md:py-2 diff-mobile-scale"
-                                        style={`--mobile-diff-font-size:${mobileDiffFontSize}px`}
-                                    >
-                                        <table class="w-full border-collapse">
-                                            <tbody>
-                                                {#each buildRows(record) as row (`${row.kind}-${row.oldLine ?? ""}-${row.newLine ?? ""}-${row.text}`)}
-                                                    <tr class="{lineClass(row.kind)} hover:bg-bg-hover/20 transition-colors group">
-                                                        <td class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30">{row.oldLine ?? ""}</td>
-                                                        <td class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30">{row.newLine ?? ""}</td>
-                                                        <td class="whitespace-pre px-3 md:px-4">{row.text}</td>
-                                                    </tr>
-                                                {/each}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                {/if}
-                            </section>
-                        {/each}
-                    </div>
-                {/if}
-            </div>
+            {@render diffPanel()}
         </div>
     </div>
 </div>

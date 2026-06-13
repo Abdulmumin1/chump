@@ -17,7 +17,7 @@
         transcriptLength: number;
         expandedReasoning: Record<string, boolean>;
         isSending: boolean;
-        onToggleReasoning: (id: string) => void;
+        onToggleReasoning: (id: string, defaultExpanded?: boolean) => void;
         reasoningSummary: (text: string) => string;
     }>();
 
@@ -35,7 +35,7 @@
             <div class="p-2 transition-colors hover:bg-bg-code-block/60 min-w-0">
                 <button
                     class="flex w-full min-w-0 items-center justify-between gap-4 text-left focus:outline-none"
-                    onclick={() => onToggleReasoning(`${item.id}-${index}`)}
+                    onclick={() => onToggleReasoning(`${item.id}-${index}`, isSending && itemIndex === transcriptLength - 1)}
                 >
                     <div
                         class="mb-2 flex min-w-0 items-center gap-3 text-text-secondary"
@@ -55,7 +55,13 @@
                         >
                         <span
                             class="min-w-0 break-words text-[14px] font-medium tracking-tight text-text-secondary"
-                            >{reasoningSummary(block.text)}</span
+                        >
+                            {#if isSending && itemIndex === transcriptLength - 1 && index === item.blocks.length - 1}
+                                Thinking...
+                            {:else}
+                                {reasoningSummary(block.text)}
+                            {/if}
+                        </span
                         >
                     </div>
                     <svg

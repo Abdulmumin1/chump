@@ -173,6 +173,13 @@ button, a, [role="button"] {
     user-select: none;
 }
 
+/* Pierre Diffs override to match dark mode */
+pierre-file-diff {
+    --diffs-dark-bg: var(--bg-surface-alt) !important;
+    --diffs-light-bg: var(--bg-surface-alt) !important;
+    --diffs-bg: var(--bg-surface-alt) !important;
+}
+
 button, a, input, textarea, select, [role="button"] {
     touch-action: manipulation;
 }
