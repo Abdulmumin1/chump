@@ -88,6 +88,39 @@ test("forwards session requests only to the selected project runtime", async () 
   assert.equal(requests[0]?.init?.method, "GET");
 });
 
+test("creates validated project-scoped session handles", async () => {
+  const runtimes = {
+    start: async (projectId: string) => ({
+      projectId,
+      status: "running",
+      serverUrl: "http://127.0.0.1:9000",
+      pid: 123,
+    }),
+  } as unknown as ProjectRuntimeSupervisor;
+  const router = new ProjectSessionRouter(runtimes, {
+    fetch: async () => Response.json({
+      sessions: [session("existing-session")],
+    }),
+  });
+
+  assert.deepEqual(await router.create("project-one", "new-session"), {
+    projectId: "project-one",
+    sessionId: "new-session",
+  });
+  assert.match(
+    (await router.create("project-one"))?.sessionId ?? "",
+    /^session-one-[a-z0-9]+-[a-f0-9]{8}$/,
+  );
+  await assert.rejects(
+    router.create("project-one", "bad/session"),
+    /sessionId must contain only/,
+  );
+  await assert.rejects(
+    router.create("project-one", "existing-session"),
+    /session already exists/,
+  );
+});
+
 function session(id: string) {
   return {
     id,

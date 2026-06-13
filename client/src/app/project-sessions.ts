@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type { SessionSummary } from "../core/types.ts";
 import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
 
 export type ProjectSessions = {
   projectId: string;
   sessions: SessionSummary[];
+};
+
+export type CreatedProjectSession = {
+  projectId: string;
+  sessionId: string;
 };
 
 export type ProjectSessionDependencies = {
@@ -51,6 +57,28 @@ export class ProjectSessionRouter {
     };
   }
 
+  async create(
+    projectId: string,
+    requestedSessionId?: string,
+  ): Promise<CreatedProjectSession | null> {
+    const sessions = await this.list(projectId);
+    if (!sessions) return null;
+    const sessionId = requestedSessionId ?? generatedSessionId(projectId);
+    if (!isValidSessionId(sessionId)) {
+      throw new SessionCreationError(
+        "invalid_session_id",
+        "sessionId must contain only letters, numbers, dots, underscores, and hyphens",
+      );
+    }
+    if (sessions.sessions.some((session) => session.id === sessionId)) {
+      throw new SessionCreationError(
+        "session_exists",
+        `session already exists: ${sessionId}`,
+      );
+    }
+    return { projectId, sessionId };
+  }
+
   async request(
     projectId: string,
     sessionId: string,
@@ -70,6 +98,33 @@ export class ProjectSessionRouter {
       signal: request.signal,
     });
   }
+}
+
+export class SessionCreationError extends Error {
+  readonly code: "invalid_session_id" | "session_exists";
+
+  constructor(
+    code: "invalid_session_id" | "session_exists",
+    message: string,
+  ) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export function isValidSessionId(value: string): boolean {
+  return (
+    value.length >= 1 &&
+    value.length <= 128 &&
+    /^[A-Za-z0-9._-]+$/.test(value)
+  );
+}
+
+function generatedSessionId(projectId: string): string {
+  const projectSegment = projectId
+    .replace(/^project-/, "")
+    .slice(0, 8);
+  return `session-${projectSegment}-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
 }
 
 function isSessionsResponse(

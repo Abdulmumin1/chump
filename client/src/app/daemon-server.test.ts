@@ -319,6 +319,50 @@ test("lists sessions for a selected project through the daemon", async (t) => {
   });
 });
 
+test("creates project-scoped session handles", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath);
+  const sessionRouter = {
+    create: async (projectId: string, sessionId?: string) => ({
+      projectId,
+      sessionId: sessionId ?? "generated-session",
+    }),
+  } as unknown as ProjectSessionRouter;
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    sessionRouter,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+  const url = `${daemon.url}/projects/${project.id}/sessions`;
+  const headers = {
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+  };
+
+  const generated = await fetch(url, {
+    method: "POST",
+    headers,
+  });
+  assert.equal(generated.status, 201);
+  assert.deepEqual(await generated.json(), {
+    projectId: project.id,
+    sessionId: "generated-session",
+  });
+
+  const requested = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ sessionId: "requested-session" }),
+  });
+  assert.equal(requested.status, 201);
+  assert.equal((await requested.json()).sessionId, "requested-session");
+});
+
 test("forwards project session state, messages, and actions", async (t) => {
   const fixture = await createFixture();
   const token = "test-token-that-is-long-enough-for-auth";

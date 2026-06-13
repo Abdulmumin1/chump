@@ -10,7 +10,10 @@ import { currentClientVersion } from "./update.ts";
 import { authorizeBearerHeader, DaemonAuthStore } from "./daemon-auth.ts";
 import { DAEMON_PROTOCOL_VERSION } from "./daemon-metadata.ts";
 import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
-import { ProjectSessionRouter } from "./project-sessions.ts";
+import {
+  ProjectSessionRouter,
+  SessionCreationError,
+} from "./project-sessions.ts";
 import { ProjectRegistryStore } from "./projects.ts";
 
 const DAEMON_HOST = "127.0.0.1";
@@ -246,17 +249,52 @@ async function handleRequest(
         sendJson(response, 401, { error: "unauthorized" });
         return;
       }
-      if (method !== "GET") {
-        sendMethodNotAllowed(response, ["GET"]);
-        return;
-      }
       const projectId = decodeURIComponent(sessionsMatch[1]!);
-      const result = await context.sessionRouter.list(projectId);
-      if (!result) {
-        sendJson(response, 404, { error: "project_not_found" });
+      if (method === "GET") {
+        const result = await context.sessionRouter.list(projectId);
+        if (!result) {
+          sendJson(response, 404, { error: "project_not_found" });
+          return;
+        }
+        sendJson(response, 200, result);
         return;
       }
-      sendJson(response, 200, result);
+      if (method === "POST") {
+        const body = await readOptionalJsonBody(request);
+        if (
+          !isRecord(body) ||
+          (body.sessionId !== undefined && typeof body.sessionId !== "string")
+        ) {
+          sendJson(response, 400, {
+            error: "invalid_request",
+            message: "sessionId must be a string when provided",
+          });
+          return;
+        }
+        try {
+          const created = await context.sessionRouter.create(
+            projectId,
+            body.sessionId,
+          );
+          if (!created) {
+            sendJson(response, 404, { error: "project_not_found" });
+            return;
+          }
+          sendJson(response, 201, created);
+        } catch (error) {
+          if (error instanceof SessionCreationError) {
+            sendJson(
+              response,
+              error.code === "session_exists" ? 409 : 400,
+              { error: error.code, message: error.message },
+            );
+            return;
+          }
+          throw error;
+        }
+        return;
+      }
+      sendMethodNotAllowed(response, ["GET", "POST"]);
       return;
     }
 
@@ -372,6 +410,23 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(Buffer.from(body).toString("utf8"));
   } catch {
+    throw new RequestError(400, "invalid_json", "request body must be valid JSON");
+  }
+}
+
+async function readOptionalJsonBody(
+  request: IncomingMessage,
+): Promise<Record<string, unknown>> {
+  const body = await readBody(request);
+  if (body.byteLength === 0) return {};
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(body).toString("utf8"));
+    if (!isRecord(parsed)) {
+      throw new RequestError(400, "invalid_json", "request body must be a JSON object");
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof RequestError) throw error;
     throw new RequestError(400, "invalid_json", "request body must be valid JSON");
   }
 }
