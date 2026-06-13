@@ -3,7 +3,10 @@
     import ThemeToggle from "$lib/ThemeToggle.svelte";
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
     import ProjectsSwitcher from "$lib/ProjectsSwitcher.svelte";
-    import type { DaemonProject } from "$lib/chump/daemon-api";
+    import type {
+        DaemonProject,
+        DaemonRuntime,
+    } from "$lib/chump/daemon-api";
     let {
         sessions,
         activeSessionId,
@@ -27,6 +30,10 @@
         activeProjectId = "",
         isLoadingProject = false,
         onSelectProject,
+        projectRuntimes = {},
+        runtimeActionProjectId = "",
+        onStartProject,
+        onStopProject,
     } = $props<{
         sessions: Array<any>;
         activeSessionId: string;
@@ -50,6 +57,10 @@
         activeProjectId?: string;
         isLoadingProject?: boolean;
         onSelectProject?: (projectId: string) => void;
+        projectRuntimes?: Record<string, DaemonRuntime>;
+        runtimeActionProjectId?: string;
+        onStartProject?: (projectId: string) => void;
+        onStopProject?: (projectId: string) => void;
     }>();
     let isConnected = $derived(!!health);
     let serverDisplay = $derived.by(() => {
@@ -75,12 +86,16 @@
     style:opacity={currentOpacity}
     style:visibility={open || isDragging ? 'visible' : 'hidden'}
 >
-    {#if onSelectProject}
+    {#if onSelectProject && onStartProject && onStopProject}
         <ProjectsSwitcher
             {projects}
             {activeProjectId}
             loading={isLoadingProject}
+            runtimes={projectRuntimes}
+            {runtimeActionProjectId}
             {onSelectProject}
+            {onStartProject}
+            {onStopProject}
         />
     {/if}
 

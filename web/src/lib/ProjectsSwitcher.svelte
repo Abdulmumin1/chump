@@ -1,17 +1,28 @@
 <script lang="ts">
     import BrailleSpinner from "$lib/BrailleSpinner.svelte";
-    import type { DaemonProject } from "$lib/chump/daemon-api";
+    import type {
+        DaemonProject,
+        DaemonRuntime,
+    } from "$lib/chump/daemon-api";
 
     let {
         projects,
         activeProjectId,
         loading = false,
+        runtimes = {},
+        runtimeActionProjectId = "",
         onSelectProject,
+        onStartProject,
+        onStopProject,
     } = $props<{
         projects: DaemonProject[];
         activeProjectId: string;
         loading?: boolean;
+        runtimes?: Record<string, DaemonRuntime>;
+        runtimeActionProjectId?: string;
         onSelectProject: (projectId: string) => void;
+        onStartProject: (projectId: string) => void;
+        onStopProject: (projectId: string) => void;
     }>();
 
     let open = $state(false);
@@ -19,6 +30,14 @@
         projects.find((project: DaemonProject) => project.id === activeProjectId) ??
             null,
     );
+    let activeRuntime = $derived(
+        activeProject ? runtimes[activeProject.id] : undefined,
+    );
+
+    function runtimeLabel(runtime: DaemonRuntime | undefined): string {
+        if (!runtime) return "Unavailable";
+        return runtime.status === "running" ? "Running" : "Stopped";
+    }
 </script>
 
 <div class="relative border-b border-border-subtle p-2">
@@ -40,6 +59,9 @@
                 <span class="block truncate font-mono text-[9px] text-text-tertiary">
                     {activeProject.workspacePath}
                 </span>
+                <span class="mt-0.5 block text-[9px] font-medium text-text-tertiary">
+                    {runtimeLabel(activeRuntime)}
+                </span>
             {/if}
         </span>
         {#if loading}
@@ -58,33 +80,51 @@
             aria-label="Projects"
         >
             {#each projects as project (project.id)}
-                <button
-                    type="button"
+                {@const runtime = runtimes[project.id]}
+                <div
                     role="option"
                     aria-selected={project.id === activeProjectId}
                     class="flex w-full items-start gap-2 px-2.5 py-2 text-left transition-colors hover:bg-bg-hover"
                     class:bg-bg-elevated={project.id === activeProjectId}
-                    onclick={() => {
-                        open = false;
-                        onSelectProject(project.id);
-                    }}
                 >
                     <span
                         class="mt-1 block h-1.5 w-1.5 shrink-0 rounded-full"
-                        class:bg-success={project.status === "ready" || project.status === "busy"}
-                        class:bg-text-tertiary={project.status === "offline"}
-                        class:bg-error={project.status === "error"}
-                        class:bg-accent={project.status === "starting"}
+                        class:bg-success={runtime?.status === "running"}
+                        class:bg-text-tertiary={runtime?.status === "stopped"}
+                        class:bg-error={!runtime}
                     ></span>
-                    <span class="min-w-0">
-                        <span class="block truncate text-[12px] font-medium text-text-primary">
-                            {project.name}
+                    <button
+                        type="button"
+                        class="min-w-0 flex-1 text-left"
+                        onclick={() => {
+                            open = false;
+                            onSelectProject(project.id);
+                        }}
+                    >
+                        <span class="block truncate text-[12px] font-medium text-text-primary">{project.name}</span>
+                        <span class="block truncate font-mono text-[9px] text-text-tertiary">{project.workspacePath}</span>
+                        <span class="block text-[9px] text-text-tertiary">
+                            {runtimeLabel(runtime)}
                         </span>
-                        <span class="block truncate font-mono text-[9px] text-text-tertiary">
-                            {project.workspacePath}
-                        </span>
-                    </span>
-                </button>
+                    </button>
+                    <button
+                        type="button"
+                        class="shrink-0 rounded-sm border border-border-subtle px-1.5 py-0.5 text-[9px] font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-50"
+                        disabled={runtimeActionProjectId === project.id}
+                        onclick={() =>
+                            runtime?.status === "running"
+                                ? onStopProject(project.id)
+                                : onStartProject(project.id)}
+                    >
+                        {#if runtimeActionProjectId === project.id}
+                            <BrailleSpinner class="font-mono text-[11px]" />
+                        {:else if runtime?.status === "running"}
+                            Stop
+                        {:else}
+                            Start
+                        {/if}
+                    </button>
+                </div>
             {:else}
                 <div class="px-3 py-2 text-[11px] text-text-tertiary">
                     No registered projects.

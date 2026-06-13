@@ -54,9 +54,13 @@
     import {
         createDaemonProjectSession,
         discoverLocalDaemon,
+        getDaemonProjectRuntime,
         listDaemonProjects,
         normalizeDaemonConnection,
+        startDaemonProject,
+        stopDaemonProject,
         type DaemonProject,
+        type DaemonRuntime,
     } from "$lib/chump/daemon-api";
 
     let { data }: { data: any } = $props();
@@ -110,6 +114,8 @@
     let projects = $state<DaemonProject[]>([]);
     let activeProjectId = $state("");
     let isLoadingProject = $state(false);
+    let projectRuntimes = $state<Record<string, DaemonRuntime>>({});
+    let runtimeActionProjectId = $state("");
 
     let isDraggingSidebar = $state(false);
     let sidebarDragOffset = $state(0);
@@ -689,6 +695,7 @@
             daemonUrl = connection.url;
             daemonToken = connection.token;
             projects = nextProjects;
+            await refreshProjectRuntimes(connection, nextProjects);
             if (browser) {
                 sessionStorage.setItem("chump:daemon-url", daemonUrl);
                 sessionStorage.setItem("chump:daemon-token", daemonToken);
@@ -705,6 +712,73 @@
             connectionError = toErrorMessage(error);
         } finally {
             isConnecting = false;
+        }
+    }
+
+    async function refreshProjectRuntimes(
+        connection = { url: daemonUrl, token: daemonToken },
+        targetProjects = projects,
+    ): Promise<void> {
+        const results = await Promise.allSettled(
+            targetProjects.map((project) =>
+                getDaemonProjectRuntime(connection, project.id),
+            ),
+        );
+        projectRuntimes = Object.fromEntries(
+            results.flatMap((result, index) =>
+                result.status === "fulfilled"
+                    ? [[targetProjects[index]!.id, result.value]]
+                    : [],
+            ),
+        );
+    }
+
+    async function startProject(projectId: string): Promise<void> {
+        if (!daemonUrl || !daemonToken) return;
+        runtimeActionProjectId = projectId;
+        connectionError = "";
+        try {
+            const runtime = await startDaemonProject(
+                { url: daemonUrl, token: daemonToken },
+                projectId,
+            );
+            projectRuntimes = { ...projectRuntimes, [projectId]: runtime };
+            if (projectId === activeProjectId) {
+                await sessionController.connectToServer();
+            }
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+        } finally {
+            runtimeActionProjectId = "";
+        }
+    }
+
+    async function stopProject(projectId: string): Promise<void> {
+        const project = projects.find((item) => item.id === projectId);
+        if (
+            !daemonUrl ||
+            !daemonToken ||
+            !confirm(`Stop ${project?.name ?? "this project"}? Active runs will be interrupted.`)
+        ) {
+            return;
+        }
+        runtimeActionProjectId = projectId;
+        connectionError = "";
+        try {
+            const runtime = await stopDaemonProject(
+                { url: daemonUrl, token: daemonToken },
+                projectId,
+            );
+            projectRuntimes = { ...projectRuntimes, [projectId]: runtime };
+            if (projectId === activeProjectId) {
+                sessionController.clearSessionView();
+                health = null;
+                sessions = [];
+            }
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+        } finally {
+            runtimeActionProjectId = "";
         }
     }
 
@@ -835,7 +909,11 @@
         {projects}
         {activeProjectId}
         {isLoadingProject}
+        {projectRuntimes}
+        {runtimeActionProjectId}
         onSelectProject={(projectId) => void selectProject(projectId)}
+        onStartProject={(projectId) => void startProject(projectId)}
+        onStopProject={(projectId) => void stopProject(projectId)}
         onCreateSession={() => void createProjectSession()}
         onOpenSession={() => void sessionController.openTypedSession()}
         onSelectSession={(id) => {
