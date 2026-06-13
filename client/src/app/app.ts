@@ -88,6 +88,11 @@ import {
   projectCommandUsage,
   runProjectCommand,
 } from "./project-command.ts";
+import {
+  daemonCommandUsage,
+  parseDaemonCommand,
+  runDaemonCommand,
+} from "./daemon-command.ts";
 import { createSpinner } from "../ui/spinner.ts";
 import type {
   ChumpConfig,
@@ -155,6 +160,15 @@ async function runProvidersCommand(): Promise<void> {
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv[0] === "daemon") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      console.log(daemonCommandUsage());
+      return;
+    }
+    console.log(await runDaemonCommand(parseDaemonCommand(argv.slice(1))));
+    return;
+  }
+
   if (argv[0] === "projects") {
     if (argv[1] === "--help" || argv[1] === "-h") {
       console.log(projectCommandUsage());

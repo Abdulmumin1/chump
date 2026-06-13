@@ -59,6 +59,9 @@ chump -c <url>                 # Connect to existing server
 chump server                   # Run backend in foreground
 chump status                   # Show server health
 chump providers                # List connected providers and active selection
+chump daemon start             # Start the local coordinator
+chump daemon status            # Show local coordinator status
+chump daemon stop              # Stop the local coordinator
 chump projects list            # List registered local projects
 chump projects add [path]      # Register a local project
 chump projects remove <id>     # Remove a project from the registry
