@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { startDaemonServer } from "./daemon-server.ts";
+import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
 import { ProjectRegistryStore } from "./projects.ts";
 
 test("serves health and projects from a loopback-only server", async (t) => {
@@ -191,6 +192,71 @@ test("rejects invalid JSON and oversized request bodies", async (t) => {
   assert.equal((await oversized.json()).error, "request_too_large");
 });
 
+test("starts, reports, and stops project runtimes through the daemon", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath);
+  let running = false;
+  const runtimeSupervisor = new ProjectRuntimeSupervisor(store, {
+    ensureServer: async (workspacePath) => {
+      running = true;
+      return {
+        started: true,
+        metadata: runtimeMetadata(workspacePath),
+      };
+    },
+    readServer: async (workspacePath) =>
+      running ? runtimeMetadata(workspacePath) : null,
+    stopServer: async () => {
+      running = false;
+      return "stopped";
+    },
+  });
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    runtimeSupervisor,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+  const headers = { authorization: `Bearer ${token}` };
+  const runtimeUrl = `${daemon.url}/projects/${project.id}/runtime`;
+
+  const stoppedResponse = await fetch(runtimeUrl, { headers });
+  assert.equal(stoppedResponse.status, 200);
+  assert.equal((await stoppedResponse.json()).runtime.status, "stopped");
+
+  const startResponse = await fetch(runtimeUrl, {
+    method: "POST",
+    headers,
+  });
+  assert.equal(startResponse.status, 200);
+  assert.deepEqual((await startResponse.json()).runtime, {
+    projectId: project.id,
+    status: "running",
+    serverUrl: "http://127.0.0.1:9000",
+    pid: 123,
+  });
+
+  const runningResponse = await fetch(runtimeUrl, { headers });
+  assert.equal((await runningResponse.json()).runtime.status, "running");
+
+  const stopResponse = await fetch(runtimeUrl, {
+    method: "DELETE",
+    headers,
+  });
+  assert.equal(stopResponse.status, 200);
+  assert.equal((await stopResponse.json()).runtime.status, "stopped");
+
+  const missingResponse = await fetch(
+    `${daemon.url}/projects/missing/runtime`,
+    { method: "POST", headers },
+  );
+  assert.equal(missingResponse.status, 404);
+});
+
 async function createFixture(): Promise<{
   workspacePath: string;
   registryPath: string;
@@ -206,4 +272,19 @@ async function createFixture(): Promise<{
 
 async function readText(response: Response): Promise<string> {
   return await response.text();
+}
+
+function runtimeMetadata(workspaceRoot: string) {
+  return {
+    url: "http://127.0.0.1:9000",
+    port: 9000,
+    pid: 123,
+    command: "server",
+    command_args: [],
+    command_source: "local" as const,
+    workspace_root: workspaceRoot,
+    data_dir: "/tmp/chump",
+    log_path: "/tmp/chump/server.log",
+    started_at: "2026-06-13T00:00:00.000Z",
+  };
 }

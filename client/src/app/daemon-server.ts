@@ -8,6 +8,7 @@ import {
 import { currentClientVersion } from "./update.ts";
 import { authorizeBearerHeader, DaemonAuthStore } from "./daemon-auth.ts";
 import { DAEMON_PROTOCOL_VERSION } from "./daemon-metadata.ts";
+import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
 import { ProjectRegistryStore } from "./projects.ts";
 
 const DAEMON_HOST = "127.0.0.1";
@@ -19,6 +20,7 @@ export type DaemonServerOptions = {
   version?: string;
   now?: () => number;
   authToken?: string;
+  runtimeSupervisor?: ProjectRuntimeSupervisor;
 };
 
 export type RunningDaemonServer = {
@@ -35,12 +37,15 @@ export async function startDaemonServer(
   const version = options.version ?? currentClientVersion();
   const startedAt = options.now?.() ?? Date.now();
   const authToken = options.authToken ?? await new DaemonAuthStore().getOrCreateToken();
+  const runtimeSupervisor =
+    options.runtimeSupervisor ?? new ProjectRuntimeSupervisor(projectStore);
   const server = createServer((request, response) => {
     void handleRequest(request, response, {
       projectStore,
       version,
       startedAt,
       authToken,
+      runtimeSupervisor,
     });
   });
 
@@ -64,6 +69,7 @@ type RequestContext = {
   version: string;
   startedAt: number;
   authToken: string;
+  runtimeSupervisor: ProjectRuntimeSupervisor;
 };
 
 async function handleRequest(
@@ -186,6 +192,44 @@ async function handleRequest(
         return;
       }
       sendMethodNotAllowed(response, ["GET", "PATCH", "DELETE"]);
+      return;
+    }
+
+    const runtimeMatch = /^\/projects\/([^/]+)\/runtime$/.exec(url.pathname);
+    if (runtimeMatch) {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+      const projectId = decodeURIComponent(runtimeMatch[1]!);
+      if (method === "GET") {
+        const runtime = await context.runtimeSupervisor.status(projectId);
+        if (!runtime) {
+          sendJson(response, 404, { error: "project_not_found" });
+          return;
+        }
+        sendJson(response, 200, { runtime });
+        return;
+      }
+      if (method === "POST") {
+        const runtime = await context.runtimeSupervisor.start(projectId);
+        if (!runtime) {
+          sendJson(response, 404, { error: "project_not_found" });
+          return;
+        }
+        sendJson(response, 200, { runtime });
+        return;
+      }
+      if (method === "DELETE") {
+        const runtime = await context.runtimeSupervisor.stop(projectId);
+        if (!runtime) {
+          sendJson(response, 404, { error: "project_not_found" });
+          return;
+        }
+        sendJson(response, 200, { runtime });
+        return;
+      }
+      sendMethodNotAllowed(response, ["GET", "POST", "DELETE"]);
       return;
     }
 
