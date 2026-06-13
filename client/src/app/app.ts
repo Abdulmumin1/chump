@@ -74,10 +74,10 @@ import {
   ensureServerTarget,
   parseCliArgs,
   printCliUsage,
-  recoverManagedServer,
   startServerCommand,
   stopManagedServer,
 } from "./runtime.ts";
+import { recoverManagedServerUrl } from "./managed-recovery.ts";
 import {
   currentClientVersion,
   maybeRenderUpdateNotice,
@@ -362,10 +362,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       return await recoveryPromise;
     }
     recoveryPromise = (async () => {
-      const recovered = await recoverManagedServer(config.workspaceRoot, config.serverUrl);
+      const recoveredUrl = await recoverManagedServerUrl(
+        config.workspaceRoot,
+        config.serverUrl,
+      );
       config = loadConfig({
         agentId: config.agentId,
-        serverUrl: recovered.metadata.url,
+        serverUrl: recoveredUrl,
         serverSource: "managed",
       });
       closeEventStream?.();
