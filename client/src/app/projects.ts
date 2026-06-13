@@ -43,6 +43,12 @@ export class ProjectRegistryStore {
       .sort((left, right) => right.lastOpenedAt - left.lastOpenedAt);
   }
 
+  async get(projectId: string): Promise<Project | null> {
+    const registry = await this.read();
+    const project = registry.projects.find((item) => item.id === projectId);
+    return project ? structuredClone(project) : null;
+  }
+
   async register(workspacePath: string, name?: string): Promise<Project> {
     const canonicalPath = await canonicalizeWorkspacePath(workspacePath);
     const registry = await this.read();
@@ -82,6 +88,19 @@ export class ProjectRegistryStore {
     }
     await this.write({ ...registry, projects });
     return true;
+  }
+
+  async rename(projectId: string, name: string): Promise<Project | null> {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      throw new Error("project name cannot be empty");
+    }
+    const registry = await this.read();
+    const project = registry.projects.find((item) => item.id === projectId);
+    if (!project) return null;
+    project.name = normalizedName;
+    await this.write(registry);
+    return structuredClone(project);
   }
 
   private async read(): Promise<ProjectRegistry> {

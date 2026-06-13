@@ -76,6 +76,19 @@ test("removes projects without touching the workspace", async () => {
   assert.equal(await readFile(path.join(fixture.workspacePath, "marker"), "utf8"), "ok");
 });
 
+test("gets and renames a project without changing its identity", async () => {
+  const fixture = await createFixture();
+  const store = new ProjectRegistryStore({ registryPath: fixture.registryPath });
+  const project = await store.register(fixture.workspacePath);
+
+  assert.deepEqual(await store.get(project.id), project);
+  const renamed = await store.rename(project.id, "Renamed");
+  assert.equal(renamed?.id, project.id);
+  assert.equal(renamed?.name, "Renamed");
+  assert.equal(await store.rename("missing", "Name"), null);
+  await assert.rejects(store.rename(project.id, "  "), /cannot be empty/);
+});
+
 test("rejects missing workspaces and malformed registries", async () => {
   const fixture = await createFixture();
   const store = new ProjectRegistryStore({ registryPath: fixture.registryPath });
