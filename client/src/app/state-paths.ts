@@ -19,6 +19,20 @@ export type WorkspaceStatePaths = {
   clientLogPath: string;
 };
 
+export type GlobalStatePaths = {
+  dataDir: string;
+  projectsPath: string;
+};
+
+export function getGlobalStatePaths(): GlobalStatePaths {
+  const dataDir = stateBaseDir();
+  mkdirSync(dataDir, { recursive: true });
+  return {
+    dataDir,
+    projectsPath: path.join(dataDir, "projects.json"),
+  };
+}
+
 export function getWorkspaceStatePaths(workspaceRoot: string): WorkspaceStatePaths {
   const dataDir = workspaceStateDir(workspaceRoot);
   migrateLegacyWorkspaceState(workspaceRoot, dataDir);
