@@ -75,6 +75,29 @@ export async function startDaemonProject(
     return response.runtime;
 }
 
+export async function getDaemonProjectRuntime(
+    connection: DaemonConnection,
+    projectId: string,
+): Promise<DaemonRuntime> {
+    const response = await daemonJson<{ runtime: DaemonRuntime }>(
+        connection,
+        `/projects/${encodeURIComponent(projectId)}/runtime`,
+    );
+    return response.runtime;
+}
+
+export async function stopDaemonProject(
+    connection: DaemonConnection,
+    projectId: string,
+): Promise<DaemonRuntime> {
+    const response = await daemonJson<{ runtime: DaemonRuntime }>(
+        connection,
+        `/projects/${encodeURIComponent(projectId)}/runtime`,
+        { method: "DELETE" },
+    );
+    return response.runtime;
+}
+
 export async function listDaemonProjectSessions(
     connection: DaemonConnection,
     projectId: string,
