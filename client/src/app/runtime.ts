@@ -392,7 +392,7 @@ function signalStopTarget(target: StopTarget, signal: NodeJS.Signals): void {
   }
 }
 
-async function ensureManagedServer(workspaceRoot: string): Promise<{
+export async function ensureManagedServer(workspaceRoot: string): Promise<{
   started: boolean;
   metadata: ManagedServerMetadata;
 }> {
@@ -599,7 +599,7 @@ async function withWorkspaceLock<T>(
   }
 }
 
-async function readManagedServerMetadata(
+export async function readManagedServerMetadata(
   workspaceRoot: string,
 ): Promise<ManagedServerMetadata | null> {
   const metadataPath = getWorkspaceStatePaths(workspaceRoot).metadataPath;
