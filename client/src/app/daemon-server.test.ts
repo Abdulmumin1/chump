@@ -363,6 +363,53 @@ test("creates project-scoped session handles", async (t) => {
   assert.equal((await requested.json()).sessionId, "requested-session");
 });
 
+test("forwards project health and file search requests", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath);
+  const forwarded: Array<{ projectId: string; path: string; query: string }> = [];
+  const sessionRouter = {
+    projectRequest: async (
+      projectId: string,
+      path: string,
+      query: string,
+    ) => {
+      forwarded.push({ projectId, path, query });
+      return Response.json({ ok: true });
+    },
+  } as unknown as ProjectSessionRouter;
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    sessionRouter,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+  const headers = { authorization: `Bearer ${token}` };
+
+  const health = await fetch(
+    `${daemon.url}/projects/${project.id}/health`,
+    { headers },
+  );
+  const files = await fetch(
+    `${daemon.url}/projects/${project.id}/files?query=readme&limit=5`,
+    { headers },
+  );
+
+  assert.equal(health.status, 200);
+  assert.equal(files.status, 200);
+  assert.deepEqual(forwarded, [
+    { projectId: project.id, path: "health", query: "" },
+    {
+      projectId: project.id,
+      path: "files",
+      query: "?query=readme&limit=5",
+    },
+  ]);
+});
+
 test("forwards project session state, messages, and actions", async (t) => {
   const fixture = await createFixture();
   const token = "test-token-that-is-long-enough-for-auth";

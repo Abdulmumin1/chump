@@ -298,6 +298,33 @@ async function handleRequest(
       return;
     }
 
+    const projectProxyMatch = /^\/projects\/([^/]+)\/(health|files)$/.exec(
+      url.pathname,
+    );
+    if (projectProxyMatch) {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+      if (method !== "GET") {
+        sendMethodNotAllowed(response, ["GET"]);
+        return;
+      }
+      const projectId = decodeURIComponent(projectProxyMatch[1]!);
+      const route = projectProxyMatch[2] as "health" | "files";
+      const upstream = await context.sessionRouter.projectRequest(
+        projectId,
+        route,
+        url.search,
+      );
+      if (!upstream) {
+        sendJson(response, 404, { error: "project_not_found" });
+        return;
+      }
+      await sendUpstreamResponse(response, upstream);
+      return;
+    }
+
     const sessionRouteMatch =
       /^\/projects\/([^/]+)\/sessions\/([^/]+)\/(state|messages|action\/[^/]+)$/
         .exec(url.pathname);

@@ -98,6 +98,18 @@ export class ProjectSessionRouter {
       signal: request.signal,
     });
   }
+
+  async projectRequest(
+    projectId: string,
+    path: "health" | "files",
+    query = "",
+  ): Promise<Response | null> {
+    const runtime = await this.runtimes.start(projectId);
+    if (!runtime?.serverUrl) return null;
+    const target = new URL(`${runtime.serverUrl}/${path}`);
+    target.search = query;
+    return await this.fetchRequest(target);
+  }
 }
 
 export class SessionCreationError extends Error {

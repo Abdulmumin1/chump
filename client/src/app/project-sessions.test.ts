@@ -88,6 +88,32 @@ test("forwards session requests only to the selected project runtime", async () 
   assert.equal(requests[0]?.init?.method, "GET");
 });
 
+test("forwards project health and file searches to the selected runtime", async () => {
+  const requested: string[] = [];
+  const runtimes = {
+    start: async () => ({
+      projectId: "project-one",
+      status: "running",
+      serverUrl: "http://127.0.0.1:9000",
+      pid: 123,
+    }),
+  } as unknown as ProjectRuntimeSupervisor;
+  const router = new ProjectSessionRouter(runtimes, {
+    fetch: async (input) => {
+      requested.push(String(input));
+      return Response.json({ ok: true });
+    },
+  });
+
+  await router.projectRequest("project-one", "health");
+  await router.projectRequest("project-one", "files", "?query=readme&limit=5");
+
+  assert.deepEqual(requested, [
+    "http://127.0.0.1:9000/health",
+    "http://127.0.0.1:9000/files?query=readme&limit=5",
+  ]);
+});
+
 test("creates validated project-scoped session handles", async () => {
   const runtimes = {
     start: async (projectId: string) => ({
