@@ -2,6 +2,8 @@
     import BrailleSpinner from "$lib/BrailleSpinner.svelte";
     import ThemeToggle from "$lib/ThemeToggle.svelte";
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
+    import ProjectsSwitcher from "$lib/ProjectsSwitcher.svelte";
+    import type { DaemonProject } from "$lib/chump/daemon-api";
     let {
         sessions,
         activeSessionId,
@@ -21,6 +23,10 @@
         dragOffset = 0,
         isDragging = false,
         isLoadingSession = false,
+        projects = [],
+        activeProjectId = "",
+        isLoadingProject = false,
+        onSelectProject,
     } = $props<{
         sessions: Array<any>;
         activeSessionId: string;
@@ -40,6 +46,10 @@
         dragOffset?: number;
         isDragging?: boolean;
         isLoadingSession?: boolean;
+        projects?: DaemonProject[];
+        activeProjectId?: string;
+        isLoadingProject?: boolean;
+        onSelectProject?: (projectId: string) => void;
     }>();
     let isConnected = $derived(!!health);
     let serverDisplay = $derived.by(() => {
@@ -65,6 +75,15 @@
     style:opacity={currentOpacity}
     style:visibility={open || isDragging ? 'visible' : 'hidden'}
 >
+    {#if onSelectProject}
+        <ProjectsSwitcher
+            {projects}
+            {activeProjectId}
+            loading={isLoadingProject}
+            {onSelectProject}
+        />
+    {/if}
+
     <div
         class="p-2 flex items-center"
     >

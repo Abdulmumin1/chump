@@ -50,6 +50,13 @@
         formatCtxLabel,
         type ModelChoice,
     } from "$lib/models";
+    import {
+        createDaemonProjectSession,
+        listDaemonProjects,
+        normalizeDaemonConnection,
+        startDaemonProject,
+        type DaemonProject,
+    } from "$lib/chump/daemon-api";
 
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
@@ -97,6 +104,11 @@
     let modelSearchQuery = $state("");
     let availableModels = $state<ModelChoice[]>([]);
     let contextUsageLabel = $state<string | null>(null);
+    let daemonUrl = $state("");
+    let daemonToken = $state("");
+    let projects = $state<DaemonProject[]>([]);
+    let activeProjectId = $state("");
+    let isLoadingProject = $state(false);
 
     let isDraggingSidebar = $state(false);
     let sidebarDragOffset = $state(0);
@@ -634,8 +646,94 @@
         scrollTranscriptToEnd,
     });
 
+    async function connectToDaemon(): Promise<void> {
+        isConnecting = true;
+        connectionError = "";
+        try {
+            const connection = normalizeDaemonConnection({
+                url: daemonUrl,
+                token: daemonToken,
+            });
+            const nextProjects = await listDaemonProjects(connection);
+            daemonUrl = connection.url;
+            daemonToken = connection.token;
+            projects = nextProjects;
+            if (browser) {
+                sessionStorage.setItem("chump:daemon-url", daemonUrl);
+                sessionStorage.setItem("chump:daemon-token", daemonToken);
+            }
+            const preferredProjectId =
+                nextProjects.some((project) => project.id === activeProjectId)
+                    ? activeProjectId
+                    : (nextProjects[0]?.id ?? "");
+            if (preferredProjectId) {
+                await selectProject(preferredProjectId);
+            }
+            closeConnectModal();
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+        } finally {
+            isConnecting = false;
+        }
+    }
+
+    async function selectProject(projectId: string): Promise<void> {
+        if (!projectId || !daemonUrl || !daemonToken) {
+            return;
+        }
+        isLoadingProject = true;
+        connectionError = "";
+        sessionController.clearSessionView();
+        sessions = [];
+        activeSessionId = "";
+        sessionInput = "";
+        health = null;
+        try {
+            const runtime = await startDaemonProject(
+                { url: daemonUrl, token: daemonToken },
+                projectId,
+            );
+            if (!runtime.serverUrl) {
+                throw new Error("project runtime did not provide a server URL");
+            }
+            activeProjectId = projectId;
+            serverUrl = runtime.serverUrl;
+            if (browser) {
+                sessionStorage.setItem("chump:active-project", projectId);
+            }
+            await sessionController.connectToServer();
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+        } finally {
+            isLoadingProject = false;
+        }
+    }
+
+    async function createProjectSession(): Promise<void> {
+        if (!activeProjectId || !daemonUrl || !daemonToken) {
+            await sessionController.createFreshSession();
+            return;
+        }
+        try {
+            const created = await createDaemonProjectSession(
+                { url: daemonUrl, token: daemonToken },
+                activeProjectId,
+            );
+            sessionController.ensureSessionListed(created.sessionId);
+            await sessionController.selectSession(created.sessionId);
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+        }
+    }
+
     onMount(() => {
-        if (serverUrl.trim()) {
+        daemonUrl = sessionStorage.getItem("chump:daemon-url") ?? "";
+        daemonToken = sessionStorage.getItem("chump:daemon-token") ?? "";
+        activeProjectId =
+            sessionStorage.getItem("chump:active-project") ?? "";
+        if (daemonUrl && daemonToken) {
+            void connectToDaemon();
+        } else if (serverUrl.trim()) {
             void sessionController.connectToServer();
         }
 
@@ -679,7 +777,11 @@
         {isConnecting}
         {canConnect}
         {isLoadingSession}
-        onCreateSession={() => void sessionController.createFreshSession()}
+        {projects}
+        {activeProjectId}
+        {isLoadingProject}
+        onSelectProject={(projectId) => void selectProject(projectId)}
+        onCreateSession={() => void createProjectSession()}
         onOpenSession={() => void sessionController.openTypedSession()}
         onSelectSession={(id) => {
             closeSidebar();
@@ -792,6 +894,8 @@
 <ConnectServerModal
     open={connectModalOpen}
     bind:serverUrl
+    bind:daemonUrl
+    bind:daemonToken
     {canConnect}
     {isConnecting}
     {connectionError}
@@ -800,6 +904,7 @@
     bind:qrVideoElement
     onClose={closeConnectModal}
     onConnect={() => void sessionController.connectToServer()}
+    onConnectDaemon={() => void connectToDaemon()}
     onStartQrScanner={() => void startQrScanner()}
     onStopQrScanner={stopQrScanner}
 />
