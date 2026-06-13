@@ -9,6 +9,7 @@ import { currentClientVersion } from "./update.ts";
 import { authorizeBearerHeader, DaemonAuthStore } from "./daemon-auth.ts";
 import { DAEMON_PROTOCOL_VERSION } from "./daemon-metadata.ts";
 import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
+import { ProjectSessionRouter } from "./project-sessions.ts";
 import { ProjectRegistryStore } from "./projects.ts";
 
 const DAEMON_HOST = "127.0.0.1";
@@ -21,6 +22,7 @@ export type DaemonServerOptions = {
   now?: () => number;
   authToken?: string;
   runtimeSupervisor?: ProjectRuntimeSupervisor;
+  sessionRouter?: ProjectSessionRouter;
 };
 
 export type RunningDaemonServer = {
@@ -39,6 +41,8 @@ export async function startDaemonServer(
   const authToken = options.authToken ?? await new DaemonAuthStore().getOrCreateToken();
   const runtimeSupervisor =
     options.runtimeSupervisor ?? new ProjectRuntimeSupervisor(projectStore);
+  const sessionRouter =
+    options.sessionRouter ?? new ProjectSessionRouter(runtimeSupervisor);
   const server = createServer((request, response) => {
     void handleRequest(request, response, {
       projectStore,
@@ -46,6 +50,7 @@ export async function startDaemonServer(
       startedAt,
       authToken,
       runtimeSupervisor,
+      sessionRouter,
     });
   });
 
@@ -70,6 +75,7 @@ type RequestContext = {
   startedAt: number;
   authToken: string;
   runtimeSupervisor: ProjectRuntimeSupervisor;
+  sessionRouter: ProjectSessionRouter;
 };
 
 async function handleRequest(
@@ -230,6 +236,26 @@ async function handleRequest(
         return;
       }
       sendMethodNotAllowed(response, ["GET", "POST", "DELETE"]);
+      return;
+    }
+
+    const sessionsMatch = /^\/projects\/([^/]+)\/sessions$/.exec(url.pathname);
+    if (sessionsMatch) {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+      if (method !== "GET") {
+        sendMethodNotAllowed(response, ["GET"]);
+        return;
+      }
+      const projectId = decodeURIComponent(sessionsMatch[1]!);
+      const result = await context.sessionRouter.list(projectId);
+      if (!result) {
+        sendJson(response, 404, { error: "project_not_found" });
+        return;
+      }
+      sendJson(response, 200, result);
       return;
     }
 

@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { startDaemonServer } from "./daemon-server.ts";
 import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
+import { ProjectSessionRouter } from "./project-sessions.ts";
 import { ProjectRegistryStore } from "./projects.ts";
 
 test("serves health and projects from a loopback-only server", async (t) => {
@@ -255,6 +256,66 @@ test("starts, reports, and stops project runtimes through the daemon", async (t)
     { method: "POST", headers },
   );
   assert.equal(missingResponse.status, 404);
+});
+
+test("lists sessions for a selected project through the daemon", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath);
+  const runtimeSupervisor = new ProjectRuntimeSupervisor(store, {
+    ensureServer: async (workspacePath) => ({
+      started: true,
+      metadata: runtimeMetadata(workspacePath),
+    }),
+  });
+  const sessionRouter = new ProjectSessionRouter(runtimeSupervisor, {
+    fetch: async () => Response.json({
+      sessions: [{
+        id: "session-one",
+        active: false,
+        message_count: 1,
+        event_count: 2,
+        title: null,
+        created_at: 1,
+        updated_at: 2,
+        last_user_goal: null,
+        last_activity: null,
+        connections: 0,
+      }],
+    }),
+  });
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    runtimeSupervisor,
+    sessionRouter,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+
+  const response = await fetch(
+    `${daemon.url}/projects/${project.id}/sessions`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    projectId: project.id,
+    sessions: [{
+      id: "session-one",
+      active: false,
+      message_count: 1,
+      event_count: 2,
+      title: null,
+      created_at: 1,
+      updated_at: 2,
+      last_user_goal: null,
+      last_activity: null,
+      connections: 0,
+    }],
+  });
 });
 
 async function createFixture(): Promise<{
