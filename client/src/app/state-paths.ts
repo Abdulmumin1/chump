@@ -25,7 +25,9 @@ export type GlobalStatePaths = {
 };
 
 export function getGlobalStatePaths(): GlobalStatePaths {
-  const dataDir = stateBaseDir();
+  const dataDir = process.env.CHUMP_GLOBAL_STATE_DIR
+    ? path.resolve(process.env.CHUMP_GLOBAL_STATE_DIR)
+    : stateBaseDir();
   mkdirSync(dataDir, { recursive: true });
   return {
     dataDir,

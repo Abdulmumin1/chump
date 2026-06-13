@@ -83,6 +83,11 @@ import {
   maybeRenderUpdateNotice,
   runUpdateCommand,
 } from "./update.ts";
+import {
+  parseProjectCommand,
+  projectCommandUsage,
+  runProjectCommand,
+} from "./project-command.ts";
 import { createSpinner } from "../ui/spinner.ts";
 import type {
   ChumpConfig,
@@ -150,6 +155,19 @@ async function runProvidersCommand(): Promise<void> {
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv[0] === "projects") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      console.log(projectCommandUsage());
+      return;
+    }
+    console.log(
+      await runProjectCommand(
+        parseProjectCommand(argv.slice(1), process.cwd()),
+      ),
+    );
+    return;
+  }
+
   const options = parseCliArgs(argv);
   const workspaceRoot = resolveWorkspaceRoot(process.cwd());
 

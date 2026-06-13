@@ -172,6 +172,7 @@ export function printCliUsage(): void {
   console.log("chump server");
   console.log("chump connect");
   console.log("chump providers");
+  console.log("chump projects [list|add|remove]");
   console.log("chump update");
   console.log("chump status [-c <server-url>] [-s <session-id>]");
   console.log("chump stop");
