@@ -348,6 +348,10 @@ test("lists sessions for a selected project through the daemon", async (t) => {
       last_activity: null,
       connections: 0,
     }],
+    page: 1,
+    page_size: 1,
+    total: 1,
+    total_pages: 1,
   });
 });
 

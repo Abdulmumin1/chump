@@ -5,6 +5,10 @@ import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
 export type ProjectSessions = {
   projectId: string;
   sessions: SessionSummary[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
 };
 
 export type CreatedProjectSession = {
@@ -40,10 +44,12 @@ export class ProjectSessionRouter {
     this.fetchRequest = dependencies.fetch ?? fetch;
   }
 
-  async list(projectId: string): Promise<ProjectSessions | null> {
+  async list(projectId: string, query = ""): Promise<ProjectSessions | null> {
     const runtime = await this.runtimes.start(projectId);
     if (!runtime?.serverUrl) return null;
-    const response = await this.fetchRequest(`${runtime.serverUrl}/sessions`);
+    const target = new URL(`${runtime.serverUrl}/sessions`);
+    target.search = query;
+    const response = await this.fetchRequest(target.toString());
     if (!response.ok) {
       throw new Error(`project session request failed with ${response.status}`);
     }
@@ -51,9 +57,19 @@ export class ProjectSessionRouter {
     if (!isSessionsResponse(body)) {
       throw new Error("project session response is invalid");
     }
+    const page = numberField(body, "page") ?? 1;
+    const pageSize = numberField(body, "page_size") ?? body.sessions.length;
+    const total = numberField(body, "total") ?? body.sessions.length;
+    const totalPages =
+      numberField(body, "total_pages") ??
+      Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
     return {
       projectId,
       sessions: body.sessions,
+      page,
+      page_size: pageSize,
+      total,
+      total_pages: totalPages,
     };
   }
 
@@ -141,12 +157,19 @@ function generatedSessionId(projectId: string): string {
 
 function isSessionsResponse(
   value: unknown,
-): value is { sessions: SessionSummary[] } {
+): value is { sessions: SessionSummary[] } & Record<string, unknown> {
   return (
     isRecord(value) &&
     Array.isArray(value.sessions) &&
     value.sessions.every(isSessionSummary)
   );
+}
+
+function numberField(
+  value: Record<string, unknown>,
+  key: string,
+): number | null {
+  return typeof value[key] === "number" ? value[key] : null;
 }
 
 function isSessionSummary(value: unknown): value is SessionSummary {

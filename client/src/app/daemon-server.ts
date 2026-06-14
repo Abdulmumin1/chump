@@ -270,7 +270,7 @@ async function handleRequest(
       }
       const projectId = decodeURIComponent(sessionsMatch[1]!);
       if (method === "GET") {
-        const result = await context.sessionRouter.list(projectId);
+        const result = await context.sessionRouter.list(projectId, url.search);
         if (!result) {
           sendJson(response, 404, { error: "project_not_found" });
           return;

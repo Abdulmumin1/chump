@@ -23,12 +23,16 @@ test("lists sessions from only the selected project runtime", async () => {
     },
   });
 
-  assert.deepEqual(await router.list("project-one"), {
+  assert.deepEqual(await router.list("project-one", "?page=2&limit=15"), {
     projectId: "project-one",
     sessions: [session("session-one")],
+    page: 1,
+    page_size: 1,
+    total: 1,
+    total_pages: 1,
   });
   assert.deepEqual(requestedUrls, [
-    "http://127.0.0.1/project-one/sessions",
+    "http://127.0.0.1/project-one/sessions?page=2&limit=15",
   ]);
 });
 

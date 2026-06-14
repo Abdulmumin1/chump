@@ -79,8 +79,12 @@ export async function getHealth(config: ChumpConfig): Promise<ChumpHealth> {
 
 export async function getSessions(
   config: ChumpConfig,
+  options: { page?: number; limit?: number } = {},
 ): Promise<SessionsResponse> {
-  const response = await fetch(`${config.serverUrl}/sessions`);
+  const url = new URL(`${config.serverUrl}/sessions`);
+  url.searchParams.set("page", String(options.page ?? 1));
+  url.searchParams.set("limit", String(options.limit ?? 100));
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(await readErrorResponse(response));
   }
