@@ -19,6 +19,7 @@ import { pickDirectory } from "./directory-picker.ts";
 
 const DAEMON_HOST = "127.0.0.1";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
+const MAX_SESSION_BODY_BYTES = 64 * 1024 * 1024;
 
 export type DaemonServerOptions = {
   port?: number;
@@ -366,7 +367,14 @@ async function handleRequest(
       const body =
         method === "GET"
           ? undefined
-          : Buffer.from(await readBody(request)).toString("utf8");
+          : Buffer.from(
+              await readBody(
+                request,
+                route === "action/steer_current_turn"
+                  ? MAX_SESSION_BODY_BYTES
+                  : MAX_JSON_BODY_BYTES,
+              ),
+            ).toString("utf8");
       const upstream = await context.sessionRouter.request(
         projectId,
         sessionId,
@@ -409,7 +417,9 @@ async function handleRequest(
       try {
         const body =
           route === "chat"
-            ? Buffer.from(await readBody(request)).toString("utf8")
+            ? Buffer.from(
+                await readBody(request, MAX_SESSION_BODY_BYTES),
+              ).toString("utf8")
             : undefined;
         const upstream = await context.sessionRouter.request(
           projectId,
@@ -477,13 +487,16 @@ async function readOptionalJsonBody(
   }
 }
 
-async function readBody(request: IncomingMessage): Promise<Uint8Array> {
+async function readBody(
+  request: IncomingMessage,
+  maxBytes = MAX_JSON_BODY_BYTES,
+): Promise<Uint8Array> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MAX_JSON_BODY_BYTES) {
+    if (size > maxBytes) {
       throw new RequestError(413, "request_too_large", "request body is too large");
     }
     chunks.push(buffer);

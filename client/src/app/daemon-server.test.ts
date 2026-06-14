@@ -503,6 +503,16 @@ test("forwards project session state, messages, and actions", async (t) => {
     body: "{}",
   });
   assert.equal(actionResponse.status, 200);
+  const steerBody = JSON.stringify({
+    message: "x".repeat(70 * 1024),
+    attachments: [],
+  });
+  const steerResponse = await fetch(`${base}/action/steer_current_turn`, {
+    method: "POST",
+    headers,
+    body: steerBody,
+  });
+  assert.equal(steerResponse.status, 200);
   assert.deepEqual(forwarded, [
     {
       projectId: project.id,
@@ -524,6 +534,13 @@ test("forwards project session state, messages, and actions", async (t) => {
       method: "POST",
       path: "action/status",
       body: "{}",
+    },
+    {
+      projectId: project.id,
+      sessionId: "session-one",
+      method: "POST",
+      path: "action/steer_current_turn",
+      body: steerBody,
     },
   ]);
 });
@@ -573,10 +590,15 @@ test("streams chat and events without buffering", async (t) => {
   const base =
     `${daemon.url}/projects/${project.id}/sessions/session-one`;
 
+  const largeMessage = "x".repeat(70 * 1024);
+  const chatBody = JSON.stringify({
+    message: largeMessage,
+    attachments: [],
+  });
   const chatResponse = await fetch(`${base}/chat?stream=true`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ message: "hello" }),
+    body: chatBody,
   });
   assert.equal(chatResponse.headers.get("content-type"), "text/event-stream");
   assert.equal(
@@ -594,7 +616,7 @@ test("streams chat and events without buffering", async (t) => {
   assert.deepEqual(forwarded, [
     {
       path: "chat",
-      body: JSON.stringify({ message: "hello" }),
+      body: chatBody,
     },
     {
       path: "events",
