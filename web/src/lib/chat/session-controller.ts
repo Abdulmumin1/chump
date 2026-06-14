@@ -43,6 +43,12 @@ export type SessionControllerState = {
     set sessionState(value: ChumpState | null);
     get sessions(): SessionSummary[];
     set sessions(value: SessionSummary[]);
+    get sessionPage(): number;
+    set sessionPage(value: number);
+    get sessionTotalPages(): number;
+    set sessionTotalPages(value: number);
+    get sessionTotal(): number;
+    set sessionTotal(value: number);
     get messages(): StoredMessage[];
     set messages(value: StoredMessage[]);
     get steeringQueue(): SteeringQueueItem[];
@@ -96,7 +102,7 @@ export function createSessionController(
             ]);
 
             state.health = nextHealth;
-            state.sessions = nextSessionsResponse.sessions;
+            applySessionsResponse(nextSessionsResponse);
             if (nextHealth.available_providers?.length) {
                 listModelChoices(nextHealth.available_providers)
                     .then((choices) => {
@@ -137,11 +143,34 @@ export function createSessionController(
 
         try {
             if (!state.apiTarget) return;
-            const nextSessions = await getSessions(state.apiTarget);
-            state.sessions = nextSessions.sessions;
+            const nextSessions = await getSessions(state.apiTarget, {
+                page: state.sessionPage,
+            });
+            applySessionsResponse(nextSessions);
         } catch (error) {
             state.connectionError = toErrorMessage(error);
         }
+    }
+
+    async function loadSessionsPage(page: number): Promise<void> {
+        if (!state.apiTarget || page < 1 || page > state.sessionTotalPages) return;
+        try {
+            applySessionsResponse(await getSessions(state.apiTarget, { page }));
+        } catch (error) {
+            state.connectionError = toErrorMessage(error);
+        }
+    }
+
+    function applySessionsResponse(response: {
+        sessions: SessionSummary[];
+        page: number;
+        total_pages: number;
+        total: number;
+    }): void {
+        state.sessions = response.sessions;
+        state.sessionPage = response.page;
+        state.sessionTotalPages = response.total_pages;
+        state.sessionTotal = response.total;
     }
 
     async function selectSession(sessionId: string): Promise<void> {
@@ -484,6 +513,7 @@ export function createSessionController(
     return {
         connectToServer,
         refreshSessionsList,
+        loadSessionsPage,
         selectSession,
         refreshSessionSnapshot,
         ensureSessionListed,

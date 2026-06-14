@@ -76,6 +76,9 @@
     let status = $state<ChumpStatus | null>(null);
     let sessionState = $state<ChumpState | null>(null);
     let sessions = $state<SessionSummary[]>([]);
+    let sessionPage = $state(1);
+    let sessionTotalPages = $state(1);
+    let sessionTotal = $state(0);
     let messages = $state<StoredMessage[]>([]);
     let steeringQueue = $state<SteeringQueueItem[]>([]);
     let composerText = $state("");
@@ -253,6 +256,24 @@
         },
         set sessions(value: SessionSummary[]) {
             sessions = value;
+        },
+        get sessionPage() {
+            return sessionPage;
+        },
+        set sessionPage(value: number) {
+            sessionPage = value;
+        },
+        get sessionTotalPages() {
+            return sessionTotalPages;
+        },
+        set sessionTotalPages(value: number) {
+            sessionTotalPages = value;
+        },
+        get sessionTotal() {
+            return sessionTotal;
+        },
+        set sessionTotal(value: number) {
+            sessionTotal = value;
         },
         get messages() {
             return messages;
@@ -973,6 +994,9 @@
 
     <SessionsSidebar
         {sessions}
+        {sessionPage}
+        {sessionTotalPages}
+        {sessionTotal}
         {activeSessionId}
         bind:sessionInput
         {health}
@@ -998,6 +1022,8 @@
             closeSidebar();
             void sessionController.selectSession(id);
         }}
+        onPreviousPage={() => void sessionController.loadSessionsPage(sessionPage - 1)}
+        onNextPage={() => void sessionController.loadSessionsPage(sessionPage + 1)}
         onOpenConnectModal={openConnectModal}
         onConnect={() => void connectDirectly()}
         {sessionTitle}

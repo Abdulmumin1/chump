@@ -32,8 +32,27 @@ export async function getHealth(target: ChumpApiTarget): Promise<ChumpHealth> {
 	return await fetchJson<ChumpHealth>(projectUrl(target, 'health'), requestHeaders(target));
 }
 
-export async function getSessions(target: ChumpApiTarget): Promise<SessionsResponse> {
-	return await fetchJson<SessionsResponse>(projectUrl(target, 'sessions'), requestHeaders(target));
+export async function getSessions(
+	target: ChumpApiTarget,
+	options: { page?: number; limit?: number } = {}
+): Promise<SessionsResponse> {
+	const url = new URL(projectUrl(target, 'sessions'));
+	url.searchParams.set('page', String(options.page ?? 1));
+	url.searchParams.set('limit', String(options.limit ?? 15));
+	const response = await fetchJson<Partial<SessionsResponse> & Pick<SessionsResponse, 'sessions'>>(
+		url.toString(),
+		requestHeaders(target)
+	);
+	const page = response.page ?? 1;
+	const pageSize = response.page_size ?? response.sessions.length;
+	const total = response.total ?? response.sessions.length;
+	return {
+		sessions: response.sessions,
+		page,
+		page_size: pageSize,
+		total,
+		total_pages: response.total_pages ?? Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
+	};
 }
 
 export async function getStatus(target: ChumpApiTarget, agentId: string): Promise<ChumpStatus> {
