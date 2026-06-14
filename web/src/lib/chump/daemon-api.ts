@@ -83,6 +83,17 @@ export async function registerDaemonProject(
     return response.project;
 }
 
+export async function pickDaemonProjectDirectory(
+    connection: DaemonConnection,
+): Promise<string | null> {
+    const response = await daemonJson<{ workspacePath: string | null }>(
+        connection,
+        "/directory-picker",
+        { method: "POST" },
+    );
+    return response.workspacePath;
+}
+
 export async function startDaemonProject(
     connection: DaemonConnection,
     projectId: string,

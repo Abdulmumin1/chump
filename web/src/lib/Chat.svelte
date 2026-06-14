@@ -57,6 +57,8 @@
         getDaemonProjectRuntime,
         listDaemonProjects,
         normalizeDaemonConnection,
+        pickDaemonProjectDirectory,
+        registerDaemonProject,
         startDaemonProject,
         stopDaemonProject,
         type DaemonProject,
@@ -116,6 +118,8 @@
     let isLoadingProject = $state(false);
     let projectRuntimes = $state<Record<string, DaemonRuntime>>({});
     let runtimeActionProjectId = $state("");
+    let isRegisteringProject = $state(false);
+    let isPickingProjectDirectory = $state(false);
 
     let isDraggingSidebar = $state(false);
     let sidebarDragOffset = $state(0);
@@ -753,6 +757,61 @@
         }
     }
 
+    async function registerProject(input: {
+        workspacePath: string;
+        name?: string;
+    }): Promise<void> {
+        if (!daemonUrl || !daemonToken) return;
+        isRegisteringProject = true;
+        connectionError = "";
+        try {
+            const connection = { url: daemonUrl, token: daemonToken };
+            const project = await registerDaemonProject(connection, {
+                ...input,
+                approved: true,
+            });
+            const nextProjects = await listDaemonProjects(connection);
+            projects = nextProjects;
+            await refreshProjectRuntimes(connection, nextProjects);
+            await selectProject(project.id);
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+            throw error;
+        } finally {
+            isRegisteringProject = false;
+        }
+    }
+
+    async function pickProjectDirectory(): Promise<string | null> {
+        if (!daemonUrl || !daemonToken || isPickingProjectDirectory) {
+            return null;
+        }
+        isPickingProjectDirectory = true;
+        connectionError = "";
+        try {
+            return await pickDaemonProjectDirectory({
+                url: daemonUrl,
+                token: daemonToken,
+            });
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+            return null;
+        } finally {
+            isPickingProjectDirectory = false;
+        }
+    }
+
+    async function openProjectFromPicker(): Promise<void> {
+        const workspacePath = await pickProjectDirectory();
+        if (
+            !workspacePath ||
+            !confirm(`Allow Chump to access and open ${workspacePath}?`)
+        ) {
+            return;
+        }
+        await registerProject({ workspacePath });
+    }
+
     async function stopProject(projectId: string): Promise<void> {
         const project = projects.find((item) => item.id === projectId);
         if (
@@ -843,6 +902,20 @@
     }
 
     onMount(() => {
+        const handleOpenProjectShortcut = (event: KeyboardEvent) => {
+            if (
+                event.key.toLowerCase() !== "o" ||
+                (!event.metaKey && !event.ctrlKey) ||
+                event.altKey ||
+                event.shiftKey
+            ) {
+                return;
+            }
+            event.preventDefault();
+            void openProjectFromPicker();
+        };
+        window.addEventListener("keydown", handleOpenProjectShortcut);
+
         daemonUrl = sessionStorage.getItem("chump:daemon-url") ?? "";
         daemonToken = sessionStorage.getItem("chump:daemon-token") ?? "";
         activeProjectId =
@@ -867,6 +940,7 @@
         }
 
         return () => {
+            window.removeEventListener("keydown", handleOpenProjectShortcut);
             sessionController.destroy();
             stopQrScanner();
             activeRequestController?.abort();
@@ -911,9 +985,13 @@
         {isLoadingProject}
         {projectRuntimes}
         {runtimeActionProjectId}
+        {isRegisteringProject}
+        {isPickingProjectDirectory}
         onSelectProject={(projectId) => void selectProject(projectId)}
         onStartProject={(projectId) => void startProject(projectId)}
         onStopProject={(projectId) => void stopProject(projectId)}
+        onRegisterProject={registerProject}
+        onPickProjectDirectory={pickProjectDirectory}
         onCreateSession={() => void createProjectSession()}
         onOpenSession={() => void sessionController.openTypedSession()}
         onSelectSession={(id) => {

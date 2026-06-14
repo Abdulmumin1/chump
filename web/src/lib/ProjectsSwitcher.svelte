@@ -11,21 +11,36 @@
         loading = false,
         runtimes = {},
         runtimeActionProjectId = "",
+        registering = false,
+        pickingDirectory = false,
         onSelectProject,
         onStartProject,
         onStopProject,
+        onRegisterProject,
+        onPickDirectory,
     } = $props<{
         projects: DaemonProject[];
         activeProjectId: string;
         loading?: boolean;
         runtimes?: Record<string, DaemonRuntime>;
         runtimeActionProjectId?: string;
+        registering?: boolean;
+        pickingDirectory?: boolean;
         onSelectProject: (projectId: string) => void;
         onStartProject: (projectId: string) => void;
         onStopProject: (projectId: string) => void;
+        onRegisterProject: (input: {
+            workspacePath: string;
+            name?: string;
+        }) => void | Promise<void>;
+        onPickDirectory: () => Promise<string | null>;
     }>();
 
     let open = $state(false);
+    let registrationOpen = $state(false);
+    let workspacePath = $state("");
+    let projectName = $state("");
+    let approved = $state(false);
     let activeProject = $derived(
         projects.find((project: DaemonProject) => project.id === activeProjectId) ??
             null,
@@ -37,6 +52,33 @@
     function runtimeLabel(runtime: DaemonRuntime | undefined): string {
         if (!runtime) return "Unavailable";
         return runtime.status === "running" ? "Running" : "Stopped";
+    }
+
+    async function submitRegistration(): Promise<void> {
+        const normalizedPath = workspacePath.trim();
+        if (!normalizedPath || !approved || registering) return;
+        try {
+            await onRegisterProject({
+                workspacePath: normalizedPath,
+                name: projectName.trim() || undefined,
+            });
+        } catch {
+            return;
+        }
+        workspacePath = "";
+        projectName = "";
+        approved = false;
+        registrationOpen = false;
+        open = false;
+    }
+
+    async function chooseFolder(): Promise<void> {
+        const selected = await onPickDirectory();
+        if (!selected) return;
+        workspacePath = selected;
+        approved = false;
+        registrationOpen = true;
+        open = true;
     }
 </script>
 
@@ -130,6 +172,90 @@
                     No registered projects.
                 </div>
             {/each}
+
+            <div class="border-t border-border-subtle p-2">
+                {#if registrationOpen}
+                    <form
+                        class="space-y-2"
+                        onsubmit={(event) => {
+                            event.preventDefault();
+                            void submitRegistration();
+                        }}
+                    >
+                        <div class="block">
+                            <span class="mb-1 block text-[9px] font-medium uppercase tracking-wide text-text-tertiary">
+                                Selected folder
+                            </span>
+                            <button
+                                type="button"
+                                class="flex w-full items-center justify-between gap-2 rounded-sm border border-border-subtle bg-bg-input px-2 py-1.5 text-left font-mono text-[10px] text-text-main hover:bg-bg-hover"
+                                onclick={() => void chooseFolder()}
+                            >
+                                <span class="truncate">{workspacePath || "Choose folder..."}</span>
+                                {#if pickingDirectory}
+                                    <BrailleSpinner class="shrink-0 font-mono text-[11px]" />
+                                {:else}
+                                    <span class="shrink-0 font-sans text-[9px] text-text-tertiary">Browse</span>
+                                {/if}
+                            </button>
+                        </div>
+                        <label class="block">
+                            <span class="mb-1 block text-[9px] font-medium uppercase tracking-wide text-text-tertiary">
+                                Display name
+                            </span>
+                            <input
+                                bind:value={projectName}
+                                placeholder="Optional"
+                                autocomplete="off"
+                                class="w-full rounded-sm border border-border-subtle bg-bg-input px-2 py-1.5 text-[10px] text-text-main placeholder:text-text-muted focus:outline-none"
+                            />
+                        </label>
+                        <label class="flex items-start gap-2 text-[9px] leading-snug text-text-tertiary">
+                            <input
+                                type="checkbox"
+                                bind:checked={approved}
+                                class="mt-0.5"
+                            />
+                            <span>
+                                Allow Chump to access
+                                <span class="font-mono text-text-secondary">
+                                    {workspacePath.trim() || "this path"}
+                                </span>
+                            </span>
+                        </label>
+                        <div class="flex gap-1.5">
+                            <button
+                                type="button"
+                                class="flex-1 rounded-sm border border-border-subtle px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover"
+                                onclick={() => (registrationOpen = false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!workspacePath.trim() || !approved || registering}
+                                class="flex flex-1 items-center justify-center rounded-sm bg-accent px-2 py-1 text-[10px] font-semibold text-text-on-accent disabled:opacity-50"
+                            >
+                                {#if registering}
+                                    <BrailleSpinner class="font-mono text-[11px]" />
+                                {:else}
+                                    Add project
+                                {/if}
+                            </button>
+                        </div>
+                    </form>
+                {:else}
+                    <button
+                        type="button"
+                        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[10px] font-medium text-text-secondary hover:bg-bg-hover"
+                        onclick={() => (registrationOpen = true)}
+                    >
+                        <span class="text-[14px] leading-none">+</span>
+                        Add project
+                        <span class="ml-auto font-mono text-[9px] text-text-tertiary">⌘O / Ctrl+O</span>
+                    </button>
+                {/if}
+            </div>
         </div>
     {/if}
 </div>

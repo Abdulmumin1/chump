@@ -34,6 +34,10 @@
         runtimeActionProjectId = "",
         onStartProject,
         onStopProject,
+        isRegisteringProject = false,
+        onRegisterProject,
+        isPickingProjectDirectory = false,
+        onPickProjectDirectory,
     } = $props<{
         sessions: Array<any>;
         activeSessionId: string;
@@ -61,6 +65,13 @@
         runtimeActionProjectId?: string;
         onStartProject?: (projectId: string) => void;
         onStopProject?: (projectId: string) => void;
+        isRegisteringProject?: boolean;
+        onRegisterProject?: (input: {
+            workspacePath: string;
+            name?: string;
+        }) => void | Promise<void>;
+        isPickingProjectDirectory?: boolean;
+        onPickProjectDirectory?: () => Promise<string | null>;
     }>();
     let isConnected = $derived(!!health);
     let serverDisplay = $derived.by(() => {
@@ -86,7 +97,7 @@
     style:opacity={currentOpacity}
     style:visibility={open || isDragging ? 'visible' : 'hidden'}
 >
-    {#if onSelectProject && onStartProject && onStopProject}
+    {#if onSelectProject && onStartProject && onStopProject && onRegisterProject && onPickProjectDirectory}
         <ProjectsSwitcher
             {projects}
             {activeProjectId}
@@ -96,6 +107,10 @@
             {onSelectProject}
             {onStartProject}
             {onStopProject}
+            registering={isRegisteringProject}
+            {onRegisterProject}
+            pickingDirectory={isPickingProjectDirectory}
+            onPickDirectory={onPickProjectDirectory}
         />
     {/if}
 
