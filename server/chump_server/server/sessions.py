@@ -6,9 +6,15 @@ from pathlib import Path
 from typing import Any
 
 
-def stored_sessions(db_path: Path, active_agents: dict[str, Any]) -> list[dict[str, Any]]:
+def stored_sessions(
+    db_path: Path,
+    active_agents: dict[str, Any],
+    *,
+    page: int = 1,
+    page_size: int = 15,
+) -> tuple[list[dict[str, Any]], int]:
     if not db_path.exists():
-        return []
+        return [], 0
 
     session_ids: set[str] = set()
     values: dict[str, Any] = {}
@@ -66,7 +72,9 @@ def stored_sessions(db_path: Path, active_agents: dict[str, Any]) -> list[dict[s
         ),
         reverse=True,
     )
-    return sessions
+    total = len(sessions)
+    start = (page - 1) * page_size
+    return sessions[start : start + page_size], total
 
 
 def diff_totals(file_diffs: Any) -> tuple[int, int]:
