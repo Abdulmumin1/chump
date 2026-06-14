@@ -32,6 +32,7 @@ self.addEventListener('fetch', (event: any) => {
 
 	async function respond() {
 		const url = new URL(event.request.url);
+		const isSameOrigin = url.origin === self.location.origin;
 		const cache = await caches.open(CACHE);
 
 		// Serve static assets/build files directly from the cache
@@ -43,8 +44,18 @@ self.addEventListener('fetch', (event: any) => {
 		// Otherwise, go network-first, fallback to cache
 		try {
 			const response = await fetch(event.request);
-			if (response.status === 200) {
-				cache.put(event.request, response.clone());
+			if (
+				isSameOrigin &&
+				event.request.mode === 'navigate' &&
+				response.ok &&
+				response.type === 'basic' &&
+				response.headers.get('vary') !== '*'
+			) {
+				try {
+					await cache.put(event.request, response.clone());
+				} catch {
+					// A cache write must not fail an otherwise successful request.
+				}
 			}
 			return response;
 		} catch {
