@@ -15,6 +15,7 @@ import {
   SessionCreationError,
 } from "./project-sessions.ts";
 import { ProjectRegistryStore } from "./projects.ts";
+import { pickDirectory } from "./directory-picker.ts";
 
 const DAEMON_HOST = "127.0.0.1";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
@@ -27,6 +28,7 @@ export type DaemonServerOptions = {
   authToken?: string;
   runtimeSupervisor?: ProjectRuntimeSupervisor;
   sessionRouter?: ProjectSessionRouter;
+  pickDirectory?: () => Promise<string | null>;
 };
 
 export type RunningDaemonServer = {
@@ -55,6 +57,7 @@ export async function startDaemonServer(
       authToken,
       runtimeSupervisor,
       sessionRouter,
+      pickDirectory: options.pickDirectory ?? pickDirectory,
     });
   });
 
@@ -80,6 +83,7 @@ type RequestContext = {
   authToken: string;
   runtimeSupervisor: ProjectRuntimeSupervisor;
   sessionRouter: ProjectSessionRouter;
+  pickDirectory: () => Promise<string | null>;
 };
 
 async function handleRequest(
@@ -155,6 +159,21 @@ async function handleRequest(
         return;
       }
       sendMethodNotAllowed(response, ["GET", "POST"]);
+      return;
+    }
+
+    if (url.pathname === "/directory-picker") {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+      if (method !== "POST") {
+        sendMethodNotAllowed(response, ["POST"]);
+        return;
+      }
+      sendJson(response, 200, {
+        workspacePath: await context.pickDirectory(),
+      });
       return;
     }
 

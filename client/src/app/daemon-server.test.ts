@@ -76,6 +76,38 @@ test("rejects unsupported methods and unknown routes", async (t) => {
   assert.deepEqual(await missingResponse.json(), { error: "not_found" });
 });
 
+test("opens an authenticated native directory picker", async (t) => {
+  const fixture = await createFixture();
+  const token = "test-token-that-is-long-enough-for-auth";
+  let calls = 0;
+  const daemon = await startDaemonServer({
+    projectStore: new ProjectRegistryStore({
+      registryPath: fixture.registryPath,
+    }),
+    authToken: token,
+    pickDirectory: async () => {
+      calls += 1;
+      return fixture.workspacePath;
+    },
+  });
+  t.after(() => daemon.close());
+
+  const unauthorized = await fetch(`${daemon.url}/directory-picker`, {
+    method: "POST",
+  });
+  assert.equal(unauthorized.status, 401);
+
+  const selected = await fetch(`${daemon.url}/directory-picker`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(selected.status, 200);
+  assert.deepEqual(await selected.json(), {
+    workspacePath: fixture.workspacePath,
+  });
+  assert.equal(calls, 1);
+});
+
 test("enforces browser origins and supports approved project mutations", async (t) => {
   const fixture = await createFixture();
   const token = "test-token-that-is-long-enough-for-auth";
