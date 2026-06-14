@@ -29,10 +29,11 @@ self.addEventListener('activate', (event: any) => {
 
 self.addEventListener('fetch', (event: any) => {
 	if (event.request.method !== 'GET') return;
+	const requestUrl = new URL(event.request.url);
+	if (requestUrl.origin !== self.location.origin) return;
 
 	async function respond() {
-		const url = new URL(event.request.url);
-		const isSameOrigin = url.origin === self.location.origin;
+		const url = requestUrl;
 		const cache = await caches.open(CACHE);
 
 		// Serve static assets/build files directly from the cache
@@ -45,7 +46,6 @@ self.addEventListener('fetch', (event: any) => {
 		try {
 			const response = await fetch(event.request);
 			if (
-				isSameOrigin &&
 				event.request.mode === 'navigate' &&
 				response.ok &&
 				response.type === 'basic' &&

@@ -33,6 +33,7 @@ export async function discoverLocalDaemon(): Promise<DaemonConnection | null> {
     const response = await fetch("/api/local-daemon/bootstrap", {
         headers: { accept: "application/json" },
         cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
     });
     if (response.status === 404) {
         return null;
@@ -171,6 +172,7 @@ async function daemonJson<T>(
     const normalized = normalizeDaemonConnection(connection);
     const response = await fetch(`${normalized.url}${path}`, {
         ...init,
+        signal: requestSignal(init.signal),
         headers: {
             ...init.headers,
             authorization: `Bearer ${normalized.token}`,
@@ -181,4 +183,9 @@ async function daemonJson<T>(
         throw new Error(body || `daemon request failed with ${response.status}`);
     }
     return (await response.json()) as T;
+}
+
+function requestSignal(signal?: AbortSignal | null): AbortSignal {
+    const timeout = AbortSignal.timeout(10_000);
+    return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
