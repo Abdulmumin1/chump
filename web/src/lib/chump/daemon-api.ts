@@ -63,6 +63,26 @@ export async function listDaemonProjects(
     return response.projects;
 }
 
+export async function registerDaemonProject(
+    connection: DaemonConnection,
+    input: {
+        workspacePath: string;
+        name?: string;
+        approved: true;
+    },
+): Promise<DaemonProject> {
+    const response = await daemonJson<{ project: DaemonProject }>(
+        connection,
+        "/projects",
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(input),
+        },
+    );
+    return response.project;
+}
+
 export async function startDaemonProject(
     connection: DaemonConnection,
     projectId: string,
