@@ -87,9 +87,36 @@
         registrationOpen = true;
         open = true;
     }
+
+    function closeOnOutsidePointer(node: HTMLElement) {
+        const handlePointerDown = (event: PointerEvent) => {
+            if (
+                open &&
+                event.target instanceof Node &&
+                !node.contains(event.target)
+            ) {
+                open = false;
+                searchQuery = "";
+            }
+        };
+
+        document.addEventListener("pointerdown", handlePointerDown, true);
+        return {
+            destroy() {
+                document.removeEventListener(
+                    "pointerdown",
+                    handlePointerDown,
+                    true,
+                );
+            },
+        };
+    }
 </script>
 
-<div class="relative border-b border-border-subtle p-1.5">
+<div
+    use:closeOnOutsidePointer
+    class="relative border-b border-border-subtle p-1.5"
+>
     <!-- Trigger Button (Ultra-slim, No Shadows, No status labels/headers) -->
     <button
         type="button"
