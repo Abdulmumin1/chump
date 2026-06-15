@@ -12,6 +12,7 @@ self.addEventListener('install', (event: any) => {
 	async function addFilesToCache() {
 		const cache = await caches.open(CACHE);
 		await cache.addAll(ASSETS);
+		await self.skipWaiting();
 	}
 
 	event.waitUntil(addFilesToCache());
@@ -22,6 +23,7 @@ self.addEventListener('activate', (event: any) => {
 		for (const key of await caches.keys()) {
 			if (key !== CACHE) await caches.delete(key);
 		}
+		await self.clients.claim();
 	}
 
 	event.waitUntil(deleteOldCaches());
