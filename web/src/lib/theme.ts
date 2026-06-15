@@ -37,3 +37,15 @@ export function observeDocumentTheme(
 		observer.disconnect();
 	};
 }
+
+export function setDocumentTheme(theme: AppTheme) {
+	if (!browser) return;
+	localStorage.setItem("theme", theme);
+	if (theme === "dark") {
+		document.documentElement.classList.add("dark");
+	} else {
+		document.documentElement.classList.remove("dark");
+	}
+	const meta = document.getElementById("theme-color-meta") as HTMLMetaElement | null;
+	if (meta) meta.content = theme === "dark" ? "#0a0a0a" : "#f7f4f0";
+}

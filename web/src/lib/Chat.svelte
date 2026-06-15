@@ -937,6 +937,19 @@
         };
         window.addEventListener("keydown", handleOpenProjectShortcut);
 
+        const handleToggleSidebarShortcut = (event: KeyboardEvent) => {
+            if (
+                event.key.toLowerCase() === "b" &&
+                (event.metaKey || event.ctrlKey) &&
+                !event.altKey &&
+                !event.shiftKey
+            ) {
+                event.preventDefault();
+                toggleSidebar();
+            }
+        };
+        window.addEventListener("keydown", handleToggleSidebarShortcut);
+
         daemonUrl = sessionStorage.getItem("chump:daemon-url") ?? "";
         daemonToken = sessionStorage.getItem("chump:daemon-token") ?? "";
         activeProjectId =
@@ -962,6 +975,7 @@
 
         return () => {
             window.removeEventListener("keydown", handleOpenProjectShortcut);
+            window.removeEventListener("keydown", handleToggleSidebarShortcut);
             sessionController.destroy();
             stopQrScanner();
             activeRequestController?.abort();
@@ -1162,6 +1176,9 @@
 />
 
 <CommandPalette
+    {projects}
+    {activeProjectId}
+    onSelectProject={(projectId) => void selectProject(projectId)}
     models={availableModels}
     currentModel={currentModel}
     currentThinking={reasoningInfo?.effort ?? "none"}
