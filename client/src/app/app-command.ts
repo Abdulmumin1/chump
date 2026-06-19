@@ -4,6 +4,8 @@ import { DaemonAuthStore } from "./daemon-auth.ts";
 import { runDaemonCommand } from "./daemon-command.ts";
 import { DaemonMetadataStore } from "./daemon-metadata.ts";
 
+export const DEFAULT_CHUMP_WEB_URL = "https://chump.yaqeen.me";
+
 export type AppCommandOptions = {
   webUrl?: string;
   open?: boolean;
@@ -57,10 +59,9 @@ export async function runAppCommand(
     throw new Error("daemon credential is unavailable after startup");
   }
 
-  const webUrl = options.webUrl ?? process.env.CHUMP_WEB_URL ?? null;
-  const connectUrl = webUrl
-    ? buildDaemonConnectUrl(webUrl, daemon.url, token)
-    : null;
+  const webUrl = options.webUrl ?? process.env.CHUMP_WEB_URL ??
+    DEFAULT_CHUMP_WEB_URL;
+  const connectUrl = buildDaemonConnectUrl(webUrl, daemon.url, token);
 
   if (options.open !== false && connectUrl) {
     openUrl(connectUrl);
@@ -83,15 +84,9 @@ export async function runAppCommand(
     `daemon: ${daemon.url}`,
     `token:  ${token}`,
   ];
-  if (connectUrl) {
-    lines.push(`web:    ${connectUrl}`);
-    if (options.open !== false) {
-      lines.push("opened web app");
-    }
-  } else {
-    lines.push("");
-    lines.push("Set CHUMP_WEB_URL or pass --web-url to open the web app automatically.");
-    lines.push("Example: chump app --web-url http://localhost:5173");
+  lines.push(`web:    ${connectUrl}`);
+  if (options.open !== false) {
+    lines.push("opened web app");
   }
   return lines.join("\n");
 }
@@ -102,7 +97,7 @@ export function buildDaemonConnectUrl(
   daemonToken: string,
 ): string {
   const parsed = new URL(webUrl);
-  assertLoopbackWebUrl(parsed);
+  assertAllowedWebUrl(parsed);
   const handoff = new URLSearchParams();
   handoff.set("daemonUrl", daemonUrl);
   handoff.set("daemonToken", daemonToken);
@@ -110,13 +105,24 @@ export function buildDaemonConnectUrl(
   return parsed.toString();
 }
 
-function assertLoopbackWebUrl(url: URL): void {
+function assertAllowedWebUrl(url: URL): void {
   if (
-    (url.protocol !== "http:" && url.protocol !== "https:") ||
-    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    url.protocol === "https:" &&
+    url.origin === new URL(DEFAULT_CHUMP_WEB_URL).origin
   ) {
-    throw new Error("app web URL must be a loopback URL");
+    return;
   }
+
+  if (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `app web URL must be ${DEFAULT_CHUMP_WEB_URL} or a loopback URL`,
+  );
 }
 
 function openUrl(url: string): void {

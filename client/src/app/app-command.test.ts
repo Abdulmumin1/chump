@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildDaemonConnectUrl,
+  DEFAULT_CHUMP_WEB_URL,
   parseAppCommand,
 } from "./app-command.ts";
 
@@ -33,7 +34,7 @@ test("parses app command options", () => {
   );
 });
 
-test("builds loopback-only daemon web connect URLs", () => {
+test("builds daemon web connect URLs for local development", () => {
   assert.equal(
     buildDaemonConnectUrl(
       "http://localhost:5173/?theme=dark",
@@ -50,5 +51,16 @@ test("builds loopback-only daemon web connect URLs", () => {
         "secret-token",
       ),
     /loopback URL/,
+  );
+});
+
+test("allows the trusted hosted chump web app", () => {
+  assert.equal(
+    buildDaemonConnectUrl(
+      DEFAULT_CHUMP_WEB_URL,
+      "http://127.0.0.1:53080",
+      "secret-token",
+    ),
+    "https://chump.yaqeen.me/#daemonUrl=http%3A%2F%2F127.0.0.1%3A53080&daemonToken=secret-token",
   );
 });
