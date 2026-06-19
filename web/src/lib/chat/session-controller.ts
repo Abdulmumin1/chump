@@ -8,6 +8,7 @@ import {
     getStatus,
     normalizeServerUrl,
     openEventStream,
+    type ChumpApiTarget,
 } from "$lib/chump/api";
 import type {
     ChumpHealth,
@@ -29,6 +30,7 @@ import type { SteeringQueueItem } from "$lib/chat/types";
 export type SessionControllerState = {
     get serverUrl(): string;
     set serverUrl(value: string);
+    get apiTarget(): ChumpApiTarget | null;
     get sessionInput(): string;
     set sessionInput(value: string);
     get activeSessionId(): string;
@@ -41,6 +43,12 @@ export type SessionControllerState = {
     set sessionState(value: ChumpState | null);
     get sessions(): SessionSummary[];
     set sessions(value: SessionSummary[]);
+    get sessionPage(): number;
+    set sessionPage(value: number);
+    get sessionTotalPages(): number;
+    set sessionTotalPages(value: number);
+    get sessionTotal(): number;
+    set sessionTotal(value: number);
     get messages(): StoredMessage[];
     set messages(value: StoredMessage[]);
     get steeringQueue(): SteeringQueueItem[];
@@ -78,7 +86,8 @@ export function createSessionController(
         options: { selectFirstSession?: boolean } = {},
     ): Promise<void> {
         const targetUrl = normalizeServerUrl(state.serverUrl);
-        if (!targetUrl) {
+        const apiTarget = state.apiTarget;
+        if (!targetUrl || !apiTarget) {
             return;
         }
 
@@ -88,12 +97,12 @@ export function createSessionController(
 
         try {
             const [nextHealth, nextSessionsResponse] = await Promise.all([
-                getHealth(targetUrl),
-                getSessions(targetUrl),
+                getHealth(apiTarget),
+                getSessions(apiTarget),
             ]);
 
             state.health = nextHealth;
-            state.sessions = nextSessionsResponse.sessions;
+            applySessionsResponse(nextSessionsResponse);
             if (nextHealth.available_providers?.length) {
                 listModelChoices(nextHealth.available_providers)
                     .then((choices) => {
@@ -133,11 +142,35 @@ export function createSessionController(
         }
 
         try {
-            const nextSessions = await getSessions(state.serverUrl);
-            state.sessions = nextSessions.sessions;
+            if (!state.apiTarget) return;
+            const nextSessions = await getSessions(state.apiTarget, {
+                page: state.sessionPage,
+            });
+            applySessionsResponse(nextSessions);
         } catch (error) {
             state.connectionError = toErrorMessage(error);
         }
+    }
+
+    async function loadSessionsPage(page: number): Promise<void> {
+        if (!state.apiTarget || page < 1 || page > state.sessionTotalPages) return;
+        try {
+            applySessionsResponse(await getSessions(state.apiTarget, { page }));
+        } catch (error) {
+            state.connectionError = toErrorMessage(error);
+        }
+    }
+
+    function applySessionsResponse(response: {
+        sessions: SessionSummary[];
+        page: number;
+        total_pages: number;
+        total: number;
+    }): void {
+        state.sessions = response.sessions;
+        state.sessionPage = response.page;
+        state.sessionTotalPages = response.total_pages;
+        state.sessionTotal = response.total;
     }
 
     async function selectSession(sessionId: string): Promise<void> {
@@ -172,15 +205,17 @@ export function createSessionController(
         state.connectionError = "";
 
         try {
-            const nextStatus = await getStatus(state.serverUrl, sessionId);
+            const apiTarget = state.apiTarget;
+            if (!apiTarget) return;
+            const nextStatus = await getStatus(apiTarget, sessionId);
 
             if (currentToken !== state.loadToken || state.activeSessionId !== sessionId) {
                 return;
             }
 
             const [nextState, nextMessages] = await Promise.all([
-                getState(state.serverUrl, sessionId),
-                getMessages(state.serverUrl, sessionId),
+                getState(apiTarget, sessionId),
+                getMessages(apiTarget, sessionId),
             ]);
 
             if (currentToken !== state.loadToken || state.activeSessionId !== sessionId) {
@@ -198,7 +233,7 @@ export function createSessionController(
 
             if (nextStatus.turn_running === true) {
                 try {
-                    const eventLog = await getEventLog(state.serverUrl, sessionId);
+                    const eventLog = await getEventLog(apiTarget, sessionId);
                     if (
                         currentToken !== state.loadToken ||
                         state.activeSessionId !== sessionId
@@ -327,14 +362,15 @@ export function createSessionController(
     }
 
     function openSessionStream(sessionId: string): void {
-        if (!state.serverUrl) {
+        const apiTarget = state.apiTarget;
+        if (!apiTarget) {
             return;
         }
 
         const currentStreamToken = state.streamToken + 1;
         state.streamToken = currentStreamToken;
         state.stopEvents = openEventStream(
-            state.serverUrl,
+            apiTarget,
             sessionId,
             {
                 onEvent: (event) => {
@@ -452,10 +488,11 @@ export function createSessionController(
         sessionId: string,
         currentStreamToken: number,
     ): Promise<void> {
-        if (!state.serverUrl) return;
+        const apiTarget = state.apiTarget;
+        if (!apiTarget) return;
 
         try {
-            const response = await getMessages(state.serverUrl, sessionId);
+            const response = await getMessages(apiTarget, sessionId);
             if (!isCurrentStream(sessionId, currentStreamToken)) return;
             state.messages = response.messages;
         } catch {
@@ -476,6 +513,7 @@ export function createSessionController(
     return {
         connectToServer,
         refreshSessionsList,
+        loadSessionsPage,
         selectSession,
         refreshSessionSnapshot,
         ensureSessionListed,

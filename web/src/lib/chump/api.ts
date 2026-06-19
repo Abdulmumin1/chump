@@ -13,6 +13,10 @@ import type {
 } from '$lib/chump/types';
 import type { FileSearchResult } from '$lib/chump/types';
 
+export type ChumpApiTarget =
+	| { kind: 'direct'; serverUrl: string }
+	| { kind: 'daemon'; daemonUrl: string; token: string; projectId: string };
+
 export function normalizeServerUrl(value: string): string {
 	return value.trim().replace(/\/+$/, '');
 }
@@ -24,118 +28,138 @@ export function createSessionId(workspaceRoot: string): string {
 	return `${workspaceName}-${stamp}-${suffix}`;
 }
 
-export async function getHealth(serverUrl: string): Promise<ChumpHealth> {
-	return await fetchJson<ChumpHealth>(`${normalizeServerUrl(serverUrl)}/health`);
+export async function getHealth(target: ChumpApiTarget): Promise<ChumpHealth> {
+	return await fetchJson<ChumpHealth>(projectUrl(target, 'health'), requestHeaders(target));
 }
 
-export async function getSessions(serverUrl: string): Promise<SessionsResponse> {
-	return await fetchJson<SessionsResponse>(`${normalizeServerUrl(serverUrl)}/sessions`);
+export async function getSessions(
+	target: ChumpApiTarget,
+	options: { page?: number; limit?: number } = {}
+): Promise<SessionsResponse> {
+	const url = new URL(projectUrl(target, 'sessions'));
+	url.searchParams.set('page', String(options.page ?? 1));
+	url.searchParams.set('limit', String(options.limit ?? 15));
+	const response = await fetchJson<Partial<SessionsResponse> & Pick<SessionsResponse, 'sessions'>>(
+		url.toString(),
+		requestHeaders(target)
+	);
+	const page = response.page ?? 1;
+	const pageSize = response.page_size ?? response.sessions.length;
+	const total = response.total ?? response.sessions.length;
+	return {
+		sessions: response.sessions,
+		page,
+		page_size: pageSize,
+		total,
+		total_pages: response.total_pages ?? Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
+	};
 }
 
-export async function getStatus(serverUrl: string, agentId: string): Promise<ChumpStatus> {
-	return await invokeAction<ChumpStatus>(serverUrl, agentId, 'status');
+export async function getStatus(target: ChumpApiTarget, agentId: string): Promise<ChumpStatus> {
+	return await invokeAction<ChumpStatus>(target, agentId, 'status');
 }
 
-export async function getState(serverUrl: string, agentId: string): Promise<ChumpState> {
-	const response = await fetchJson<AgentStateResponse>(`${buildAgentUrl(serverUrl, agentId)}/state`);
+export async function getState(target: ChumpApiTarget, agentId: string): Promise<ChumpState> {
+	const response = await fetchJson<AgentStateResponse>(`${buildAgentUrl(target, agentId)}/state`, requestHeaders(target));
 	return normalizeStateResponse(response);
 }
 
-export async function getMessages(serverUrl: string, agentId: string): Promise<AgentMessagesResponse> {
-	return await fetchJson<AgentMessagesResponse>(`${buildAgentUrl(serverUrl, agentId)}/messages`);
+export async function getMessages(target: ChumpApiTarget, agentId: string): Promise<AgentMessagesResponse> {
+	return await fetchJson<AgentMessagesResponse>(`${buildAgentUrl(target, agentId)}/messages`, requestHeaders(target));
 }
 
-export async function getEventLog(serverUrl: string, agentId: string): Promise<AgentEventLogResponse> {
-	return await invokeAction<AgentEventLogResponse>(serverUrl, agentId, 'event_log');
+export async function getEventLog(target: ChumpApiTarget, agentId: string): Promise<AgentEventLogResponse> {
+	return await invokeAction<AgentEventLogResponse>(target, agentId, 'event_log');
 }
 
 export async function setModel(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	provider: string,
 	model: string
 ): Promise<ChumpStatus> {
-	return await invokeAction<ChumpStatus>(serverUrl, agentId, 'set_model', { provider, model });
+	return await invokeAction<ChumpStatus>(target, agentId, 'set_model', { provider, model });
 }
 
 export async function setReasoning(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	mode: string
 ): Promise<ChumpStatus> {
-	return await invokeAction<ChumpStatus>(serverUrl, agentId, 'set_reasoning', { mode });
+	return await invokeAction<ChumpStatus>(target, agentId, 'set_reasoning', { mode });
 }
 
 export async function loadSkill(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	name: string,
 	args = ''
 ): Promise<{ name: string; prompt: string }> {
-	return await invokeAction<{ name: string; prompt: string }>(serverUrl, agentId, 'load_skill', { name, args });
+	return await invokeAction<{ name: string; prompt: string }>(target, agentId, 'load_skill', { name, args });
 }
 
 export async function searchFiles(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	query: string,
 	limit = 20
 ): Promise<FileSearchResult[]> {
-	const url = new URL(`${normalizeServerUrl(serverUrl)}/files`);
+	const url = new URL(projectUrl(target, 'files'));
 	url.searchParams.set('query', query);
 	url.searchParams.set('limit', String(limit));
-	const result = await fetchJson<{ files: FileSearchResult[] }>(url.toString());
+	const result = await fetchJson<{ files: FileSearchResult[] }>(url.toString(), requestHeaders(target));
 	return result.files;
 }
 
 export async function clearMessages(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string
 ): Promise<{ status: string }> {
-	return await invokeAction<{ status: string }>(serverUrl, agentId, 'clear_messages');
+	return await invokeAction<{ status: string }>(target, agentId, 'clear_messages');
 }
 
 export async function compactMessages(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string
 ): Promise<CompactionResult> {
-	return await invokeAction<CompactionResult>(serverUrl, agentId, 'compact');
+	return await invokeAction<CompactionResult>(target, agentId, 'compact');
 }
 
 export async function abortCurrentTurn(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string
 ): Promise<{ status: string }> {
-	return await invokeAction<{ status: string }>(serverUrl, agentId, 'abort_current_turn');
+	return await invokeAction<{ status: string }>(target, agentId, 'abort_current_turn');
 }
 
 export async function steerCurrentTurn(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	message: string,
 	attachments: ChatAttachment[] = [],
 ): Promise<{ status: string }> {
-	return await invokeAction<{ status: string }>(serverUrl, agentId, 'steer_current_turn', { message, attachments });
+	return await invokeAction<{ status: string }>(target, agentId, 'steer_current_turn', { message, attachments });
 }
 
 export async function cancelSteering(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	index: number
 ): Promise<{ status: string }> {
-	return await invokeAction<{ status: string }>(serverUrl, agentId, 'cancel_steering', { index });
+	return await invokeAction<{ status: string }>(target, agentId, 'cancel_steering', { index });
 }
 
 export async function streamChat(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	message: string,
 	attachments: ChatAttachment[] = [],
 	signal?: AbortSignal,
 ): Promise<string> {
-	const response = await fetch(`${buildAgentUrl(serverUrl, agentId)}/chat?stream=true`, {
+	const response = await fetch(`${buildAgentUrl(target, agentId)}/chat?stream=true`, {
 		method: 'POST',
 		signal,
 		headers: {
+			...requestHeaders(target),
 			'content-type': 'application/json'
 		},
 		body: JSON.stringify({ message, attachments })
@@ -170,7 +194,7 @@ export async function streamChat(
 }
 
 export function openEventStream(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	handlers: {
 		onEvent: (event: SseEvent) => void;
@@ -235,7 +259,7 @@ export function openEventStream(
 			controller = new AbortController();
 			armIdleTimer();
 			try {
-				const requestUrl = new URL(`${buildAgentUrl(serverUrl, agentId)}/events`);
+				const requestUrl = new URL(`${buildAgentUrl(target, agentId)}/events`);
 				requestUrl.searchParams.set('client_id', clientId);
 				if (lastEventId > 0) {
 					requestUrl.searchParams.set('last_event_id', String(lastEventId));
@@ -244,6 +268,7 @@ export function openEventStream(
 				const response = await fetch(requestUrl, {
 					signal: controller.signal,
 					headers: {
+						...requestHeaders(target),
 						accept: 'text/event-stream'
 					}
 				});
@@ -359,14 +384,15 @@ export async function consumeSse(
 }
 
 async function invokeAction<T>(
-	serverUrl: string,
+	target: ChumpApiTarget,
 	agentId: string,
 	actionName: string,
 	body: Record<string, unknown> = {}
 ): Promise<T> {
-	const response = await fetch(`${buildAgentUrl(serverUrl, agentId)}/action/${actionName}`, {
+	const response = await fetch(`${buildAgentUrl(target, agentId)}/action/${actionName}`, {
 		method: 'POST',
 		headers: {
+			...requestHeaders(target),
 			'content-type': 'application/json'
 		},
 		body: JSON.stringify(body)
@@ -389,8 +415,8 @@ async function invokeAction<T>(
 	return data.result;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-	const response = await fetch(url);
+async function fetchJson<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
+	const response = await fetch(url, { headers });
 	if (!response.ok) {
 		throw new Error(await readErrorResponse(response));
 	}
@@ -404,8 +430,24 @@ function normalizeStateResponse(response: AgentStateResponse): ChumpState {
 	return response as ChumpState;
 }
 
-function buildAgentUrl(serverUrl: string, agentId: string): string {
-	return `${normalizeServerUrl(serverUrl)}/agent/${agentId}`;
+function projectUrl(target: ChumpApiTarget, path: string): string {
+	if (target.kind === 'direct') {
+		return `${normalizeServerUrl(target.serverUrl)}/${path}`;
+	}
+	return `${normalizeServerUrl(target.daemonUrl)}/projects/${encodeURIComponent(target.projectId)}/${path}`;
+}
+
+function buildAgentUrl(target: ChumpApiTarget, agentId: string): string {
+	if (target.kind === 'direct') {
+		return `${normalizeServerUrl(target.serverUrl)}/agent/${encodeURIComponent(agentId)}`;
+	}
+	return `${normalizeServerUrl(target.daemonUrl)}/projects/${encodeURIComponent(target.projectId)}/sessions/${encodeURIComponent(agentId)}`;
+}
+
+function requestHeaders(target: ChumpApiTarget): Record<string, string> {
+	return target.kind === 'daemon'
+		? { authorization: `Bearer ${target.token}` }
+		: {};
 }
 
 async function readErrorResponse(response: Response): Promise<string> {

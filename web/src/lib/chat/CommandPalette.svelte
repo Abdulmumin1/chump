@@ -2,26 +2,35 @@
     import { fade, fly } from "svelte/transition";
     import { Command } from "bits-ui";
     import type { ModelChoice } from "$lib/models";
+    import type { DaemonProject } from "$lib/chump/daemon-api";
+    import { setDocumentTheme } from "$lib/theme";
 
     let {
         models = [],
         currentModel = "",
         currentThinking = "",
+        projects = [],
+        activeProjectId = "",
         onCommand,
         onToggleSidebar,
         onOpenConnectModal,
+        onSelectProject,
     } = $props<{
         models: ModelChoice[];
         currentModel: string;
         currentThinking: string;
+        projects?: DaemonProject[];
+        activeProjectId?: string;
         onCommand: (command: string, args: string) => void | Promise<void>;
         onToggleSidebar: () => void;
         onOpenConnectModal: () => void;
+        onSelectProject?: (projectId: string) => void;
     }>();
 
     let isOpen = $state(false);
     let searchQuery = $state("");
-    let currentView = $state<"main" | "models" | "reasoning">("main");
+    type PaletteView = "main" | "models" | "reasoning" | "theme" | "projects";
+    let currentView = $state<PaletteView>("main");
 
     type ActionItem = {
         id: string;
@@ -32,84 +41,111 @@
         handler: () => void;
     };
 
-    // Curated Main Actions
-    const mainActions: ActionItem[] = [
-        {
-            id: "new-session",
-            label: "New Session",
-            description: "Start a fresh chat with a clean context",
-            shortcut: "⌘N",
-            category: "Session Controls",
-            handler: () => {
-                void onCommand("new", "");
-                isOpen = false;
+    // Curated Main Actions as a derived array to dynamically react to projects list
+    const mainActions = $derived.by((): ActionItem[] => {
+        const actions: ActionItem[] = [
+            {
+                id: "new-session",
+                label: "New Session",
+                description: "Start a fresh chat with a clean context",
+                shortcut: "⌘N",
+                category: "Session Controls",
+                handler: () => {
+                    void onCommand("new", "");
+                    isOpen = false;
+                },
             },
-        },
-        {
-            id: "compact-context",
-            label: "Compact Context",
-            description: "Summarize history to optimize context token usage",
-            shortcut: "⌥C",
-            category: "Session Controls",
-            handler: () => {
-                void onCommand("compact", "");
-                isOpen = false;
+            {
+                id: "compact-context",
+                label: "Compact Context",
+                description: "Summarize history to optimize context token usage",
+                shortcut: "⌥C",
+                category: "Session Controls",
+                handler: () => {
+                    void onCommand("compact", "");
+                    isOpen = false;
+                },
             },
-        },
-        {
-            id: "clear-chat",
-            label: "Clear Session Messages",
-            description: "Wipe all messages in the current session",
-            category: "Session Controls",
-            handler: () => {
-                void onCommand("clear", "");
-                isOpen = false;
+            {
+                id: "clear-chat",
+                label: "Clear Session Messages",
+                description: "Wipe all messages in the current session",
+                category: "Session Controls",
+                handler: () => {
+                    void onCommand("clear", "");
+                    isOpen = false;
+                },
             },
-        },
-        {
-            id: "change-model",
-            label: "Change AI Model...",
-            description: "Select which model to route this session through",
-            shortcut: "⌘M",
-            category: "Settings & Config",
-            handler: () => {
-                currentView = "models";
-                searchQuery = "";
+            {
+                id: "change-model",
+                label: "Change AI Model...",
+                description: "Select which model to route this session through",
+                shortcut: "⌘M",
+                category: "Settings & Config",
+                handler: () => {
+                    currentView = "models";
+                    searchQuery = "";
+                },
             },
-        },
-        {
-            id: "set-reasoning",
-            label: "Set Reasoning Level...",
-            description: "Adjust the model's active thinking/reasoning scale",
-            shortcut: "⌘T",
-            category: "Settings & Config",
-            handler: () => {
-                currentView = "reasoning";
-                searchQuery = "";
+            {
+                id: "set-reasoning",
+                label: "Set Reasoning Level...",
+                description: "Adjust the model's active thinking/reasoning scale",
+                shortcut: "⌘T",
+                category: "Settings & Config",
+                handler: () => {
+                    currentView = "reasoning";
+                    searchQuery = "";
+                },
             },
-        },
-        {
-            id: "toggle-sidebar",
-            label: "Toggle Session Sidebar",
-            description: "Show or hide the list of your past chat sessions",
-            shortcut: "⌘\\",
-            category: "Interface",
-            handler: () => {
-                onToggleSidebar();
-                isOpen = false;
+            ...(projects && projects.length > 0 ? [
+                {
+                    id: "switch-project",
+                    label: "Switch Active Project...",
+                    description: "Switch to another registered workspace",
+                    shortcut: "⌘P",
+                    category: "Settings & Config",
+                    handler: () => {
+                        currentView = "projects";
+                        searchQuery = "";
+                    },
+                }
+            ] : []),
+            {
+                id: "change-theme",
+                label: "Change Theme Mode...",
+                description: "Switch appearance between Light and Dark mode",
+                shortcut: "⌘D",
+                category: "Interface",
+                handler: () => {
+                    currentView = "theme";
+                    searchQuery = "";
+                },
             },
-        },
-        {
-            id: "configure-server",
-            label: "Configure Server...",
-            description: "Update the agent backend server URL",
-            category: "Settings & Config",
-            handler: () => {
-                onOpenConnectModal();
-                isOpen = false;
+            {
+                id: "toggle-sidebar",
+                label: "Toggle Session Sidebar",
+                description: "Show or hide the list of your past chat sessions",
+                shortcut: "⌘B",
+                category: "Interface",
+                handler: () => {
+                    onToggleSidebar();
+                    isOpen = false;
+                },
             },
-        },
-    ];
+            {
+                id: "configure-server",
+                label: "Configure Server...",
+                description: "Update the agent backend server URL",
+                category: "Settings & Config",
+                handler: () => {
+                    onOpenConnectModal();
+                    isOpen = false;
+                },
+            },
+        ];
+        return actions;
+    });
 
     // Reasoning Level Actions
     const reasoningLevels = [
@@ -145,6 +181,44 @@
                 (m: any) =>
                     m.label.toLowerCase().includes(query) ||
                     m.description.toLowerCase().includes(query),
+            );
+        } else if (currentView === "theme") {
+            const themes = [
+                { id: "light", label: "Light Mode", description: "Standard high-contrast light layout" },
+                { id: "dark", label: "Dark Mode", description: "Subtle low-contrast dark layout" }
+            ];
+            const formattedThemes = themes.map((t) => ({
+                id: t.id,
+                label: t.label,
+                description: t.description,
+                category: "Theme Appearance",
+                handler: () => {
+                    setDocumentTheme(t.id as "light" | "dark");
+                    isOpen = false;
+                }
+            }));
+            if (!query) return formattedThemes;
+            return formattedThemes.filter(
+                (t) =>
+                    t.label.toLowerCase().includes(query) ||
+                    t.description.toLowerCase().includes(query)
+            );
+        } else if (currentView === "projects") {
+            const formattedProjects = projects.map((p: DaemonProject) => ({
+                id: p.id,
+                label: p.name,
+                description: p.workspacePath,
+                category: "Projects",
+                handler: () => {
+                    if (onSelectProject) onSelectProject(p.id);
+                    isOpen = false;
+                }
+            }));
+            if (!query) return formattedProjects;
+            return formattedProjects.filter(
+                (p: any) =>
+                    p.label.toLowerCase().includes(query) ||
+                    p.description.toLowerCase().includes(query)
             );
         } else {
             const formattedReasoning = reasoningLevels.map((rl) => ({
@@ -269,7 +343,13 @@
 
                     <Command.Input
                         bind:value={searchQuery}
-                        placeholder={currentView === "main" ? "Type a command or search..." : currentView === "models" ? "Search models..." : "Search reasoning levels..."}
+                        placeholder={
+                            currentView === "main" ? "Type a command or search..." :
+                            currentView === "models" ? "Search models..." :
+                            currentView === "theme" ? "Search themes..." :
+                            currentView === "projects" ? "Search projects..." :
+                            "Search reasoning levels..."
+                        }
                         class="bg-transparent border-none text-[14px] text-text-main placeholder:text-text-muted focus:outline-none w-full outline-none selection:bg-zinc-200/60 dark:selection:bg-zinc-800/60"
                         autofocus
                     />
@@ -281,19 +361,19 @@
                         No commands found for "{searchQuery}"
                     </Command.Empty>
 
-                    {#if currentView === "main"}
-                        {#each groupedFilteredItems as group}
+                    {#if currentView === "main" || currentView === "models" || currentView === "theme" || currentView === "projects"}
+                        {#each groupedFilteredItems as group (group.category)}
                             <Command.Group class="flex flex-col">
                                 <div class="text-[10px] font-semibold text-text-tertiary/75 uppercase tracking-[0.1em] px-3 pt-2.5 pb-1 select-none">
                                     {group.category}
                                 </div>
-                                {#each group.items as item}
+                                {#each group.items as item (item.id)}
                                     <Command.Item
                                         value={item.label}
                                         onSelect={() => item.handler()}
                                         class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left rounded-[8px] transition-all cursor-pointer text-text-secondary hover:bg-zinc-200/40 dark:hover:bg-zinc-800/40 data-[selected]:bg-zinc-200/80 dark:data-[selected]:bg-zinc-800/80 data-[selected]:text-text-main outline-none"
                                     >
-                                        <div class="flex flex-col min-w-0">
+                                        <div class="flex flex-col min-w-0 flex-1">
                                             <span class="text-[13px] font-medium leading-normal">{item.label}</span>
                                             {#if item.description}
                                                 <span class="text-[11px] text-text-tertiary truncate leading-normal mt-0.5">{item.description}</span>
@@ -308,34 +388,12 @@
                                 {/each}
                             </Command.Group>
                         {/each}
-                    {:else if currentView === "models"}
-                        {#each groupedFilteredItems as group}
-                            <Command.Group class="flex flex-col">
-                                <div class="text-[10px] font-semibold text-text-tertiary/75 uppercase tracking-[0.1em] px-3 pt-2.5 pb-1 select-none">
-                                    {group.category}
-                                </div>
-                                {#each group.items as item}
-                                    <Command.Item
-                                        value={item.label}
-                                        onSelect={() => item.handler()}
-                                        class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left rounded-[8px] transition-all cursor-pointer text-text-secondary hover:bg-zinc-200/40 dark:hover:bg-zinc-800/40 data-[selected]:bg-zinc-200/80 dark:data-[selected]:bg-zinc-800/80 data-[selected]:text-text-main outline-none"
-                                    >
-                                        <div class="flex flex-col min-w-0">
-                                            <span class="text-[13px] font-medium leading-normal">{item.label}</span>
-                                            {#if item.description}
-                                                <span class="text-[11px] text-text-tertiary truncate leading-normal mt-0.5">{item.description}</span>
-                                            {/if}
-                                        </div>
-                                    </Command.Item>
-                                {/each}
-                            </Command.Group>
-                        {/each}
                     {:else if currentView === "reasoning"}
                         <Command.Group class="flex flex-col">
                             <div class="text-[10px] font-semibold text-text-tertiary/75 uppercase tracking-[0.1em] px-3 pt-2.5 pb-1 select-none">
                                 Thinking Level
                             </div>
-                            {#each filteredItems as item}
+                            {#each filteredItems as item (item.id)}
                                 <Command.Item
                                     value={item.label}
                                     onSelect={() => item.handler()}

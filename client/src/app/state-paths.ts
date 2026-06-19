@@ -19,6 +19,30 @@ export type WorkspaceStatePaths = {
   clientLogPath: string;
 };
 
+export type GlobalStatePaths = {
+  dataDir: string;
+  daemonAuthPath: string;
+  daemonMetadataPath: string;
+  daemonLockDir: string;
+  daemonLogPath: string;
+  projectsPath: string;
+};
+
+export function getGlobalStatePaths(): GlobalStatePaths {
+  const dataDir = process.env.CHUMP_GLOBAL_STATE_DIR
+    ? path.resolve(process.env.CHUMP_GLOBAL_STATE_DIR)
+    : stateBaseDir();
+  mkdirSync(dataDir, { recursive: true });
+  return {
+    dataDir,
+    daemonAuthPath: path.join(dataDir, "daemon-auth.json"),
+    daemonMetadataPath: path.join(dataDir, "daemon.json"),
+    daemonLockDir: path.join(dataDir, "daemon.lock"),
+    daemonLogPath: path.join(dataDir, "daemon.log"),
+    projectsPath: path.join(dataDir, "projects.json"),
+  };
+}
+
 export function getWorkspaceStatePaths(workspaceRoot: string): WorkspaceStatePaths {
   const dataDir = workspaceStateDir(workspaceRoot);
   migrateLegacyWorkspaceState(workspaceRoot, dataDir);

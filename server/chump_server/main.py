@@ -96,7 +96,21 @@ class ChumpServer(AgentServer):
         )
 
     async def sessions(self, request: web.Request) -> web.Response:
-        return web.json_response({"sessions": self._stored_sessions()})
+        page = parse_positive_int(request.query.get("page", "1"), "page")
+        page_size = min(
+            parse_positive_int(request.query.get("limit", "15"), "limit"),
+            100,
+        )
+        sessions, total = self._stored_sessions(page=page, page_size=page_size)
+        return web.json_response(
+            {
+                "sessions": sessions,
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": max(1, (total + page_size - 1) // page_size),
+            }
+        )
 
     async def files(self, request: web.Request) -> web.Response:
         query = request.query.get("query", "")
@@ -108,9 +122,19 @@ class ChumpServer(AgentServer):
             {"files": await self.search.files(query, max(1, min(limit, 100)))}
         )
 
-    def _stored_sessions(self) -> list[dict[str, Any]]:
+    def _stored_sessions(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 15,
+    ) -> tuple[list[dict[str, Any]], int]:
         db_path = self.chump_config.data_dir / "chump.sqlite3"
-        return stored_sessions(db_path, self._agents)
+        return stored_sessions(
+            db_path,
+            self._agents,
+            page=page,
+            page_size=page_size,
+        )
 
     async def _start_managed_idle_shutdown(self, app: web.Application) -> None:
         if self.chump_config.managed_idle_timeout is None:
@@ -205,6 +229,16 @@ def _package_version(package: str) -> str:
         return version(package)
     except PackageNotFoundError:
         return "0.0.0"
+
+
+def parse_positive_int(value: str, name: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise web.HTTPBadRequest(text=f"{name} must be an integer")
+    if parsed < 1:
+        raise web.HTTPBadRequest(text=f"{name} must be at least 1")
+    return parsed
 
 
 if __name__ == "__main__":

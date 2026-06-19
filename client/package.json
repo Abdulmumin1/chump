@@ -23,6 +23,7 @@
     "dev": "node src/chump.ts",
     "start": "node src/chump.ts",
     "smoke": "node src/smoke.ts",
+    "test": "node --test src/**/*.test.ts",
     "typecheck": "pnpm run sync-version && tsc --noEmit",
     "check": "pnpm run typecheck && pnpm run build",
     "build:bin": "pnpm run sync-version && bun scripts/build-bin.ts",

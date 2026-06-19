@@ -10,9 +10,16 @@
         type AppTheme,
     } from "$lib/theme";
 
-    let { state: sessionState, sidebarOpen = false } = $props<{
+    let {
+        state: sessionState,
+        sidebarOpen = false,
+        onRequestCommitPush,
+        onRequestCreatePr,
+    } = $props<{
         state: ChumpState | null;
         sidebarOpen?: boolean;
+        onRequestCommitPush?: () => void;
+        onRequestCreatePr?: () => void;
     }>();
 
     let modalOpen = $state(false);
@@ -64,6 +71,8 @@
     );
     let filesCount = $derived(filteredFiles.length);
     let totalChangesCount = $derived(groupedFiles.length);
+    let totalAdded = $derived(groupedFiles.reduce((sum, file) => sum + file.added, 0));
+    let totalRemoved = $derived(groupedFiles.reduce((sum, file) => sum + file.removed, 0));
 
     let selectedFile = $derived(
         filteredFiles.find((file) => file.path === selectedPath) ?? null,
@@ -370,6 +379,11 @@
                 <div class="truncate font-mono text-[11px] md:text-[13px] font-medium text-text-main">
                     All changes
                 </div>
+                <div class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex">
+                    {#if totalAdded > 0}<span class="text-text-success">+{totalAdded}</span>{/if}
+                    {#if totalRemoved > 0}<span class="text-text-error">-{totalRemoved}</span>{/if}
+                    <span class="text-text-tertiary">~{totalChangesCount}</span>
+                </div>
             </div>
             <div class="flex items-center gap-2">
                 <div class="md:hidden text-[10px] text-text-tertiary font-mono tabular-nums">
@@ -397,9 +411,10 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                     </svg>
                 </button>
-                <div class="flex items-center gap-3 font-mono text-[12px]">
-                    {#if (selectedFile?.added ?? 0) > 0}<span class="text-text-success">+{selectedFile?.added}</span>{/if}
-                    {#if (selectedFile?.removed ?? 0) > 0}<span class="text-text-error">-{selectedFile?.removed}</span>{/if}
+                <div class="flex items-center gap-3 font-mono text-[12px] md:hidden">
+                    {#if totalAdded > 0}<span class="text-text-success">+{totalAdded}</span>{/if}
+                    {#if totalRemoved > 0}<span class="text-text-error">-{totalRemoved}</span>{/if}
+                    <span class="text-text-tertiary">~{totalChangesCount}</span>
                 </div>
                 {#if isLargeScreen}
                     <button
@@ -430,7 +445,7 @@
                 </div>
                 <div class="relative w-full h-6 flex items-center">
                     <div class="absolute inset-0 flex items-center justify-between px-[7px] pointer-events-none">
-                        {#each Array(21) as _, i}
+                        {#each Array(21) as _, i (i)}
                             {@const val = 9 + (i / 4)}
                             <div class="w-[1.5px] rounded-full transition-colors duration-150 {i % 4 === 0 ? 'h-3.5' : 'h-1.5'} {mobileDiffFontSize >= val ? 'bg-text-main' : 'bg-border-default'}"></div>
                         {/each}
@@ -521,25 +536,82 @@
     </div>
 {/if}
 
-<aside class="hidden md:flex h-full w-80 flex-shrink-0 flex-col border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all">
-    <div class="px-4 py-2.5">
-        <div class="flex items-center gap-3">
-            <div class="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-bg-elevated transition-colors">
-                <span class="text-[11px] font-semibold text-text-main">Changes</span>
-                <span class="text-[11px] text-text-tertiary font-medium">{totalChangesCount}</span>
+<aside class="hidden md:flex h-full w-[420px] flex-shrink-0 flex-col border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all">
+    <div class="border-b border-border-subtle px-4 py-2.5">
+        <div class="flex min-w-0 items-center gap-3">
+            <div class="flex items-center gap-1.5">
+                <button
+                    type="button"
+                    class="workspace-action-button"
+                    onclick={onRequestCommitPush}
+                    disabled={!onRequestCommitPush || totalChangesCount === 0}
+                >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5 12l4 4L19 6" />
+                    </svg>
+                    Commit & Push
+                </button>
+                <button
+                    type="button"
+                    class="workspace-action-button workspace-action-button-primary"
+                    onclick={onRequestCreatePr}
+                    disabled={!onRequestCreatePr}
+                >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M7 7h7m0 0v7m0-7L5 16m10-1h4v4h-4z" />
+                    </svg>
+                    Create PR
+                </button>
             </div>
-            <div class="flex-1"></div>
-            <div class="flex items-center gap-2.5 text-text-tertiary">
-                <button 
-                    class="hover:text-text-secondary transition-colors"
+            <div class="min-w-0 flex-1"></div>
+            <div class="flex items-center gap-1 text-text-tertiary">
+                <button
+                    class="workspace-icon-button"
+                    aria-label="Previous changed file"
+                    onclick={selectPreviousFile}
+                    disabled={selectedFileIndex <= 0}
+                >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 14l5-5 5 5" />
+                    </svg>
+                </button>
+                <button
+                    class="workspace-icon-button"
+                    aria-label="Next changed file"
+                    onclick={selectNextFile}
+                    disabled={selectedFileIndex < 0 || selectedFileIndex >= filteredFiles.length - 1}
+                >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 10l5 5 5-5" />
+                    </svg>
+                </button>
+                <button
+                    class="workspace-icon-button"
+                    aria-label={selectedPath ? "Hide diff view" : "Show diff view"}
+                    onclick={() => {
+                        if (selectedPath) {
+                            selectedPath = null;
+                            userClosedDiff = true;
+                        } else if (filteredFiles[0]) {
+                            openFile(filteredFiles[0].path);
+                        }
+                    }}
+                    disabled={totalChangesCount === 0}
+                >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 5h16v14H4zM13 5v14" />
+                    </svg>
+                </button>
+                <button
+                    class="workspace-icon-button"
                     aria-label="Search changes"
                     onclick={() => {
                         const input = document.getElementById('changes-search');
                         input?.focus();
                     }}
                 >
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                 </button>
             </div>
@@ -713,6 +785,68 @@
 {/if}
 
 <style>
+    .workspace-action-button {
+        display: inline-flex;
+        height: 28px;
+        align-items: center;
+        gap: 6px;
+        border-radius: 6px;
+        padding: 0 8px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        transition:
+            background-color 150ms ease,
+            color 150ms ease,
+            opacity 150ms ease;
+    }
+
+    .workspace-action-button:hover:not(:disabled) {
+        background: var(--bg-hover);
+        color: var(--text-main);
+    }
+
+    .workspace-action-button-primary {
+        background: var(--accent);
+        color: var(--text-on-accent);
+    }
+
+    .workspace-action-button-primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+        color: var(--text-on-accent);
+    }
+
+    .workspace-action-button:disabled {
+        cursor: default;
+        opacity: 0.35;
+    }
+
+    .workspace-icon-button {
+        display: inline-flex;
+        height: 26px;
+        width: 26px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        color: var(--text-tertiary);
+        transition:
+            background-color 150ms ease,
+            color 150ms ease,
+            opacity 150ms ease;
+    }
+
+    .workspace-icon-button:hover:not(:disabled) {
+        background: var(--bg-hover);
+        color: var(--text-secondary);
+    }
+
+    .workspace-icon-button:disabled {
+        cursor: default;
+        opacity: 0.3;
+    }
+
     .diff-mobile-scale {
         font-size: var(--mobile-diff-font-size, 11px);
     }

@@ -15,6 +15,7 @@ import type {
 } from "../core/types.ts";
 import { getWorkspaceStatePaths } from "./state-paths.ts";
 import { getResolvedConfig } from "./config.ts";
+import { ensureDaemonProjectTarget } from "./daemon-client.ts";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
@@ -171,7 +172,10 @@ export function printCliUsage(): void {
   console.log("chump client [-c <server-url>] [-s <session-id>]");
   console.log("chump server");
   console.log("chump connect");
+  console.log("chump app [--web-url <url>]");
   console.log("chump providers");
+  console.log("chump daemon [start|status|stop]");
+  console.log("chump projects [list|add|remove]");
   console.log("chump update");
   console.log("chump status [-c <server-url>] [-s <session-id>]");
   console.log("chump stop");
@@ -195,6 +199,38 @@ export async function ensureServerTarget(
       note: null,
       metadata: null,
     };
+  }
+
+  const envServerUrl = process.env.CHUMP_SERVER_URL;
+  if (envServerUrl) {
+    await assertServerHealthy(envServerUrl);
+    return {
+      serverUrl: envServerUrl,
+      serverSource: "direct",
+      note: null,
+      metadata: null,
+    };
+  }
+
+  if (options.autoStartServer) {
+    try {
+      const daemonTarget = await ensureDaemonProjectTarget(workspaceRoot);
+      return {
+        serverUrl: daemonTarget.runtime.serverUrl,
+        serverSource: "managed",
+        note: `connected through daemon at ${daemonTarget.daemon.url}`,
+        metadata: null,
+      };
+    } catch (error) {
+      const started = await ensureManagedServer(workspaceRoot);
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        serverUrl: started.metadata.url,
+        serverSource: "managed",
+        note: `daemon unavailable (${reason}); using local server at ${started.metadata.url}`,
+        metadata: started.metadata,
+      };
+    }
   }
 
   const metadata = await readManagedServerMetadata(workspaceRoot);
@@ -225,17 +261,6 @@ export async function ensureServerTarget(
     };
   }
 
-  const envServerUrl = process.env.CHUMP_SERVER_URL;
-  if (envServerUrl) {
-    await assertServerHealthy(envServerUrl);
-    return {
-      serverUrl: envServerUrl,
-      serverSource: "direct",
-      note: null,
-      metadata: null,
-    };
-  }
-
   if (!options.autoStartServer) {
     const fallbackUrl = metadata?.url ?? DEFAULT_SERVER_URL;
     await assertServerHealthy(fallbackUrl);
@@ -247,13 +272,7 @@ export async function ensureServerTarget(
     };
   }
 
-  const started = await ensureManagedServer(workspaceRoot);
-  return {
-    serverUrl: started.metadata.url,
-    serverSource: "managed",
-    note: started.started ? `started local server at ${started.metadata.url}` : `reusing local server at ${started.metadata.url}`,
-    metadata: started.metadata,
-  };
+  throw new Error("unreachable server target state");
 }
 
 export async function recoverManagedServer(
@@ -390,7 +409,7 @@ function signalStopTarget(target: StopTarget, signal: NodeJS.Signals): void {
   }
 }
 
-async function ensureManagedServer(workspaceRoot: string): Promise<{
+export async function ensureManagedServer(workspaceRoot: string): Promise<{
   started: boolean;
   metadata: ManagedServerMetadata;
 }> {
@@ -597,7 +616,7 @@ async function withWorkspaceLock<T>(
   }
 }
 
-async function readManagedServerMetadata(
+export async function readManagedServerMetadata(
   workspaceRoot: string,
 ): Promise<ManagedServerMetadata | null> {
   const metadataPath = getWorkspaceStatePaths(workspaceRoot).metadataPath;

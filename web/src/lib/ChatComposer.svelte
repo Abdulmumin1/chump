@@ -20,7 +20,7 @@
     import type { SteeringQueueItem } from "$lib/chat/types";
     import type { ChatAttachment } from "$lib/chump/types";
     import type { FileSearchResult } from "$lib/chump/types";
-    import { searchFiles } from "$lib/chump/api";
+    import { searchFiles, type ChumpApiTarget } from "$lib/chump/api";
     import type { ModelChoice } from "$lib/models";
 
     let {
@@ -33,6 +33,7 @@
         currentModel = "",
         workspaceRoot = "",
         serverUrl = "",
+        apiTarget = null,
         gitBranch = "",
         currentProvider = "",
         reasoningInfo = null,
@@ -56,6 +57,7 @@
         currentProvider: string;
         workspaceRoot: string;
         serverUrl: string;
+        apiTarget?: ChumpApiTarget | null;
         gitBranch: string;
         reasoningInfo: { effort: string | null; budget: number | null } | null;
         contextUsageLabel: string | null;
@@ -313,7 +315,7 @@
         const cursor = textareaElement?.selectionStart ?? composerText.length;
         const beforeCursor = composerText.slice(0, cursor);
         const match = beforeCursor.match(/(?:^|\s)@([^\s@]*)$/);
-        if (!match || !serverUrl) {
+        if (!match || !apiTarget) {
             closeFileMenu();
             return;
         }
@@ -328,7 +330,7 @@
         selectedIndex = 0;
         const sequence = ++searchSequence;
         fileSearchLoading = true;
-        void searchFiles(serverUrl, query, 20)
+        void searchFiles(apiTarget, query, 20)
             .then((files) => {
                 if (sequence !== searchSequence) return;
                 fileSuggestions = files;
@@ -445,11 +447,11 @@
             />
 
             <textarea
-                aria-label="Message the agent"
+                aria-label="Message Chump"
                 bind:this={textareaElement}
                 bind:value={composerText}
                 rows="2"
-                placeholder={isLoadingSession ? "Loading session..." : "Message the agent..."}
+                placeholder={isLoadingSession ? "Loading session..." : "Message Chump..."}
                 onkeydown={handleKeydown}
                 oninput={handleInput}
                 onpaste={handlePaste}

@@ -2,8 +2,16 @@
     import BrailleSpinner from "$lib/BrailleSpinner.svelte";
     import ThemeToggle from "$lib/ThemeToggle.svelte";
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
+    import ProjectsSwitcher from "$lib/ProjectsSwitcher.svelte";
+    import type {
+        DaemonProject,
+        DaemonRuntime,
+    } from "$lib/chump/daemon-api";
     let {
         sessions,
+        sessionPage = 1,
+        sessionTotalPages = 1,
+        sessionTotal = 0,
         activeSessionId,
         sessionInput = $bindable(),
         health,
@@ -13,6 +21,8 @@
         onCreateSession,
         onOpenSession,
         onSelectSession,
+        onPreviousPage,
+        onNextPage,
         onOpenConnectModal,
         onConnect,
         sessionTitle,
@@ -21,8 +31,23 @@
         dragOffset = 0,
         isDragging = false,
         isLoadingSession = false,
+        projects = [],
+        activeProjectId = "",
+        isLoadingProject = false,
+        onSelectProject,
+        projectRuntimes = {},
+        runtimeActionProjectId = "",
+        onStartProject,
+        onStopProject,
+        isRegisteringProject = false,
+        onRegisterProject,
+        isPickingProjectDirectory = false,
+        onPickProjectDirectory,
     } = $props<{
         sessions: Array<any>;
+        sessionPage?: number;
+        sessionTotalPages?: number;
+        sessionTotal?: number;
         activeSessionId: string;
         sessionInput: string;
         health: unknown;
@@ -32,6 +57,8 @@
         onCreateSession: () => void;
         onOpenSession: () => void;
         onSelectSession: (id: string) => void;
+        onPreviousPage: () => void;
+        onNextPage: () => void;
         onOpenConnectModal: () => void;
         onConnect: () => void;
         sessionTitle: (session: any) => string;
@@ -40,6 +67,21 @@
         dragOffset?: number;
         isDragging?: boolean;
         isLoadingSession?: boolean;
+        projects?: DaemonProject[];
+        activeProjectId?: string;
+        isLoadingProject?: boolean;
+        onSelectProject?: (projectId: string) => void;
+        projectRuntimes?: Record<string, DaemonRuntime>;
+        runtimeActionProjectId?: string;
+        onStartProject?: (projectId: string) => void;
+        onStopProject?: (projectId: string) => void;
+        isRegisteringProject?: boolean;
+        onRegisterProject?: (input: {
+            workspacePath: string;
+            name?: string;
+        }) => void | Promise<void>;
+        isPickingProjectDirectory?: boolean;
+        onPickProjectDirectory?: () => Promise<string | null>;
     }>();
     let isConnected = $derived(!!health);
     let serverDisplay = $derived.by(() => {
@@ -65,6 +107,23 @@
     style:opacity={currentOpacity}
     style:visibility={open || isDragging ? 'visible' : 'hidden'}
 >
+    {#if onSelectProject && onStartProject && onStopProject && onRegisterProject && onPickProjectDirectory}
+        <ProjectsSwitcher
+            {projects}
+            {activeProjectId}
+            loading={isLoadingProject}
+            runtimes={projectRuntimes}
+            {runtimeActionProjectId}
+            {onSelectProject}
+            {onStartProject}
+            {onStopProject}
+            registering={isRegisteringProject}
+            {onRegisterProject}
+            pickingDirectory={isPickingProjectDirectory}
+            onPickDirectory={onPickProjectDirectory}
+        />
+    {/if}
+
     <div
         class="p-2 flex items-center"
     >
@@ -163,6 +222,30 @@
             {/each}
         {/if}
     </div>
+
+    {#if sessionTotalPages > 1}
+        <div class="flex items-center justify-between border-t border-border-subtle px-3 py-1.5 text-[10px] text-text-tertiary">
+            <button
+                type="button"
+                class="px-1.5 py-0.5 hover:bg-bg-hover disabled:opacity-30"
+                disabled={sessionPage <= 1}
+                onclick={onPreviousPage}
+                aria-label="Previous sessions page"
+            >
+                Previous
+            </button>
+            <span>{sessionPage} / {sessionTotalPages} · {sessionTotal}</span>
+            <button
+                type="button"
+                class="px-1.5 py-0.5 hover:bg-bg-hover disabled:opacity-30"
+                disabled={sessionPage >= sessionTotalPages}
+                onclick={onNextPage}
+                aria-label="Next sessions page"
+            >
+                Next
+            </button>
+        </div>
+    {/if}
 
     <div class="p-1 mt-auto flex flex-col bg-bg-surface-alt border-t border-border-subtle">
         <div class="flex items-center gap-1">

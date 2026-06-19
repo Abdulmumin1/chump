@@ -74,15 +74,26 @@ import {
   ensureServerTarget,
   parseCliArgs,
   printCliUsage,
-  recoverManagedServer,
   startServerCommand,
   stopManagedServer,
 } from "./runtime.ts";
+import { recoverManagedServerUrl } from "./managed-recovery.ts";
 import {
   currentClientVersion,
   maybeRenderUpdateNotice,
   runUpdateCommand,
 } from "./update.ts";
+import {
+  parseProjectCommand,
+  projectCommandUsage,
+  runProjectCommand,
+} from "./project-command.ts";
+import {
+  daemonCommandUsage,
+  parseDaemonCommand,
+  runDaemonCommand,
+} from "./daemon-command.ts";
+import { parseAppCommand, runAppCommand } from "./app-command.ts";
 import { createSpinner } from "../ui/spinner.ts";
 import type {
   ChumpConfig,
@@ -150,6 +161,37 @@ async function runProvidersCommand(): Promise<void> {
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv[0] === "app") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      console.log("chump app [--web-url <url>] [--no-open] [--json]");
+      return;
+    }
+    console.log(await runAppCommand(parseAppCommand(argv.slice(1))));
+    return;
+  }
+
+  if (argv[0] === "daemon") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      console.log(daemonCommandUsage());
+      return;
+    }
+    console.log(await runDaemonCommand(parseDaemonCommand(argv.slice(1))));
+    return;
+  }
+
+  if (argv[0] === "projects") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      console.log(projectCommandUsage());
+      return;
+    }
+    console.log(
+      await runProjectCommand(
+        parseProjectCommand(argv.slice(1), process.cwd()),
+      ),
+    );
+    return;
+  }
+
   const options = parseCliArgs(argv);
   const workspaceRoot = resolveWorkspaceRoot(process.cwd());
 
@@ -330,10 +372,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       return await recoveryPromise;
     }
     recoveryPromise = (async () => {
-      const recovered = await recoverManagedServer(config.workspaceRoot, config.serverUrl);
+      const recoveredUrl = await recoverManagedServerUrl(
+        config.workspaceRoot,
+        config.serverUrl,
+      );
       config = loadConfig({
         agentId: config.agentId,
-        serverUrl: recovered.metadata.url,
+        serverUrl: recoveredUrl,
         serverSource: "managed",
       });
       closeEventStream?.();

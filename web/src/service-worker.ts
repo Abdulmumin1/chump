@@ -12,6 +12,7 @@ self.addEventListener('install', (event: any) => {
 	async function addFilesToCache() {
 		const cache = await caches.open(CACHE);
 		await cache.addAll(ASSETS);
+		await self.skipWaiting();
 	}
 
 	event.waitUntil(addFilesToCache());
@@ -22,6 +23,7 @@ self.addEventListener('activate', (event: any) => {
 		for (const key of await caches.keys()) {
 			if (key !== CACHE) await caches.delete(key);
 		}
+		await self.clients.claim();
 	}
 
 	event.waitUntil(deleteOldCaches());
@@ -29,9 +31,11 @@ self.addEventListener('activate', (event: any) => {
 
 self.addEventListener('fetch', (event: any) => {
 	if (event.request.method !== 'GET') return;
+	const requestUrl = new URL(event.request.url);
+	if (requestUrl.origin !== self.location.origin) return;
 
 	async function respond() {
-		const url = new URL(event.request.url);
+		const url = requestUrl;
 		const cache = await caches.open(CACHE);
 
 		// Serve static assets/build files directly from the cache
@@ -43,8 +47,17 @@ self.addEventListener('fetch', (event: any) => {
 		// Otherwise, go network-first, fallback to cache
 		try {
 			const response = await fetch(event.request);
-			if (response.status === 200) {
-				cache.put(event.request, response.clone());
+			if (
+				event.request.mode === 'navigate' &&
+				response.ok &&
+				response.type === 'basic' &&
+				response.headers.get('vary') !== '*'
+			) {
+				try {
+					await cache.put(event.request, response.clone());
+				} catch {
+					// A cache write must not fail an otherwise successful request.
+				}
 			}
 			return response;
 		} catch {

@@ -1,8 +1,10 @@
 {
   "name": "Chump AI",
   "short_name": "Chump",
-  "description": "Interactive terminal coding assistant",
+  "description": "Local-first coding assistant for your projects",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",

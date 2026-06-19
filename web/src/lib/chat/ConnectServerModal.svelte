@@ -16,6 +16,9 @@
         onConnect,
         onStartQrScanner,
         onStopQrScanner,
+        daemonUrl = $bindable(),
+        daemonToken = $bindable(),
+        onConnectDaemon,
     } = $props<{
         open: boolean;
         serverUrl: string;
@@ -29,6 +32,9 @@
         onConnect: () => void | Promise<void>;
         onStartQrScanner: () => void | Promise<void>;
         onStopQrScanner: () => void;
+        daemonUrl: string;
+        daemonToken: string;
+        onConnectDaemon: () => void | Promise<void>;
     }>();
 
     let connectUrlInput = $state<HTMLInputElement | null>(null);
@@ -58,6 +64,50 @@
             onclick={(event) => event.stopPropagation()}
         >
             <div class="p-1.5 space-y-1.5">
+                <div class="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
+                    Local daemon
+                </div>
+                <div class="space-y-1.5 rounded-md border border-border-subtle bg-bg-elevated p-1.5">
+                    <label for="daemon-url-input" class="sr-only">Daemon URL</label>
+                    <input
+                        id="daemon-url-input"
+                        bind:value={daemonUrl}
+                        placeholder="Daemon URL"
+                        class="w-full rounded-sm border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-main placeholder:text-text-muted focus:outline-none"
+                        autocomplete="off"
+                    />
+                    <label for="daemon-token-input" class="sr-only">Daemon token</label>
+                    <input
+                        id="daemon-token-input"
+                        bind:value={daemonToken}
+                        placeholder="Daemon token"
+                        type="password"
+                        class="w-full rounded-sm border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-main placeholder:text-text-muted focus:outline-none"
+                        autocomplete="off"
+                        onkeydown={(event) =>
+                            event.key === "Enter" &&
+                            daemonUrl.trim() &&
+                            daemonToken.trim() &&
+                            !isConnecting &&
+                            (void onConnectDaemon())}
+                    />
+                    <button
+                        type="button"
+                        onclick={() => void onConnectDaemon()}
+                        disabled={!daemonUrl.trim() || !daemonToken.trim() || isConnecting}
+                        class="flex h-7 w-full items-center justify-center rounded-sm bg-accent px-2.5 text-[11px] font-bold text-text-on-accent disabled:opacity-60"
+                    >
+                        {#if isConnecting}
+                            <BrailleSpinner class="font-mono text-[14px]" />
+                        {:else}
+                            Connect to projects
+                        {/if}
+                    </button>
+                </div>
+
+                <div class="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
+                    Direct server
+                </div>
                 <div
                     class="flex flex-col gap-1.5"
                     role="dialog"
