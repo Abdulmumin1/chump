@@ -97,14 +97,19 @@
                             <figure
                                 class="overflow-hidden rounded-xl border border-border-subtle/20 bg-black/10"
                             >
-                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-                                <img
-                                    src={block.imageSrc}
-                                    alt={imageCaption(block)}
-                                    class="block max-h-80 w-full rounded-xl object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
-                                    loading="lazy"
+                                <button
+                                    type="button"
+                                    class="block w-full cursor-zoom-in rounded-xl p-0 text-left transition-opacity hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-elevated"
+                                    aria-label={`Zoom image: ${imageCaption(block)}`}
                                     onclick={() => activeZoomImage = block.imageSrc || null}
-                                />
+                                >
+                                    <img
+                                        src={block.imageSrc}
+                                        alt={imageCaption(block)}
+                                        class="block max-h-80 w-full rounded-xl object-cover"
+                                        loading="lazy"
+                                    />
+                                </button>
                                 <figcaption
                                     class="border-t border-border-subtle/15 bg-black/15 px-2.5 py-1.5 text-[11px] text-text-tertiary"
                                 >
