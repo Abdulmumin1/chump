@@ -1,5 +1,12 @@
 # chump-agent
 
+## 0.1.1
+
+### Patch Changes
+
+- f6cd547: Prepare daemon-backed web app startup for early testing by trusting the hosted Chump web origin and keeping daemon credentials out of default CLI output.
+- 8aa6c1e: Add daemon-backed web Git actions for committing, pushing, and creating pull requests from the changes panel.
+
 ## 0.1.0
 
 ### Minor Changes
