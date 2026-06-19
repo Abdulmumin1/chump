@@ -51,11 +51,8 @@ async function startDaemonProcess(): Promise<string> {
     await mkdir(paths.dataDir, { recursive: true });
     const logFd = openSync(paths.daemonLogPath, "a", 0o600);
     try {
-      const executablePath = process.argv[1];
-      if (!executablePath) {
-        throw new Error("cannot determine Chump executable path");
-      }
-      const child = spawn(process.execPath, [executablePath, "__daemon"], {
+      const daemonProcess = daemonSpawnCommand(process.execPath, process.argv);
+      const child = spawn(daemonProcess.file, daemonProcess.args, {
         detached: process.platform !== "win32",
         env: process.env,
         stdio: ["ignore", logFd, logFd],
@@ -174,6 +171,29 @@ async function withDaemonLock<T>(task: () => Promise<T>): Promise<T> {
   } finally {
     await rm(lockDir, { recursive: true, force: true });
   }
+}
+
+export function daemonSpawnCommand(
+  execPath: string,
+  argv: string[],
+): { file: string; args: string[] } {
+  if (isStandaloneBinary(execPath)) {
+    return { file: execPath, args: ["__daemon"] };
+  }
+
+  const executablePath = argv[1];
+  if (!executablePath) {
+    throw new Error("cannot determine Chump executable path");
+  }
+  return { file: execPath, args: [executablePath, "__daemon"] };
+}
+
+function isStandaloneBinary(execPath: string): boolean {
+  const name = path.basename(execPath).toLowerCase();
+  if (name === "node" || name === "node.exe" || name === "bun" || name === "bun.exe") {
+    return false;
+  }
+  return name === "chump" || name === "chump.exe" || name.startsWith("chump-");
 }
 
 async function lockIsStale(lockDir: string): Promise<boolean> {
