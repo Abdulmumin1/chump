@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.2
+
+### Patch Changes
+
+- 262ba9f: Fix daemon startup from packaged Chump binaries by respawning the standalone executable with the correct daemon argument.
+
 ## 0.1.1
 
 ### Patch Changes
