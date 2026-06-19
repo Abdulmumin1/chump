@@ -22,6 +22,7 @@ const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 10_000;
 const SERVER_WAIT_MS = 30_000;
 const DEFAULT_MANAGED_IDLE_TIMEOUT_SECONDS = 30;
+const LOCK_OWNER_FILE = "owner.json";
 
 export function parseCliArgs(argv: string[]): CliOptions {
   let mode: CliMode = "interactive";
@@ -593,12 +594,13 @@ async function withWorkspaceLock<T>(
   while (true) {
     try {
       mkdirSync(lockDir);
+      await writeLockOwner(lockDir);
       break;
     } catch (error) {
       if (!isAlreadyExistsError(error)) {
         throw error;
       }
-      if (await isStaleLock(lockDir)) {
+      if (await workspaceLockIsStale(lockDir)) {
         await rm(lockDir, { recursive: true, force: true });
         continue;
       }
@@ -814,7 +816,34 @@ function getUvInstallInstructions(): string {
   return '  curl -LsSf https://astral.sh/uv/install.sh | sh';
 }
 
-async function isStaleLock(lockDir: string): Promise<boolean> {
+async function writeLockOwner(lockDir: string): Promise<void> {
+  await writeFile(
+    path.join(lockDir, LOCK_OWNER_FILE),
+    JSON.stringify({ pid: process.pid, createdAt: Date.now() }),
+    "utf8",
+  );
+}
+
+export async function workspaceLockIsStale(lockDir: string): Promise<boolean> {
+  const ownerPath = path.join(lockDir, LOCK_OWNER_FILE);
+  try {
+    const owner = JSON.parse(await readFile(ownerPath, "utf8")) as {
+      pid?: unknown;
+    };
+    if (
+      typeof owner.pid === "number" &&
+      Number.isInteger(owner.pid) &&
+      owner.pid > 0 &&
+      !processIsRunning(owner.pid)
+    ) {
+      return true;
+    }
+  } catch (error) {
+    if (!isMissingFileError(error) && !(error instanceof SyntaxError)) {
+      throw error;
+    }
+  }
+
   try {
     const stats = await stat(lockDir);
     return Date.now() - stats.mtimeMs > LOCK_STALE_MS;
@@ -823,6 +852,16 @@ async function isStaleLock(lockDir: string): Promise<boolean> {
       return false;
     }
     throw error;
+  }
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (isMissingProcessError(error)) return false;
+    return true;
   }
 }
 
