@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.3
+
+### Patch Changes
+
+- 1da184f: Open the hosted chat app route from `chump app` so daemon handoff parameters are consumed automatically, and clean up local server locks left by exited processes.
+
 ## 0.1.2
 
 ### Patch Changes
