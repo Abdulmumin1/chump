@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.0.38
+
+- Add daemon-backed project/session routing for local web clients, including authenticated project runtime control, session forwarding, file search proxying, streaming chat/events, native project directory picking, and daemon-backed Git actions.
+- Add paginated session listings and attachment-safe daemon payload handling for large image messages.
+- Improve local daemon and managed server reliability for hosted web handoff, standalone binary startup, stale local server locks, and PWA/service-worker request handling.
+
 ## 0.0.37
 
 - Release updated web client interface with interactive command palette, image zooming improvements, instant reasoning streams, and FFF workspace searches.
