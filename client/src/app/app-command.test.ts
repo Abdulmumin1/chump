@@ -61,6 +61,6 @@ test("allows the trusted hosted chump web app", () => {
       "http://127.0.0.1:53080",
       "secret-token",
     ),
-    "https://chump.yaqeen.me/#daemonUrl=http%3A%2F%2F127.0.0.1%3A53080&daemonToken=secret-token",
+    "https://chump.yaqeen.me/c#daemonUrl=http%3A%2F%2F127.0.0.1%3A53080&daemonToken=secret-token",
   );
 });

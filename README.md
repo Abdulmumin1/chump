@@ -56,7 +56,7 @@ chump -p --verbose "prompt"    # Run one prompt with tool activity on stderr
 chump -p --model "openai/gpt-5.4" --thinking low "prompt"  # Run with custom model & thinking
 chump client                   # CLI only, no auto-start server
 chump -c <url>                 # Connect to existing server
-chump app                     # Start daemon and open https://chump.yaqeen.me
+chump app                     # Start daemon and open https://chump.yaqeen.me/c
 chump app --web-url http://localhost:5173  # Use a local web app while developing
 chump server                   # Run backend in foreground
 chump status                   # Show server health
