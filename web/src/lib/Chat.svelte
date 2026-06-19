@@ -950,8 +950,31 @@
         };
         window.addEventListener("keydown", handleToggleSidebarShortcut);
 
-        daemonUrl = sessionStorage.getItem("chump:daemon-url") ?? "";
-        daemonToken = sessionStorage.getItem("chump:daemon-token") ?? "";
+        const url = new URL(window.location.href);
+        const handoffParams = new URLSearchParams(
+            url.hash.startsWith("#") ? url.hash.slice(1) : url.hash,
+        );
+        const urlDaemonUrl =
+            handoffParams.get("daemonUrl") ??
+            url.searchParams.get("daemonUrl") ??
+            "";
+        const urlDaemonToken =
+            handoffParams.get("daemonToken") ??
+            url.searchParams.get("daemonToken") ??
+            "";
+        if (urlDaemonUrl && urlDaemonToken) {
+            daemonUrl = urlDaemonUrl;
+            daemonToken = urlDaemonToken;
+            sessionStorage.setItem("chump:daemon-url", daemonUrl);
+            sessionStorage.setItem("chump:daemon-token", daemonToken);
+            url.searchParams.delete("daemonUrl");
+            url.searchParams.delete("daemonToken");
+            url.hash = "";
+            window.history.replaceState({}, "", url.toString());
+        } else {
+            daemonUrl = sessionStorage.getItem("chump:daemon-url") ?? "";
+            daemonToken = sessionStorage.getItem("chump:daemon-token") ?? "";
+        }
         activeProjectId =
             sessionStorage.getItem("chump:active-project") ?? "";
         if (daemonUrl && daemonToken) {

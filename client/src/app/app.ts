@@ -93,6 +93,7 @@ import {
   parseDaemonCommand,
   runDaemonCommand,
 } from "./daemon-command.ts";
+import { parseAppCommand, runAppCommand } from "./app-command.ts";
 import { createSpinner } from "../ui/spinner.ts";
 import type {
   ChumpConfig,
@@ -160,6 +161,15 @@ async function runProvidersCommand(): Promise<void> {
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv[0] === "app") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      console.log("chump app [--web-url <loopback-url>] [--no-open] [--json]");
+      return;
+    }
+    console.log(await runAppCommand(parseAppCommand(argv.slice(1))));
+    return;
+  }
+
   if (argv[0] === "daemon") {
     if (argv[1] === "--help" || argv[1] === "-h") {
       console.log(daemonCommandUsage());
