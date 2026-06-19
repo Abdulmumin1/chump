@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { get as httpGet } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import { startDaemonServer } from "./daemon-server.ts";
 import { ProjectRuntimeSupervisor } from "./project-runtime.ts";
 import { ProjectSessionRouter } from "./project-sessions.ts";
 import { ProjectRegistryStore } from "./projects.ts";
+
+const execFileAsync = promisify(execFile);
 
 test("serves health and projects from a loopback-only server", async (t) => {
   const fixture = await createFixture();
@@ -690,6 +694,46 @@ test("aborts the upstream event stream when the client disconnects", async (t) =
   assert.equal(upstreamSignal?.aborted, true);
 });
 
+test("commits and pushes a registered project workspace through the daemon", async (t) => {
+  const fixture = await createFixture();
+  const remotePath = path.join(path.dirname(fixture.workspacePath), "remote.git");
+  await git(["init", "--bare", remotePath]);
+  await git(["init"], fixture.workspacePath);
+  await git(["config", "user.name", "Chump Test"], fixture.workspacePath);
+  await git(["config", "user.email", "chump@example.test"], fixture.workspacePath);
+  await git(["remote", "add", "origin", remotePath], fixture.workspacePath);
+  await mkdir(path.join(fixture.workspacePath, "src"));
+  await writeFile(path.join(fixture.workspacePath, "src", "app.txt"), "hello\n");
+
+  const token = "test-token-that-is-long-enough-for-auth";
+  const store = new ProjectRegistryStore({
+    registryPath: fixture.registryPath,
+  });
+  const project = await store.register(fixture.workspacePath, "Example");
+  const daemon = await startDaemonServer({
+    projectStore: store,
+    authToken: token,
+  });
+  t.after(() => daemon.close());
+
+  const response = await fetch(`${daemon.url}/projects/${project.id}/git/commit-push`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ message: "Initial commit", files: ["src/app.txt"] }),
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json() as { ok: boolean; message: string };
+  assert.equal(body.ok, true);
+  assert.match(body.message, /main|master|Initial commit|Committed and pushed/u);
+
+  const { stdout } = await git(["branch", "--list"], remotePath);
+  assert.match(stdout, /main|master/u);
+});
+
 async function createFixture(): Promise<{
   workspacePath: string;
   registryPath: string;
@@ -705,6 +749,13 @@ async function createFixture(): Promise<{
 
 async function readText(response: Response): Promise<string> {
   return await response.text();
+}
+
+async function git(
+  args: string[],
+  cwd?: string,
+): Promise<{ stdout: string; stderr: string }> {
+  return await execFileAsync("git", args, { cwd });
 }
 
 function runtimeMetadata(workspaceRoot: string) {

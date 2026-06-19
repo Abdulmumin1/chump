@@ -9,6 +9,7 @@
     import ChatTopBar from "$lib/chat/ChatTopBar.svelte";
     import ConnectServerModal from "$lib/chat/ConnectServerModal.svelte";
     import ModelPickerModal from "$lib/chat/ModelPickerModal.svelte";
+    import GitActionModal, { type GitActionKind } from "$lib/chat/GitActionModal.svelte";
     import CommandPalette from "$lib/chat/CommandPalette.svelte";
     import { sidebarSwipe, type SidebarSwipeState } from "$lib/chat/sidebar-swipe";
     import {
@@ -53,6 +54,8 @@
     } from "$lib/models";
     import {
         createDaemonProjectSession,
+        commitAndPushDaemonProjectChanges,
+        createDaemonProjectPullRequest,
         discoverLocalDaemon,
         getDaemonProjectRuntime,
         listDaemonProjects,
@@ -123,6 +126,16 @@
     let runtimeActionProjectId = $state("");
     let isRegisteringProject = $state(false);
     let isPickingProjectDirectory = $state(false);
+    let gitActionModalOpen = $state(false);
+    let gitActionKind = $state<GitActionKind>("commit-push");
+    let gitActionMessage = $state("");
+    let gitActionPrTitle = $state("");
+    let gitActionPrBody = $state("");
+    let gitActionPrDraft = $state(true);
+    let gitActionResultUrl = $state("");
+    let gitActionSelectedFiles = $state<string[]>([]);
+    let isRunningGitAction = $state(false);
+    let gitActionError = $state("");
 
     let isDraggingSidebar = $state(false);
     let sidebarDragOffset = $state(0);
@@ -184,6 +197,20 @@
     );
     const currentGitBranch = $derived(
         status?.git_branch ?? health?.git_branch ?? "",
+    );
+    const workspaceChangeFiles = $derived(sessionState?.files_touched?.length ?? 0);
+    const workspaceTouchedFiles = $derived(sessionState?.files_touched ?? []);
+    const workspaceAddedLines = $derived.by(() =>
+        Object.values(sessionState?.file_diffs ?? {}).reduce(
+            (sum, diff) => sum + (diff.added ?? 0),
+            0,
+        ),
+    );
+    const workspaceRemovedLines = $derived.by(() =>
+        Object.values(sessionState?.file_diffs ?? {}).reduce(
+            (sum, diff) => sum + (diff.removed ?? 0),
+            0,
+        ),
     );
     const reasoningInfo = $derived.by(() => {
         const source = status?.reasoning ?? health?.reasoning;
@@ -527,6 +554,75 @@
                 isSending = false;
             }
             activeRequestController = null;
+        }
+    }
+
+    function openGitActionModal(action: GitActionKind): void {
+        gitActionKind = action;
+        gitActionError = "";
+        gitActionResultUrl = "";
+        if (action === "commit-push") {
+            gitActionMessage = "";
+            gitActionSelectedFiles = [...workspaceTouchedFiles];
+        } else {
+            gitActionPrTitle = "";
+            gitActionPrBody = "";
+            gitActionPrDraft = true;
+        }
+        gitActionModalOpen = true;
+    }
+
+    function closeGitActionModal(): void {
+        if (isRunningGitAction) return;
+        gitActionModalOpen = false;
+        gitActionError = "";
+        gitActionResultUrl = "";
+    }
+
+    function openGitActionResult(url: string): void {
+        window.open(url, "_blank", "noopener,noreferrer");
+    }
+
+    async function submitGitAction(): Promise<void> {
+        if (!apiTarget || apiTarget.kind !== "daemon" || !activeProjectId) {
+            gitActionError = "Git actions need a local daemon project.";
+            return;
+        }
+
+        const connection = { url: apiTarget.daemonUrl, token: apiTarget.token };
+        connectionError = "";
+        gitActionError = "";
+        isRunningGitAction = true;
+
+        try {
+            const result =
+                gitActionKind === "create-pr"
+                        ? await createDaemonProjectPullRequest(connection, activeProjectId, {
+                            title: gitActionPrTitle.trim() || undefined,
+                            body: gitActionPrBody.trim() || undefined,
+                            draft: gitActionPrDraft,
+                        })
+                        : await commitAndPushDaemonProjectChanges(
+                            connection,
+                            activeProjectId,
+                            gitActionMessage.trim(),
+                            gitActionSelectedFiles,
+                        );
+
+            if (gitActionKind === "create-pr") {
+                gitActionResultUrl = result.url ?? result.message;
+                pushToast("Pull request created", "success");
+            } else {
+                pushToast(result.message, "success");
+                gitActionModalOpen = false;
+            }
+            if (activeSessionId) {
+                await sessionController.refreshSessionSnapshot(activeSessionId);
+            }
+        } catch (error) {
+            gitActionError = toErrorMessage(error);
+        } finally {
+            isRunningGitAction = false;
         }
     }
 
@@ -1162,7 +1258,12 @@
     </main>
 
     {#if sessionState}
-        <WorkspaceState state={sessionState} {sidebarOpen} />
+        <WorkspaceState
+            state={sessionState}
+            {sidebarOpen}
+            onRequestCommitPush={() => openGitActionModal("commit-push")}
+            onRequestCreatePr={() => openGitActionModal("create-pr")}
+        />
     {/if}
 </div>
 
@@ -1196,6 +1297,27 @@
     onSelectModel={(provider, model) => {
         void handleCommand("model", `${provider}/${model}`);
     }}
+/>
+
+<GitActionModal
+    open={gitActionModalOpen}
+    action={gitActionKind}
+    branch={currentGitBranch}
+    changedFiles={workspaceChangeFiles}
+    added={workspaceAddedLines}
+    removed={workspaceRemovedLines}
+    files={workspaceTouchedFiles}
+    bind:selectedFiles={gitActionSelectedFiles}
+    busy={isRunningGitAction}
+    error={gitActionError}
+    bind:commitMessage={gitActionMessage}
+    bind:prTitle={gitActionPrTitle}
+    bind:prBody={gitActionPrBody}
+    bind:prDraft={gitActionPrDraft}
+    resultUrl={gitActionResultUrl}
+    onClose={closeGitActionModal}
+    onSubmit={() => void submitGitAction()}
+    onOpenResult={openGitActionResult}
 />
 
 <CommandPalette

@@ -447,11 +447,11 @@
             />
 
             <textarea
-                aria-label="Message the agent"
+                aria-label="Message Chump"
                 bind:this={textareaElement}
                 bind:value={composerText}
                 rows="2"
-                placeholder={isLoadingSession ? "Loading session..." : "Message the agent..."}
+                placeholder={isLoadingSession ? "Loading session..." : "Message Chump..."}
                 onkeydown={handleKeydown}
                 oninput={handleInput}
                 onpaste={handlePaste}

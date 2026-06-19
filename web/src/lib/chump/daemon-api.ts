@@ -24,6 +24,14 @@ export type DaemonRuntime = {
     pid: number | null;
 };
 
+export type DaemonGitResult = {
+    ok: boolean;
+    stdout: string;
+    stderr: string;
+    message: string;
+    url?: string;
+};
+
 export type DaemonConnection = {
     url: string;
     token: string;
@@ -155,6 +163,39 @@ export async function createDaemonProjectSession(
     );
 }
 
+export async function commitAndPushDaemonProjectChanges(
+    connection: DaemonConnection,
+    projectId: string,
+    message: string,
+    files: string[],
+): Promise<DaemonGitResult> {
+    return await daemonJson<DaemonGitResult>(
+        connection,
+        `/projects/${encodeURIComponent(projectId)}/git/commit-push`,
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ message, files }),
+        },
+    );
+}
+
+export async function createDaemonProjectPullRequest(
+    connection: DaemonConnection,
+    projectId: string,
+    options: { title?: string; body?: string; draft?: boolean } = {},
+): Promise<DaemonGitResult> {
+    return await daemonJson<DaemonGitResult>(
+        connection,
+        `/projects/${encodeURIComponent(projectId)}/git/create-pr`,
+        {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(options),
+        },
+    );
+}
+
 export function normalizeDaemonConnection(
     connection: DaemonConnection,
 ): DaemonConnection {
@@ -180,9 +221,22 @@ async function daemonJson<T>(
     });
     if (!response.ok) {
         const body = (await response.text()).trim();
-        throw new Error(body || `daemon request failed with ${response.status}`);
+        throw new Error(readDaemonError(body) || `daemon request failed with ${response.status}`);
     }
     return (await response.json()) as T;
+}
+
+function readDaemonError(body: string): string {
+    if (!body) return "";
+    try {
+        const parsed = JSON.parse(body) as { message?: unknown };
+        if (typeof parsed.message === "string" && parsed.message.trim()) {
+            return parsed.message.trim();
+        }
+    } catch {
+        // Fall back to the raw body below.
+    }
+    return body;
 }
 
 function requestSignal(signal?: AbortSignal | null): AbortSignal {

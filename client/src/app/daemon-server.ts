@@ -5,6 +5,8 @@ import {
   type ServerResponse,
 } from "node:http";
 import { once } from "node:events";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { DEFAULT_CHUMP_WEB_URL } from "./app-config.ts";
 import { currentClientVersion } from "./update.ts";
@@ -21,6 +23,7 @@ import { pickDirectory } from "./directory-picker.ts";
 const DAEMON_HOST = "127.0.0.1";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
 const MAX_SESSION_BODY_BYTES = 64 * 1024 * 1024;
+const execFileAsync = promisify(execFile);
 
 export type DaemonServerOptions = {
   port?: number;
@@ -261,6 +264,50 @@ async function handleRequest(
         return;
       }
       sendMethodNotAllowed(response, ["GET", "POST", "DELETE"]);
+      return;
+    }
+
+    const gitActionMatch = /^\/projects\/([^/]+)\/git\/(commit-push|commit|push|create-pr)$/.exec(url.pathname);
+    if (gitActionMatch) {
+      if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
+        sendJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+      if (method !== "POST") {
+        sendMethodNotAllowed(response, ["POST"]);
+        return;
+      }
+      const projectId = decodeURIComponent(gitActionMatch[1]!);
+      const action = gitActionMatch[2] as "commit-push" | "commit" | "push" | "create-pr";
+      const project = await context.projectStore.get(projectId);
+      if (!project) {
+        sendJson(response, 404, { error: "project_not_found" });
+        return;
+      }
+      const body = await readOptionalJsonBody(request);
+      if ((action === "commit" || action === "commit-push") && typeof body.message !== "string") {
+        sendJson(response, 400, {
+          error: "invalid_request",
+          message: "message is required",
+        });
+        return;
+      }
+      const files = readGitActionFiles(body.files);
+      if ((action === "commit" || action === "commit-push") && files.length === 0) {
+        sendJson(response, 400, {
+          error: "invalid_request",
+          message: "select at least one file to commit",
+        });
+        return;
+      }
+      const result = await runProjectGitAction(project.workspacePath, action, {
+        message: typeof body.message === "string" ? body.message : undefined,
+        files,
+        prTitle: typeof body.title === "string" ? body.title : undefined,
+        prBody: typeof body.body === "string" ? body.body : undefined,
+        draft: body.draft === true,
+      });
+      sendJson(response, result.ok ? 200 : 409, result);
       return;
     }
 
@@ -600,6 +647,137 @@ function copyUpstreamHeaders(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readGitActionFiles(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const files: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const path = item.trim();
+    if (!path || path.startsWith("/") || path.includes("\0") || path.split(/[\\/]/).includes("..")) continue;
+    files.push(path);
+  }
+  return Array.from(new Set(files));
+}
+
+async function runProjectGitAction(
+  workspacePath: string,
+  action: "commit-push" | "commit" | "push" | "create-pr",
+  options: { message?: string; files?: string[]; prTitle?: string; prBody?: string; draft?: boolean } = {},
+): Promise<{ ok: boolean; stdout: string; stderr: string; message: string; url?: string }> {
+  try {
+    const prArgs = buildCreatePrArgs(options);
+    const results =
+      action === "commit" || action === "commit-push"
+        ? [
+            await runWorkspaceCommand(workspacePath, "git", [
+              "add",
+              "-A",
+              "--",
+              ...(options.files ?? []),
+            ]),
+            await runWorkspaceCommand(workspacePath, "git", [
+              "commit",
+              "-m",
+              options.message ?? "Update workspace",
+            ]),
+            ...(action === "commit-push"
+              ? [await runWorkspaceCommand(workspacePath, "git", ["push", "-u", "origin", "HEAD"])]
+              : []),
+          ]
+        : [
+            await runWorkspaceCommand(
+              workspacePath,
+              action === "create-pr" ? "gh" : "git",
+              action === "create-pr" ? prArgs : ["push", "-u", "origin", "HEAD"],
+            ),
+          ];
+    const stdout = results.map((result) => result.stdout).join("\n");
+    const stderr = results.map((result) => result.stderr).join("\n");
+    const url = action === "create-pr" ? extractPullRequestUrl(stdout, stderr) : undefined;
+    return {
+      ok: true,
+      stdout,
+      stderr,
+      message: url ?? (compactGitOutput(stdout, stderr) || gitActionSuccessMessage(action)),
+      url,
+    };
+  } catch (error) {
+    const failure = error as {
+      stdout?: string | Buffer;
+      stderr?: string | Buffer;
+      message?: string;
+    };
+    const stdout = stringifyOutput(failure.stdout);
+    const stderr = stringifyOutput(failure.stderr);
+    return {
+      ok: false,
+      stdout,
+      stderr,
+      message: compactGitOutput(stdout, stderr) || failure.message || "git push failed",
+    };
+  }
+}
+
+function buildCreatePrArgs(options: { prTitle?: string; prBody?: string; draft?: boolean }): string[] {
+  const title = options.prTitle?.trim();
+  const body = options.prBody?.trim();
+  const args = ["pr", "create"];
+  if (!title && !body) {
+    args.push("--fill");
+  } else {
+    args.push("--fill");
+    if (title) args.push("--title", title);
+    if (body) args.push("--body", body);
+  }
+  if (options.draft) args.push("--draft");
+  return args;
+}
+
+function extractPullRequestUrl(stdout: string, stderr: string): string | undefined {
+  const match = /https:\/\/github\.com\/[^\s]+\/pull\/\d+/u.exec(`${stdout}\n${stderr}`);
+  return match?.[0];
+}
+
+async function runWorkspaceCommand(
+  workspacePath: string,
+  file: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  return await execFileAsync(file, args, {
+    cwd: workspacePath,
+    timeout: 120_000,
+    maxBuffer: 1024 * 1024,
+  });
+}
+
+function gitActionSuccessMessage(action: "commit-push" | "commit" | "push" | "create-pr"): string {
+  switch (action) {
+    case "commit-push":
+      return "Committed and pushed changes";
+    case "commit":
+      return "Committed changes";
+    case "create-pr":
+      return "Created pull request";
+    case "push":
+      return "Pushed changes";
+  }
+}
+
+function stringifyOutput(value: string | Buffer | undefined): string {
+  if (Buffer.isBuffer(value)) return value.toString("utf8");
+  return value ?? "";
+}
+
+function compactGitOutput(stdout: string, stderr: string): string {
+  return [stdout, stderr]
+    .join("\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-4)
+    .join("\n");
 }
 
 class RequestError extends Error {
