@@ -3,8 +3,9 @@ import { spawn } from "node:child_process";
 import { DaemonAuthStore } from "./daemon-auth.ts";
 import { runDaemonCommand } from "./daemon-command.ts";
 import { DaemonMetadataStore } from "./daemon-metadata.ts";
+import { DEFAULT_CHUMP_WEB_URL } from "./app-config.ts";
 
-export const DEFAULT_CHUMP_WEB_URL = "https://chump.yaqeen.me";
+export { DEFAULT_CHUMP_WEB_URL };
 
 export type AppCommandOptions = {
   webUrl?: string;
@@ -82,11 +83,12 @@ export async function runAppCommand(
 
   const lines = [
     `daemon: ${daemon.url}`,
-    `token:  ${token}`,
+    `web:    ${webUrl}`,
   ];
-  lines.push(`web:    ${connectUrl}`);
   if (options.open !== false) {
     lines.push("opened web app");
+  } else {
+    lines.push("use --json to print the one-time connection URL");
   }
   return lines.join("\n");
 }

@@ -6,6 +6,7 @@ import {
 } from "node:http";
 import { once } from "node:events";
 
+import { DEFAULT_CHUMP_WEB_URL } from "./app-config.ts";
 import { currentClientVersion } from "./update.ts";
 import { authorizeBearerHeader, DaemonAuthStore } from "./daemon-auth.ts";
 import { DAEMON_PROTOCOL_VERSION } from "./daemon-metadata.ts";
@@ -507,6 +508,12 @@ async function readBody(
 function isAllowedBrowserOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
+    if (
+      url.protocol === "https:" &&
+      url.origin === new URL(DEFAULT_CHUMP_WEB_URL).origin
+    ) {
+      return true;
+    }
     return (
       (url.protocol === "http:" || url.protocol === "https:") &&
       (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]")

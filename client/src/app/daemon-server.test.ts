@@ -145,6 +145,16 @@ test("enforces browser origins and supports approved project mutations", async (
     "http://localhost:5173",
   );
 
+  const hostedPreflight = await fetch(`${daemon.url}/projects`, {
+    method: "OPTIONS",
+    headers: { origin: "https://chump.yaqeen.me" },
+  });
+  assert.equal(hostedPreflight.status, 204);
+  assert.equal(
+    hostedPreflight.headers.get("access-control-allow-origin"),
+    "https://chump.yaqeen.me",
+  );
+
   const missingApproval = await fetch(`${daemon.url}/projects`, {
     method: "POST",
     headers,
