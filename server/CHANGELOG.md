@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.39
+
+- Add native session-management tools so Chump can list saved sessions, inspect prior threads, and start isolated follow-up sessions without shelling out to the CLI.
+- Reduce server cold-start work by sharing one discovered resource catalog between startup logging and the running server.
+
 ## 0.0.38
 
 - Add daemon-backed project/session routing for local web clients, including authenticated project runtime control, session forwarding, file search proxying, streaming chat/events, native project directory picking, and daemon-backed Git actions.

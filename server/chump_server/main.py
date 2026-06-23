@@ -21,8 +21,12 @@ from .server.sessions import stored_sessions
 
 
 class ChumpServer(AgentServer):
-    def __init__(self, config: ChumpConfig):
-        resources = ResourceCatalog(config.workspace_root)
+    def __init__(
+        self,
+        config: ChumpConfig,
+        resources: ResourceCatalog | None = None,
+    ):
+        resources = resources or ResourceCatalog(config.workspace_root)
         ChumpAgent.configure(config, resources)
         self.search = WorkspaceSearch(config.workspace_root)
         ChumpAgent._server_search = self.search
@@ -219,8 +223,7 @@ def main() -> None:
             f"[chump] context_files={instruction_paths}",
             flush=True,
         )
-    server = ChumpServer(config)
-    server.resources = resources
+    server = ChumpServer(config, resources=resources)
     server.serve(host=config.host, port=config.port)
 
 
