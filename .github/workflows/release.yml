@@ -267,6 +267,9 @@ jobs:
       - name: Build server runtime archive
         run: python server/scripts/build_binary.py --mode onedir --archive
 
+      - name: Build legacy server binary
+        run: python server/scripts/build_binary.py --mode onefile
+
       - name: Resolve release tag
         id: release_tag
         shell: bash
@@ -280,7 +283,9 @@ jobs:
       - name: Upload server runtime archive
         uses: softprops/action-gh-release@v2
         with:
-          files: server/dist/bin/chump-server-*.tar.gz
+          files: |
+            server/dist/bin/chump-server-*.tar.gz
+            server/dist/bin/chump-server-*
           tag_name: ${{ steps.release_tag.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

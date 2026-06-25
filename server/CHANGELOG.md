@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.41
+
+- Attach legacy onefile server binaries alongside the fast runtime archives so older `chump update` clients can still update across the archive-format transition.
+
 ## 0.0.40
 
 - Load the built-in `skill-creator` skill from code instead of writing `.chump/skills/skill-creator/SKILL.md` into every workspace during startup, while still allowing project or global skills with the same name to override it.

@@ -45,7 +45,8 @@ git push origin chump-server-v0.1.0
 Pushing a `chump-server-v*` tag runs the PyPI job and creates a GitHub Release in `.github/workflows/release.yml`.
 The same release also gets platform-specific standalone backend runtime archives
 named `chump-server-<platform>.tar.gz` attached for sandbox/server-only
-deployments.
+deployments. Legacy onefile assets named `chump-server-<platform>` are also
+attached so older clients can update across the runtime archive transition.
 
 ## Environment
 
