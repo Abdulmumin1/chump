@@ -12,7 +12,7 @@ const NPM_LATEST_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const GITHUB_RELEASES_API = "https://api.github.com/repos/Abdulmumin1/chump/releases?per_page=30";
 const GITHUB_RELEASE_BASE = "https://github.com/Abdulmumin1/chump/releases/download";
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 2_500;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 type LatestPackage = {
   version?: unknown;
