@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.6
+
+### Patch Changes
+
+- a51fd8a: Keep server updates compatible with older installed clients by publishing legacy onefile server assets alongside the preferred fast runtime archives.
+
 ## 0.1.5
 
 ### Patch Changes
