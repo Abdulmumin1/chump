@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.0.42
+
+- Strengthen system prompt: Chump now identifies as the user's companion rather than the owner, and is instructed to adapt to user changes rather than reverting them.
+
 ## 0.0.41
 
 - Attach legacy onefile server binaries alongside the fast runtime archives so older `chump update` clients can still update across the archive-format transition.
