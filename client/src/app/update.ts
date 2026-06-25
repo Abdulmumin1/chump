@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -57,21 +57,21 @@ export async function checkForUpdate(options: { force?: boolean } = {}): Promise
     cached?.latestServerVersion ?? fetchLatestServerVersion(),
     isStandaloneBinary() ? readBundledServerVersion() : Promise.resolve(null),
   ]);
-  if (resolvedLatest) {
+  if (resolvedLatest || latestServerVersion) {
     await writeUpdateCache({
-      latestVersion: resolvedLatest,
+      latestVersion: resolvedLatest ?? currentVersion,
       latestServerVersion: latestServerVersion ?? undefined,
     }).catch(() => {});
   }
 
-  if (!resolvedLatest) {
+  if (!resolvedLatest && !latestServerVersion) {
     return null;
   }
 
   return {
     currentVersion,
-    latestVersion: resolvedLatest,
-    updateAvailable: compareVersions(resolvedLatest, currentVersion) > 0,
+    latestVersion: resolvedLatest ?? currentVersion,
+    updateAvailable: resolvedLatest !== null && compareVersions(resolvedLatest, currentVersion) > 0,
     currentServerVersion,
     latestServerVersion,
     serverUpdateAvailable: currentServerVersion !== null &&
@@ -82,10 +82,25 @@ export async function checkForUpdate(options: { force?: boolean } = {}): Promise
 
 export async function maybeRenderUpdateNotice(): Promise<string | null> {
   const info = await checkForUpdate().catch(() => null);
-  if (!info?.updateAvailable) {
+  return formatUpdateNotice(info);
+}
+
+export function formatUpdateNotice(info: UpdateInfo | null): string | null {
+  if (!info) {
     return null;
   }
-  return `update available: chump ${info.currentVersion} -> ${info.latestVersion}; run \`chump update\``;
+  const notices: string[] = [];
+  if (info.updateAvailable) {
+    notices.push(`chump ${info.currentVersion} -> ${info.latestVersion}`);
+  }
+  if (info.serverUpdateAvailable && info.latestServerVersion) {
+    const current = info.currentServerVersion ? ` ${info.currentServerVersion}` : "";
+    notices.push(`server${current} -> ${info.latestServerVersion}`);
+  }
+  if (notices.length === 0) {
+    return null;
+  }
+  return `update available: ${notices.join(", ")}; run \`chump update\``;
 }
 
 export async function runUpdateCommand(): Promise<void> {
@@ -205,12 +220,23 @@ async function updateStandaloneBinary(info: UpdateInfo): Promise<void> {
 }
 
 async function updateBundledServerBinary(tag: string, installDir: string, suffix: string): Promise<void> {
+  const archiveName = serverArchiveAssetName(suffix);
+  const archiveUrl = `${GITHUB_RELEASE_BASE}/${encodeURIComponent(tag)}/${archiveName}`;
+  const stagedArchive = path.join(installDir, `.${archiveName}.update-${process.pid}`);
+  if (await downloadFileIfExists(archiveUrl, stagedArchive)) {
+    await installBundledServerArchive(stagedArchive, installDir, suffix);
+    return;
+  }
+
   const serverName = serverAssetName(suffix);
   const url = `${GITHUB_RELEASE_BASE}/${encodeURIComponent(tag)}/${serverName}`;
-  const target = path.join(installDir, serverName);
+  const serverDir = path.join(installDir, "server");
+  const target = path.join(serverDir, serverName);
   const staged = path.join(installDir, `.${serverName}.update-${process.pid}`);
+  await mkdir(serverDir, { recursive: true });
   await downloadFile(url, staged);
   await runCommand("chmod", ["755", staged]);
+  await rm(path.join(installDir, serverName), { force: true });
   await runCommand("mv", ["-f", staged, target]);
 }
 
@@ -220,6 +246,44 @@ async function downloadFile(url: string, targetPath: string): Promise<void> {
     throw new Error(`failed to download ${url}: HTTP ${response.status}`);
   }
   await writeFile(targetPath, Buffer.from(await response.arrayBuffer()));
+}
+
+async function downloadFileIfExists(url: string, targetPath: string): Promise<boolean> {
+  const response = await fetch(url, { headers: { accept: "application/octet-stream" } });
+  if (response.status === 404) {
+    return false;
+  }
+  if (!response.ok) {
+    throw new Error(`failed to download ${url}: HTTP ${response.status}`);
+  }
+  await writeFile(targetPath, Buffer.from(await response.arrayBuffer()));
+  return true;
+}
+
+async function installBundledServerArchive(archivePath: string, installDir: string, suffix: string): Promise<void> {
+  const extractDir = path.join(installDir, `.server.extract-${process.pid}`);
+  const stagedServer = path.join(installDir, `.server.update-${process.pid}`);
+  const runtimeDir = path.join(extractDir, `chump-server-${suffix}`);
+  const executable = path.join(runtimeDir, serverExecutableName());
+
+  await rm(extractDir, { recursive: true, force: true });
+  await rm(stagedServer, { recursive: true, force: true });
+  await mkdir(extractDir, { recursive: true });
+  try {
+    await runCommand("tar", ["-xzf", archivePath, "-C", extractDir]);
+    if (!existsSync(executable)) {
+      throw new Error(`server archive is missing ${serverExecutableName()}`);
+    }
+    await chmod(executable, 0o755);
+    await rename(runtimeDir, stagedServer);
+    await rm(path.join(installDir, "server"), { recursive: true, force: true });
+    await rm(path.join(installDir, serverAssetName(suffix)), { force: true });
+    await rename(stagedServer, path.join(installDir, "server"));
+  } finally {
+    await rm(extractDir, { recursive: true, force: true }).catch(() => {});
+    await rm(stagedServer, { recursive: true, force: true }).catch(() => {});
+    await rm(archivePath, { force: true }).catch(() => {});
+  }
 }
 
 async function updateNpmInstall(): Promise<void> {
@@ -268,6 +332,14 @@ function serverAssetName(suffix: string): string {
   return process.platform === "win32"
     ? `chump-server-${suffix}.exe`
     : `chump-server-${suffix}`;
+}
+
+function serverArchiveAssetName(suffix: string): string {
+  return `chump-server-${suffix}.tar.gz`;
+}
+
+function serverExecutableName(): string {
+  return process.platform === "win32" ? "chump-server.exe" : "chump-server";
 }
 
 async function readBundledServerVersion(): Promise<string | null> {

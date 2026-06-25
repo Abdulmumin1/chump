@@ -16,7 +16,14 @@ def main() -> None:
         default="onefile",
         help="Build a single executable for server-only releases or a directory runtime for bundled client archives.",
     )
+    parser.add_argument(
+        "--archive",
+        action="store_true",
+        help="When building in onedir mode, also write a .tar.gz archive suitable for GitHub release assets.",
+    )
     args = parser.parse_args()
+    if args.archive and args.mode != "onedir":
+        raise SystemExit("--archive is only supported with --mode onedir")
 
     server_dir = Path(__file__).resolve().parents[1]
     dist_dir = server_dir / "dist" / "bin"
@@ -67,6 +74,11 @@ def main() -> None:
 
     if args.mode == "onefile":
         target = dist_dir / executable_name(f"chump-server-{platform_suffix()}")
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
         shutil.copy2(executable, target)
         target.chmod(0o755)
     else:
@@ -78,6 +90,17 @@ def main() -> None:
                 target.unlink()
         shutil.copytree(build_dir / name, target)
         (target / executable_name(name)).chmod(0o755)
+        if args.archive:
+            archive_base = dist_dir / target.name
+            archive_path = Path(
+                shutil.make_archive(
+                    str(archive_base),
+                    "gztar",
+                    root_dir=dist_dir,
+                    base_dir=target.name,
+                )
+            )
+            print(archive_path)
     print(target)
 
 

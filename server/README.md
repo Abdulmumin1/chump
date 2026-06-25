@@ -30,6 +30,8 @@ python scripts/build_binary.py
 ```
 
 The output is written to `dist/bin/chump-server-<platform>`.
+Use `python scripts/build_binary.py --mode onedir --archive` to produce the
+release archive at `dist/bin/chump-server-<platform>.tar.gz`.
 
 ## Release
 
@@ -41,8 +43,9 @@ git push origin chump-server-v0.1.0
 ```
 
 Pushing a `chump-server-v*` tag runs the PyPI job and creates a GitHub Release in `.github/workflows/release.yml`.
-The same release also gets platform-specific standalone backend binaries named
-`chump-server-<platform>` attached for sandbox/server-only deployments.
+The same release also gets platform-specific standalone backend runtime archives
+named `chump-server-<platform>.tar.gz` attached for sandbox/server-only
+deployments.
 
 ## Environment
 
