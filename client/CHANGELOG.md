@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.7
+
+### Patch Changes
+
+- 29bc163: Allow release update checks more time to complete so standalone installs can reliably detect server-only updates.
+
 ## 0.1.6
 
 ### Patch Changes
