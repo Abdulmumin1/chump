@@ -13,6 +13,8 @@ const GITHUB_RELEASES_API = "https://api.github.com/repos/Abdulmumin1/chump/rele
 const GITHUB_RELEASE_BASE = "https://github.com/Abdulmumin1/chump/releases/download";
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
+const SERVER_VERSION_PROBE_ATTEMPTS = 80;
+const SERVER_VERSION_PROBE_INTERVAL_MS = 250;
 
 type LatestPackage = {
   version?: unknown;
@@ -362,7 +364,7 @@ async function readBundledServerVersion(): Promise<string | null> {
     failedToStart = true;
   });
   try {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < SERVER_VERSION_PROBE_ATTEMPTS; attempt += 1) {
       const version = await fetchServerHealthVersion(port);
       if (version) {
         return version;
@@ -370,7 +372,7 @@ async function readBundledServerVersion(): Promise<string | null> {
       if (failedToStart || child.exitCode !== null) {
         return "0.0.0";
       }
-      await delay(100);
+      await delay(SERVER_VERSION_PROBE_INTERVAL_MS);
     }
     return "0.0.0";
   } finally {
