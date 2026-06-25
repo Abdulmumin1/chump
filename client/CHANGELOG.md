@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.8
+
+### Patch Changes
+
+- ff5044b: Wait longer for the bundled server version probe so update checks do not reinstall an already-current server.
+
 ## 0.1.7
 
 ### Patch Changes
