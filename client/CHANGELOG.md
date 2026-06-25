@@ -1,5 +1,13 @@
 # chump-agent
 
+## 0.1.5
+
+### Patch Changes
+
+- b011777: Prefer archived one-directory `chump-server` runtimes for server updates so installed CLIs do not replace the bundled fast runtime with a slow PyInstaller onefile binary. Older onefile server release assets remain supported as a fallback.
+
+  Update notices now include server-only updates and keep working when the npm version lookup fails but the server release lookup succeeds.
+
 ## 0.1.4
 
 ### Patch Changes
