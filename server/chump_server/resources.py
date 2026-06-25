@@ -143,7 +143,6 @@ class ResourceCatalog:
     def __init__(self, workspace_root: Path):
         self.workspace_root = workspace_root.resolve()
         self.global_agent_dir = _global_agent_dir()
-        self._seed_default_skills()
         self._system_instructions = self._discover_system_instructions()
         self._system_instruction_paths = {
             str(item.path.resolve()) for item in self._system_instructions
@@ -295,19 +294,14 @@ class ResourceCatalog:
                 skill_map[skill.name] = skill
                 diagnostics_order.append(skill)
 
+        for skill in BUILTIN_SKILLS:
+            if skill.name in skill_map:
+                continue
+            skill_map[skill.name] = skill
+            diagnostics_order.append(skill)
+
         diagnostics_order.sort(key=lambda item: item.name)
         return diagnostics_order
-
-    def _seed_default_skills(self) -> None:
-        if _workspace_skill_exists(self.workspace_root, "skill-creator"):
-            return
-        target = self.workspace_root / ".chump" / "skills" / "skill-creator" / "SKILL.md"
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(DEFAULT_SKILL_CREATOR, encoding="utf-8")
-        except OSError:
-            # Skill seeding should never prevent the server from starting.
-            return
 
     def _format_instruction_section(
         self,
@@ -369,15 +363,6 @@ def _sample_skill_files(base_dir: Path, limit: int = 12) -> list[str]:
             continue
         files.append(str(path))
     return files
-
-
-def _workspace_skill_exists(workspace_root: Path, name: str) -> bool:
-    for relative_path in DEFAULT_SKILL_DIRS:
-        root = workspace_root / relative_path
-        candidate = root / name / "SKILL.md"
-        if candidate.exists() and candidate.is_file():
-            return True
-    return False
 
 
 def _load_skills_from_root(root: Path) -> list[SkillInfo]:
@@ -452,6 +437,21 @@ def _split_frontmatter(raw: str) -> tuple[str, str]:
     if not match:
         return "", raw
     return match.group(1), raw[match.end() :]
+
+
+BUILTIN_SKILLS = (
+    SkillInfo(
+        name="skill-creator",
+        description=(
+            "Create or update Chump skills when the user wants a reusable workflow, "
+            "project convention, or domain-specific instruction bundle saved as SKILL.md."
+        ),
+        file_path=Path("<builtin>/skill-creator/SKILL.md"),
+        base_dir=Path("<builtin>/skill-creator"),
+        content=_split_frontmatter(DEFAULT_SKILL_CREATOR)[1].strip(),
+        disable_model_invocation=False,
+    ),
+)
 
 
 def _frontmatter_value(frontmatter: str, key: str) -> str | None:

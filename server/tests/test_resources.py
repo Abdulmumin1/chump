@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from chump_server.resources import ResourceCatalog, build_instruction_bundle
+from chump_server.resources import ResourceCatalog, build_instruction_bundle, build_skill_bundle
 
 
 class ResourceCatalogTests(unittest.TestCase):
@@ -96,7 +96,7 @@ class ResourceCatalogTests(unittest.TestCase):
             self.assertIn("singular-global-skill", names)
             self.assertIn("singular-skill", names)
 
-    def test_seeds_default_skill_creator_into_workspace(self) -> None:
+    def test_loads_builtin_skill_creator_without_writing_workspace_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             workspace = root / "workspace"
@@ -111,12 +111,17 @@ class ResourceCatalogTests(unittest.TestCase):
             self.assertIn("skill-creator", names)
             skill = catalog.get_skill("skill-creator")
             self.assertIsNotNone(skill)
+            assert skill is not None
             self.assertIn(".chump/skills/<skill-name>/SKILL.md", skill.content)
-            self.assertTrue(
+            self.assertIn(
+                '<skill_content name="skill-creator">',
+                build_skill_bundle(skill),
+            )
+            self.assertFalse(
                 (workspace / ".chump" / "skills" / "skill-creator" / "SKILL.md").exists()
             )
 
-    def test_existing_workspace_skill_creator_is_not_overwritten(self) -> None:
+    def test_workspace_skill_creator_overrides_builtin(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             workspace = root / "workspace"
@@ -141,6 +146,33 @@ class ResourceCatalogTests(unittest.TestCase):
             skill = catalog.get_skill("skill-creator")
             self.assertIsNotNone(skill)
             self.assertEqual(skill.description, "Project override.")
+            self.assertEqual(skill.base_dir, override_dir.resolve())
+
+    def test_global_skill_creator_overrides_builtin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "workspace"
+            agent_dir = root / "agent-home"
+            workspace.mkdir()
+            agent_dir.mkdir()
+
+            override_dir = agent_dir / "skills" / "skill-creator"
+            override_dir.mkdir(parents=True)
+            (override_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: skill-creator\n"
+                "description: Global override.\n"
+                "---\n\n"
+                "# Global Skill Creator\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"CHUMP_AGENT_DIR": str(agent_dir)}):
+                catalog = ResourceCatalog(workspace)
+
+            skill = catalog.get_skill("skill-creator")
+            self.assertIsNotNone(skill)
+            self.assertEqual(skill.description, "Global override.")
             self.assertEqual(skill.base_dir, override_dir.resolve())
 
     def test_instruction_files_for_path_finds_nearest_nested_instruction(self) -> None:

@@ -77,7 +77,9 @@ GitHub release archives are platform-specific and contain both executables:
 ```text
 chump-<platform>/
   chump
-  chump-server-<platform>
+  server/
+    chump-server
+    _internal/
 ```
 
 Repository development still uses the local Python backend through `uv run`.

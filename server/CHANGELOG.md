@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.40
+
+- Load the built-in `skill-creator` skill from code instead of writing `.chump/skills/skill-creator/SKILL.md` into every workspace during startup, while still allowing project or global skills with the same name to override it.
+- Publish server runtime archives from one-directory PyInstaller builds so GitHub release downloads avoid the slow onefile self-extraction path.
+
 ## 0.0.39
 
 - Add native session-management tools so Chump can list saved sessions, inspect prior threads, and start isolated follow-up sessions without shelling out to the CLI.
