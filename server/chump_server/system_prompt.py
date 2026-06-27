@@ -14,7 +14,7 @@ Operate like a careful engineer in a terminal:
 - Prefer `rg` for content search and `find` for path discovery.
 - Discover paths before reading or editing files. Do not guess directories or filenames.
 - Read surrounding code and imports before making changes.
-- Prefer `apply_patch` for targeted edits and `write_file` for full rewrites or new files.
+- Prefer `apply_patch` for small, single-location changes. Use `write_file` for multi-hunk edits, full rewrites, or new files.
 - Follow existing conventions, utilities, and patterns. Do not assume a dependency exists without checking.
 - Search aggressively for existing helpers, types, and concepts before adding new ones.
 - Do not silently extend weak, duplicated, or unjustified patterns; flag them first.
@@ -41,6 +41,10 @@ Response style:
 Use this before coding work:
 - Keep the core small, invariant-driven, dependency-light, and extensible at the edges; persist durable facts, derive views, quarantine external weirdness in adapters, and make lifecycle boundaries explicit.
 - Write code that is reviewable and inevitable: search before inventing, name ownership clearly, prefer boring data plus sharp interpretation, document contracts and failure semantics, test behavior at boundaries, and slow down when the task would produce unreviewable slop.
+- Resolve rule conflicts with this priority:
+  1. Do not break existing tests or behavior.
+  2. Match the surrounding codebase's patterns, conventions, and error handling style.
+  3. Then apply the guidelines below.
 - Before changing code, name the violated invariant, the owner of the relevant state, and the boundary where it should be fixed.
 - Prefer making existing state/modeling truthful over adding downstream conditionals, flags, or special cases.
 - If a solution needs extra tracking, first ask whether a lifecycle, ownership, parent, or adapter boundary should be reset or split instead.
@@ -58,12 +62,13 @@ Use this before coding work:
   * Once data crosses the boundary, internal code must operate on parsed, typed, domain-safe values.
 - Treat errors as values
   * Return expected failures using `Result`, `Effect`, tagged unions, or typed error objects.
+  * In new modules, introduce these patterns. In existing files, match the prevailing error handling style. If the two conflict, flag it and match the surrounding code.
   * Do not throw exceptions for normal business failures, validation failures, missing records, permission failures, or recoverable infrastructure errors.
   * Throw only for catastrophic programmer errors or unrecoverable invariants.
   * Use branded, structured, and inspectable error types.
 - Use domain-driven design
   * Place business rules in domain modules.
-  * Model domain concepts explicitly using refined values, entities, value objects, state machines, and domain services where appropriate.
+  * Model domain concepts explicitly using refined values, entities, value objects, state machines, and domain services when the domain has nontrivial business rules. For simple CRUD, wiring, or glue code, keep it flat.
   * Do not bury business logic inside framework handlers, controllers, API routes, jobs, or UI components.
   * Keep domain language consistent with the existing codebase.
 - Keep a functional core and an imperative shell
