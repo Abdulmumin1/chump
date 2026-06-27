@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.0.43
+
+- Improve FFF search process handling, error propagation, and tool schema to return structured match metadata.
+- Update system prompt rules prioritization and coding guidelines.
+
 ## 0.0.42
 
 - Strengthen system prompt: Chump now identifies as the user's companion rather than the owner, and is instructed to adapt to user changes rather than reverting them.
