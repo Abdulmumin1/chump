@@ -322,10 +322,44 @@ class ChumpAgent(Agent[dict[str, Any]]):
             if not full_response.strip():
                 await self.emit("assistant_text", {"content": final_response})
                 yield final_response
+
+            # Steering may have arrived after the last step.started boundary
+            # (e.g. while the model was streaming its final text).  Drain any
+            # remaining items and auto-restart them as a new turn so the user's
+            # message is not silently dropped.
+            drained = await self._drain_remaining_steering()
+            if drained:
+                combined = "\n".join(item["content"] for item in drained)
+                self._log(f"auto-restarting turn for {len(drained)} un-drained steering item(s)")
+                async for chunk in self.stream(
+                    combined,
+                    attachments=None,
+                    signal=signal,
+                    **kwargs,
+                ):
+                    yield chunk
         finally:
             if self._current_turn is turn:
                 self._current_turn = None
             await self._emit_turn_status(False)
+
+    async def _drain_remaining_steering(self) -> list[dict[str, Any]]:
+        """Pop and emit any steering that arrived after the last step boundary.
+
+        Returns the drained items so the caller can decide whether to
+        restart the turn with the accumulated steering content.
+        """
+        async with self._steering_lock:
+            if not self._pending_steering_events:
+                return []
+            drained = list(self._pending_steering_events)
+            self._pending_steering_events.clear()
+            await self._emit_steering_queue()
+
+        for item in drained:
+            await self.emit("user_message", item)
+
+        return drained
 
     async def _start_turn(
         self,
