@@ -54,7 +54,11 @@ const lightPalette = {
   codeDiffMeta: "#787878",
 };
 
-const palette = isLightTerminal() ? lightPalette : darkPalette;
+// Theme detection may issue a synchronous OSC 11 query. Compute it once at
+// startup; doing this from frequently-called style helpers made every input
+// redraw block for up to 100ms on terminals that do not answer the query.
+const lightTerminal = isLightTerminal();
+const palette = lightTerminal ? lightPalette : darkPalette;
 
 type MarkdownRenderState = {
   inCodeBlock: boolean;
@@ -225,14 +229,14 @@ function success(value: string): string {
 }
 
 function muted(value: string): string {
-  if (isLightTerminal()) {
+  if (lightTerminal) {
     return fg(palette.muted, value);
   }
   return ansi("\x1b[2m", value);
 }
 
 function faint(value: string): string {
-  if (isLightTerminal()) {
+  if (lightTerminal) {
     return ansi(`\x1b[2m\x1b[38;2;130;130;130m`, value);
   }
   return ansi(`\x1b[2m\x1b[38;2;80;80;80m`, value);

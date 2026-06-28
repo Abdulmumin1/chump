@@ -5,6 +5,7 @@ import {
   renderToolDone,
   renderToolResult,
   type FileEditDiff,
+  renderMuted,
 } from "./render.ts";
 
 export class ToolActivityRenderer {
@@ -54,6 +55,11 @@ export class ToolActivityRenderer {
       this.pendingTools.push({ name: toolName, args: renderedArgs });
       return;
     }
+    if (toolName === "search") {
+      // Defer to result — no call line rendered.
+      this.pendingTools.push({ name: toolName, args: renderedArgs });
+      return;
+    }
     this.compactToolRunActive = false;
     // For apply_patch and write_file/create_file, render the diff from args
     // immediately (used during replay from stored messages where result metadata
@@ -100,6 +106,42 @@ export class ToolActivityRenderer {
         ),
       );
       this.writeLine("");
+      this.activity = true;
+      return;
+    }
+
+    if (toolName === "search") {
+      const pending = this.takePendingTool(toolName);
+      const searchMatches = readSearchMatches(payload);
+      const args = pending?.args ?? "";
+      const label = displayToolName("search");
+      if (ok === "ok" && searchMatches && searchMatches.matches.length > 0) {
+        const total =
+          searchMatches.totalMatched > 0
+            ? searchMatches.totalMatched
+            : searchMatches.matches.length;
+        const countSuffix = ` (${total} match${total === 1 ? "" : "es"})`;
+        this.writeCompactToolLine(
+          `${renderToolDone(label, args)}${renderMuted(countSuffix)}`,
+        );
+        const omitted =
+          searchMatches.totalMatched > 0
+            ? searchMatches.totalMatched - searchMatches.matches.length
+            : 0;
+        if (omitted > 0) {
+          this.writeLine(
+            `  ${renderMuted(`[${omitted} additional matches omitted]`)}`,
+          );
+        }
+      } else if (ok !== "ok") {
+        this.writeCompactToolLine(
+          renderToolResult(ok, label, visiblePreview),
+        );
+      } else {
+        this.writeCompactToolLine(
+          `${renderToolDone(label, args)}${renderMuted(" (no matches)")}`,
+        );
+      }
       this.activity = true;
       return;
     }
@@ -245,6 +287,16 @@ export function formatToolArgs(toolName: string, value: unknown): string {
   if (toolName === "load_skill") {
     const name = typeof args.name === "string" ? args.name : "";
     return name;
+  }
+
+  if (toolName === "search") {
+    const query = typeof args.query === "string" ? args.query : "";
+    const path = typeof args.path === "string" && args.path ? args.path : null;
+    const parts = [
+      query ? `"${query}"` : null,
+      path ? `in ${path}` : null,
+    ].filter(Boolean);
+    return parts.join(" ");
   }
 
   return compactJson(value);
@@ -531,4 +583,56 @@ function truncateMultilinePreview(
     return `${visible}\n...[truncated]`;
   }
   return visible;
+}
+
+function readSearchMatch(value: unknown): SearchMatch | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const m = value as Record<string, unknown>;
+  if (
+    typeof m.path !== "string" ||
+    typeof m.line !== "number" ||
+    typeof m.column !== "number" ||
+    typeof m.text !== "string"
+  ) {
+    return null;
+  }
+  return {
+    path: m.path,
+    line: m.line,
+    column: m.column,
+    text: m.text,
+  };
+}
+
+type SearchMatch = {
+  path: string;
+  line: number;
+  column: number;
+  text: string;
+};
+
+type SearchMatches = {
+  matches: SearchMatch[];
+  totalMatched: number;
+  totalFiles: number;
+};
+
+function readSearchMatches(
+  payload: Record<string, unknown>,
+): SearchMatches | null {
+  const metadata = payload.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const m = metadata as Record<string, unknown>;
+  const matches = Array.isArray(m.matches)
+    ? m.matches
+        .map(readSearchMatch)
+        .filter((x): x is SearchMatch => x !== null)
+    : [];
+  const totalMatched =
+    typeof m.totalMatched === "number" ? m.totalMatched : matches.length;
+  return { matches, totalMatched, totalFiles: 0 };
 }

@@ -1,6 +1,7 @@
 import readline from "node:readline";
 import type { Interface } from "node:readline/promises";
 import process, { stdin as input, stdout as output } from "node:process";
+import { StringDecoder } from "node:string_decoder";
 
 import { completeSlashCommand } from "../app/commands.ts";
 import { logClientEvent } from "../app/diagnostics.ts";
@@ -22,10 +23,11 @@ import {
   readClipboardText,
   readImageAttachment,
 } from "./attachments.ts";
-import { hasPendingBatch, setActiveDraft } from "./terminal.ts";
+import { hasPendingBatch, noteInputActivity, setActiveDraft } from "./terminal.ts";
 import { supportsStatusRowPatching, supportsSynchronizedOutput } from "./terminal-capabilities.ts";
 import { stripPendingOsc11Response } from "./terminal-query.ts";
 import { StdinBuffer } from "./stdin-buffer.ts";
+import { LatestSearch } from "./latest-search.ts";
 import {
   renderContinuationPrompt,
   renderEscHint,
@@ -149,20 +151,19 @@ function createInteractivePromptReader(): {
   let cursorLine = 0;
   let historyIndex = inputHistory.length;
   let pendingResolve: ((value: PromptSubmission | null) => void) | null = null;
+  const queuedSubmissions: PromptSubmission[] = [];
+  let inputEnded = false;
   let queuedDisplay: PromptSubmission[] = [];
   let statusLine: string | null = null;
   let footerLine: string | null = null;
   let ruleBadge: string | null = null;
   let showIdlePromptFrame = false;
-  let skipNextReadPaint = false;
   let closed = false;
   let slashSelection = 0;
   let fileSelection = 0;
   let fileSuggestions: FileSearchResult[] = [];
   let fileSearch: ((query: string) => Promise<FileSearchResult[]>) | null = null;
   let fileMention: { start: number; end: number; query: string } | null = null;
-  let fileSearchSequence = 0;
-  let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
   let slashMenuContext: SlashCommandMenuContext = { sessions: [], models: [], skills: [] };
   let abortHandler: (() => void) | null = null;
   let popQueuedLine: (() => void) | null = null;
@@ -189,6 +190,24 @@ function createInteractivePromptReader(): {
   // Index of the status row within `lastRenderedRows`. Keeps the differential
   // renderer's view of the screen in sync after an in-place status patch.
   let statusIndexInRendered: number | null = null;
+
+  const fileSearchRequests = new LatestSearch<string, FileSearchResult[]>(
+    async (query) => await (fileSearch?.(query) ?? Promise.resolve([])),
+    (query, files) => {
+      if (fileMention?.query !== query) return;
+      fileSuggestions = files;
+      fileSelection = 0;
+      forceRedraw = true;
+      requestRedraw();
+    },
+    (query) => {
+      if (fileMention?.query !== query) return;
+      fileSuggestions = [];
+      fileSelection = 0;
+      forceRedraw = true;
+      requestRedraw();
+    },
+  );
 
   output.write("\x1b[?2004h");
 
@@ -297,8 +316,13 @@ function createInteractivePromptReader(): {
       ...lines.map((line) => `${inputIndent}${renderInput(line)}`),
       bottomRule,
     ];
+    // Keep live activity visually separate from transcript/tool output above
+    // it. Without this reserved row, a spinner such as "Transmogrifying" is
+    // glued directly to the last completed tool line during streaming.
+    const statusSpacerLines = statusRow ? [""] : [];
     const promptFrameLines = [
       ...queueLines,
+      ...statusSpacerLines,
       statusRow,
       ...promptLines,
       ...menuLines,
@@ -306,6 +330,7 @@ function createInteractivePromptReader(): {
     ];
     const cursorFrameLineIndex =
       queueLines.length +
+      statusSpacerLines.length +
       2 +
       target.line;
 
@@ -341,7 +366,7 @@ function createInteractivePromptReader(): {
 
     // Pre-compute the status row's index in the flat renderedRows array so
     // both the full-paint and patch paths can reference it.
-    const statusPromptFrameIndex = queueLines.length;
+    const statusPromptFrameIndex = queueLines.length + statusSpacerLines.length;
     let statusIndexInRenderedLocal = 0;
     for (let i = 0; i < statusPromptFrameIndex; i += 1) {
       statusIndexInRenderedLocal += wrapAnsiLine(promptFrameLines[i] ?? "", wrapWidth).length;
@@ -468,13 +493,9 @@ function createInteractivePromptReader(): {
   }
 
   function redraw(): void {
-    // When a batched output flush is pending, skip the direct write — the
-    // flush cycle calls buildRedraw() and includes our latest state.  This
-    // avoids redundant stdout writes that overwhelm slow terminal emulators.
-    if (hasPendingBatch()) {
-      redrawScheduled = false;
-      return;
-    }
+    // Input redraws are never held behind model output. The output batcher
+    // deliberately waits for a short keyboard-quiet window, while this path
+    // writes the small differential draft update immediately.
     const frame = buildRedraw();
     if (frame) {
       output.write(synchronizedFrame(frame));
@@ -686,7 +707,7 @@ function createInteractivePromptReader(): {
   }
 
   function finish(result: PromptSubmission | string | null): void {
-    if (!pendingResolve) {
+    if (inputEnded) {
       return;
     }
 
@@ -698,8 +719,10 @@ function createInteractivePromptReader(): {
       : result;
 
     if (submission === null) {
+      inputEnded = true;
+      showIdlePromptFrame = false;
       clear();
-      resolve(null);
+      resolve?.(null);
       return;
     }
 
@@ -716,18 +739,16 @@ function createInteractivePromptReader(): {
     value = "";
     cursor = 0;
     attachments = [];
+    nextImageNumber = 1;
     closeFileMenu();
     historyIndex = inputHistory.length;
-    // When a turn is already running, keep the prompt frame alive while the
-    // steering request is in flight because read() will not be re-armed
-    // immediately. For normal submissions, skip the next eager read() paint
-    // so the subsequent transcript/output flush can clear + redraw atomically
-    // instead of producing a clear → repaint → clear sequence on Enter.
-    showIdlePromptFrame = abortHandler !== null;
-    skipNextReadPaint =
-      !showIdlePromptFrame &&
-      (submission.text.trim().length > 0 || submission.attachments.length > 0);
-    if (showIdlePromptFrame) {
+    // Keep the editor live independently of the consumer's async work. The
+    // previous lifecycle disabled stdin between resolving this submission
+    // and the next read(), so typing during a steering/server request was
+    // silently discarded. New submissions are queued until the consumer is
+    // ready, and the next draft remains editable throughout that gap.
+    showIdlePromptFrame = true;
+    if (abortHandler !== null || !resolve) {
       forceRedraw = true;
       const frame = buildRedraw();
       if (frame) {
@@ -735,7 +756,11 @@ function createInteractivePromptReader(): {
       }
     }
 
-    resolve(submission);
+    if (resolve) {
+      resolve(submission);
+    } else {
+      queuedSubmissions.push(submission);
+    }
   }
 
   function insertText(text: string): void {
@@ -1015,41 +1040,26 @@ function createInteractivePromptReader(): {
       return;
     }
     const query = match[1] ?? "";
-    fileMention = {
+    const nextMention = {
       start: cursor - query.length - 1,
       end: cursor,
       query,
     };
+    if (fileMention?.query === query && fileMention.start === nextMention.start) {
+      fileMention = nextMention;
+      return;
+    }
+    fileMention = nextMention;
     fileSelection = 0;
-    fileSuggestions = [];
-    const sequence = ++fileSearchSequence;
-    const runSearch = fileSearch;
-    if (fileSearchTimer) clearTimeout(fileSearchTimer);
-    fileSearchTimer = setTimeout(() => {
-      fileSearchTimer = null;
-      void runSearch(query)
-        .then((files) => {
-          if (sequence !== fileSearchSequence) return;
-          fileSuggestions = files;
-          fileSelection = 0;
-          forceRedraw = true;
-          requestRedraw();
-        })
-        .catch(() => {
-          if (sequence !== fileSearchSequence) return;
-          fileSuggestions = [];
-          forceRedraw = true;
-          requestRedraw();
-        });
-    }, 400);
+    // Search on the leading edge. LatestSearch keeps at most one request in
+    // flight and skips superseded intermediate queries, so typing stays live
+    // without building a slow server-side request queue. Existing results
+    // remain visible until the newest result replaces them.
+    fileSearchRequests.request(query);
   }
 
   function closeFileMenu(): void {
-    fileSearchSequence += 1;
-    if (fileSearchTimer) {
-      clearTimeout(fileSearchTimer);
-      fileSearchTimer = null;
-    }
+    fileSearchRequests.cancel();
     fileMention = null;
     fileSuggestions = [];
     fileSelection = 0;
@@ -1164,8 +1174,9 @@ function createInteractivePromptReader(): {
   // mis-interpreted as bare-ESC + literal "[D". It also detects bracketed
   // paste and emits the content as a single 'paste' event.
   const stdinBuffer = new StdinBuffer({ timeout: 10 });
+  const stdinDecoder = new StringDecoder("utf8");
   stdinBuffer.on("data", (sequence: string) => {
-    if (!pendingResolve) return;
+    if (inputEnded || (!pendingResolve && !showIdlePromptFrame)) return;
     // Stamp the keystroke time up front so any concurrent spinner timer
     // that fires while we're mid-dispatch is already treated as "typing
     // active" and skips its paint. This is essential on slow terminals:
@@ -1175,14 +1186,15 @@ function createInteractivePromptReader(): {
     dispatchKey(sequence);
   });
   stdinBuffer.on("paste", (content: string) => {
-    if (!pendingResolve) return;
+    if (inputEnded || (!pendingResolve && !showIdlePromptFrame)) return;
     lastKeystrokeAt = Date.now();
     void insertPaste(content);
   });
 
   function onData(chunk: Buffer): void {
-    if (!pendingResolve) return;
-    const sequence = stripPendingOsc11Response(chunk.toString("utf8"));
+    if (inputEnded || (!pendingResolve && !showIdlePromptFrame)) return;
+    noteInputActivity();
+    const sequence = stripPendingOsc11Response(stdinDecoder.write(chunk));
     if (!sequence) {
       return;
     }
@@ -1198,7 +1210,7 @@ function createInteractivePromptReader(): {
       sequence.includes(BRACKETED_PASTE_START) ||
       sequence.includes(BRACKETED_PASTE_END)
     ) {
-      stdinBuffer.process(chunk);
+      stdinBuffer.process(sequence);
       return;
     }
 
@@ -1211,11 +1223,11 @@ function createInteractivePromptReader(): {
       void insertPaste(sequence);
       return;
     }
-    stdinBuffer.process(chunk);
+    stdinBuffer.process(sequence);
   }
 
   function dispatchKey(sequence: string): void {
-    if (!pendingResolve) {
+    if (inputEnded || (!pendingResolve && !showIdlePromptFrame)) {
       return;
     }
 
@@ -1416,25 +1428,19 @@ function createInteractivePromptReader(): {
 
   return {
     read() {
-      if (closed) {
+      if (closed || inputEnded) {
         return Promise.resolve(null);
       }
+      showIdlePromptFrame = true;
+      forceRedraw = true;
+      setActiveDraft({ buildClear, buildRedraw });
+      const queued = queuedSubmissions.shift();
+      if (queued) {
+        redraw();
+        return Promise.resolve(queued);
+      }
       return new Promise((resolve) => {
-        showIdlePromptFrame = false;
-        value = "";
-        cursor = 0;
-        attachments = [];
-        nextImageNumber = 1;
-        slashSelection = 0;
-        closeFileMenu();
-        historyIndex = inputHistory.length;
         pendingResolve = resolve;
-        forceRedraw = true;
-        setActiveDraft({ buildClear, buildRedraw });
-        if (skipNextReadPaint) {
-          skipNextReadPaint = false;
-          return;
-        }
         redraw();
       });
     },
@@ -1455,6 +1461,7 @@ function createInteractivePromptReader(): {
       cancelSoftRedraw();
       closeFileMenu();
       stdinBuffer.destroy();
+      stdinDecoder.end();
       const resolve = pendingResolve;
       pendingResolve = null;
       clear();
@@ -1508,8 +1515,17 @@ function createInteractivePromptReader(): {
       if (statusLine === status) {
         return;
       }
+      const spacerVisibilityChanged = Boolean(statusLine) !== Boolean(status);
       statusLine = status;
       forceRedraw = true;
+      // Showing or hiding status also inserts/removes its separator row. An
+      // in-place status patch cannot change frame geometry, so these boundary
+      // transitions require a full redraw. Subsequent spinner frames can use
+      // the cheap single-row patch below.
+      if (spacerVisibilityChanged) {
+        requestRedraw();
+        return;
+      }
       // While the user is actively typing, absolutely do not write anything
       // for a spinner tick — it contends with keystroke echo on slow
       // terminals. Clearing the status (null) is treated as urgent though:
@@ -1628,15 +1644,18 @@ function isLargePaste(value: string): boolean {
   return value.split("\n").length >= LARGE_PASTE_LINES;
 }
 
-function isLikelyRawPaste(value: string): boolean {
+export function isLikelyRawPaste(value: string): boolean {
   const normalized = normalizePastedText(value);
   const trimmed = normalized.trim();
-  // Multi-line WITH actual content is a paste. A bare "\r" / "\n" / "\r\n"
-  // is Enter (submit) or Ctrl+J (insert newline) — NOT a paste. The
-  // trimmed-length guard is what distinguishes them; without it, pressing
-  // Enter would route through insertPaste because normalize turns "\r" into
-  // "\n" and the old heuristic would match on that alone.
-  if (trimmed.length > 0 && normalized.includes("\n")) {
+  // A printable burst ending in one newline is commonly normal typing +
+  // Enter coalesced into one raw stdin chunk under load. Treating that as a
+  // paste turns Enter into an inserted newline and makes the prompt appear
+  // unresponsive. Only an embedded newline (or multiple newlines) is strong
+  // evidence of an unbracketed multiline paste.
+  const withoutSingleTrailingNewline = normalized.endsWith("\n")
+    ? normalized.slice(0, -1)
+    : normalized;
+  if (trimmed.length > 0 && withoutSingleTrailingNewline.includes("\n")) {
     return true;
   }
   // Single-line content that ends with a known image extension — a likely

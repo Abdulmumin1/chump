@@ -22,6 +22,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { StringDecoder } from "node:string_decoder";
 
 const ESC = "\x1b";
 const BRACKETED_PASTE_START = "\x1b[200~";
@@ -159,12 +160,28 @@ function extractCompleteSequences(
       continue;
     }
 
-    // Non-escape byte: emit one character at a time. Callers can group
-    // printable runs themselves if desired, but most dispatchers want
-    // per-event granularity for correctness (e.g. so that Enter in the
-    // middle of a typed run still submits at the right moment).
-    sequences.push(remaining[0]!);
-    pos += 1;
+    // Emit adjacent printable text as one sequence. Under load the OS often
+    // delivers a backlog of many keystrokes in one chunk; dispatching that
+    // backlog character-by-character repeated all editor/menu work for every
+    // byte and made recovery noticeably sluggish. Controls remain individual
+    // sequences so ordering around Enter, Backspace, and shortcuts is exact.
+    let runEnd = pos;
+    while (runEnd < buffer.length) {
+      const char = String.fromCodePoint(buffer.codePointAt(runEnd)!);
+      const codePoint = char.codePointAt(0)!;
+      if (char === ESC || codePoint < 0x20 || codePoint === 0x7f) {
+        break;
+      }
+      runEnd += char.length;
+    }
+    if (runEnd > pos) {
+      sequences.push(buffer.slice(pos, runEnd));
+      pos = runEnd;
+      continue;
+    }
+    const char = String.fromCodePoint(buffer.codePointAt(pos)!);
+    sequences.push(char);
+    pos += char.length;
   }
 
   return { sequences, remainder: "" };
@@ -187,6 +204,7 @@ export interface StdinBufferEventMap {
  */
 export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
   private buffer = "";
+  private readonly decoder = new StringDecoder("utf8");
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private readonly timeoutMs: number;
   private pasteMode = false;
@@ -205,12 +223,10 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 
     let str: string;
     if (Buffer.isBuffer(data)) {
-      // A lone high byte is sometimes a meta-encoded ESC + (byte - 128).
-      if (data.length === 1 && data[0]! > 127) {
-        str = `\x1b${String.fromCharCode(data[0]! - 128)}`;
-      } else {
-        str = data.toString("utf8");
-      }
+      // StringDecoder preserves UTF-8 code points split across raw stdin
+      // chunks. Buffer#toString on each chunk independently replaced those
+      // partial characters with U+FFFD, which corrupted non-ASCII input.
+      str = this.decoder.write(data);
     } else {
       str = data;
     }
@@ -303,6 +319,7 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 
   destroy(): void {
     this.clear();
+    this.decoder.end();
     this.removeAllListeners();
   }
 }

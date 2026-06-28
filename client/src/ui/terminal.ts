@@ -33,15 +33,22 @@ function synchronizedFrame(payload: string): string {
 // first).  Subsequent flushes within the throttle window are delayed,
 // coalescing multiple tokens into fewer screen updates.
 //
-const MIN_FLUSH_INTERVAL_MS = 33; // ~30 fps
+const MIN_FLUSH_INTERVAL_MS = 50; // ~20 fps
+const INPUT_PRIORITY_WINDOW_MS = 120;
 
 let batchBuffer = "";
 let batchScheduled = false;
 let lastFlushAt = 0;
+let lastInputAt = 0;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let flushImmediate: ReturnType<typeof setImmediate> | null = null;
 
 function flushBatch(): void {
   batchScheduled = false;
+  if (flushImmediate !== null) {
+    clearImmediate(flushImmediate);
+    flushImmediate = null;
+  }
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
     flushTimer = null;
@@ -71,23 +78,51 @@ function scheduleFlush(): void {
     return;
   }
   batchScheduled = true;
-  const elapsed = Date.now() - lastFlushAt;
-  if (elapsed >= MIN_FLUSH_INTERVAL_MS) {
+  schedulePendingFlush();
+}
+
+function schedulePendingFlush(): void {
+  const now = Date.now();
+  const flushAt = Math.max(
+    lastFlushAt + MIN_FLUSH_INTERVAL_MS,
+    lastInputAt + INPUT_PRIORITY_WINDOW_MS,
+  );
+  const delay = flushAt - now;
+  if (delay <= 0) {
     // Enough time since last flush — go on the next event-loop pass.
     // setImmediate runs after I/O, so pending stdin events are drained first.
-    setImmediate(flushBatch);
+    flushImmediate = setImmediate(flushBatch);
   } else {
-    // Throttle: wait for the remaining interval, then use setImmediate so
-    // stdin data events are processed before we write output.
+    // Throttle and keep a short quiet window after keyboard activity. Model
+    // output can wait; echoing the user's draft cannot.
     flushTimer = setTimeout(
-      () => setImmediate(flushBatch),
-      MIN_FLUSH_INTERVAL_MS - elapsed,
+      () => {
+        flushTimer = null;
+        schedulePendingFlush();
+      },
+      delay,
     );
   }
 }
 
 export function hasPendingBatch(): boolean {
   return batchScheduled;
+}
+
+export function noteInputActivity(): void {
+  lastInputAt = Date.now();
+  if (!batchScheduled) {
+    return;
+  }
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (flushImmediate !== null) {
+    clearImmediate(flushImmediate);
+    flushImmediate = null;
+  }
+  schedulePendingFlush();
 }
 
 export function setActiveDraft(renderer: DraftRenderer | null): void {

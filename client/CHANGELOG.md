@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.9
+
+### Patch Changes
+
+- Improve search tool schema, input buffering, and rendering to optimize search latency and typing responsiveness.
+
 ## 0.1.8
 
 ### Patch Changes

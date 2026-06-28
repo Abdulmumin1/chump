@@ -1,5 +1,7 @@
-import { createInterface } from "node:readline";
+import { statSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
+import { createInterface } from "node:readline";
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 type FileItem = { relativePath: string; fileName: string };
@@ -82,7 +84,7 @@ export async function runFffSearchBridge(): Promise<void> {
         const result =
           request.kind === "files"
             ? searchFiles(finder, request)
-            : searchContent(finder, request);
+            : searchContent(finder, request, root);
         writeResponse({ id: request.id, result });
       } catch (error) {
         writeResponse({
@@ -115,8 +117,13 @@ function searchFiles(
 function searchContent(
   finder: FileFinderApi,
   request: SearchRequest,
+  workspaceRoot: string,
 ) {
-  const query = [request.path?.trim(), request.query.trim()].filter(Boolean).join(" ");
+  const pathConstraint = normalizeFffPathConstraint(
+    request.path ?? "",
+    workspaceRoot,
+  );
+  const query = [pathConstraint, request.query.trim()].filter(Boolean).join(" ");
   const found = finder.grep(query, {
     mode: request.mode ?? "plain",
     pageSize: clampLimit(request.limit, 50),
@@ -137,6 +144,35 @@ function searchContent(
     totalMatched: found.value.totalMatched,
     totalFiles: found.value.totalFiles,
   };
+}
+
+export function normalizeFffPathConstraint(
+  value: string,
+  workspaceRoot: string,
+): string {
+  const constraint = value
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^(?:\.\/)+/u, "");
+  if (!constraint || constraint.endsWith("/")) {
+    return constraint;
+  }
+
+  try {
+    const candidate = path.isAbsolute(constraint)
+      ? constraint
+      : path.resolve(workspaceRoot, constraint);
+    if (statSync(candidate).isDirectory()) {
+      // FFF treats a bare path as an exact-file constraint. A trailing slash
+      // identifies a directory scope and includes descendants.
+      return `${constraint}/`;
+    }
+  } catch {
+    // Missing paths and glob expressions are passed through for FFF to
+    // interpret and report as an empty result when appropriate.
+  }
+
+  return constraint;
 }
 
 function clampLimit(value: number | undefined, fallback: number): number {

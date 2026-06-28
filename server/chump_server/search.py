@@ -57,18 +57,31 @@ class WorkspaceSearch:
             payload["id"] = request_id
             assert process.stdin is not None
             assert process.stdout is not None
-            process.stdin.write((json.dumps(payload) + "\n").encode())
-            await process.stdin.drain()
-            raw = await asyncio.wait_for(process.stdout.readline(), timeout=15)
-            if not raw:
+            try:
+                process.stdin.write((json.dumps(payload) + "\n").encode())
+                await process.stdin.drain()
+                raw = await asyncio.wait_for(process.stdout.readline(), timeout=15)
+                if not raw:
+                    self._process = None
+                    raise RuntimeError("FFF search process stopped unexpectedly")
+                response = json.loads(raw)
+                if response.get("id") != request_id:
+                    self._process = None
+                    try:
+                        process.terminate()
+                    except ProcessLookupError:
+                        pass
+                    raise RuntimeError("FFF search returned an invalid response")
+                if response.get("error"):
+                    raise RuntimeError(str(response["error"]))
+                return response.get("result")
+            except Exception:
                 self._process = None
-                raise RuntimeError("FFF search process stopped unexpectedly")
-            response = json.loads(raw)
-            if response.get("id") != request_id:
-                raise RuntimeError("FFF search returned an invalid response")
-            if response.get("error"):
-                raise RuntimeError(str(response["error"]))
-            return response.get("result")
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                raise
 
     async def _ensure_process(self) -> asyncio.subprocess.Process:
         if self._process is not None and self._process.returncode is None:
