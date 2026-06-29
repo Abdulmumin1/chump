@@ -24,6 +24,7 @@ import {
     buildMessagesFromEventLog,
     parseSteeringQueue,
 } from "$lib/chat/events";
+import { isToolLifecycleEvent } from "$lib/chat/tool-events";
 import { parseJson, toErrorMessage } from "$lib/chat/helpers";
 import type { SteeringQueueItem } from "$lib/chat/types";
 
@@ -477,7 +478,8 @@ export function createSessionController(
         );
 
         if (
-            event.event === "user_message" &&
+            (event.event === "user_message" ||
+                isToolLifecycleEvent(event.event)) &&
             isCurrentStream(sessionId, currentStreamToken)
         ) {
             await callbacks.scrollTranscriptToEnd();

@@ -116,6 +116,28 @@
         effectiveDiffPatch ? effectiveDiffPatch.split("\n").length : 0,
     );
     const shouldClampDiff = $derived(diffLineCount > 100);
+    const statusLabel = $derived.by(() => {
+        if (block.status === "error") return "Failed";
+        if (block.status === "aborted") return "Aborted";
+        if (block.status === "completed" || block.hasResult) {
+            return typeof block.duration === "number"
+                ? `${block.duration.toFixed(1)}s`
+                : "";
+        }
+        if (
+            block.status === "streaming" ||
+            block.status === "ready" ||
+            block.status === "running"
+        ) {
+            return "Running";
+        }
+        return "";
+    });
+    const isRunning = $derived(
+        block.status === "streaming" ||
+            block.status === "ready" ||
+            block.status === "running",
+    );
 
     $effect(() => {
         effectiveDiffPatch;
@@ -139,9 +161,9 @@
 </script>
 
 {#if shouldRenderDiff}
-    <div class="my-4 space-y-3">
+    <div class="my-1 space-y-3">
         <button
-            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-0.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={() => {
                 diffExpanded = !diffExpanded;
             }}
@@ -172,6 +194,21 @@
             <div
                 class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-80 transition-opacity group-hover:opacity-100"
             >
+                {#if statusLabel}
+                <span
+                    class="font-mono text-[11px] {block.status === 'error' ||
+                    block.status === 'aborted'
+                            ? 'text-error'
+                            : 'text-text-tertiary'}"
+                    >
+                        {#if isRunning}
+                            <span
+                                class="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-text-highlight"
+                            ></span>
+                        {/if}
+                        {statusLabel}
+                    </span>
+                {/if}
                 <svg
                     class="h-4 w-4 transition-transform duration-200 {diffExpanded
                         ? 'rotate-180'

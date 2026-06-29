@@ -35,6 +35,28 @@
         onOpenConnectModal?: () => void;
         isLoadingSession?: boolean;
     }>();
+
+    function isToolBlock(item: TranscriptMessage, edge: "first" | "last"): boolean {
+        const block = edge === "first" ? item.blocks[0] : item.blocks.at(-1);
+        return block?.kind === "tool-call" || block?.kind === "tool-result";
+    }
+
+    function itemSpacing(index: number): string {
+        if (index === 0) return "";
+        const current = transcript[index];
+        const previous = transcript[index - 1];
+        if (!current || !previous) return "";
+
+        if (isToolBlock(current, "first") && isToolBlock(previous, "last")) {
+            return "mt-0.5";
+        }
+        if (current.role === "reasoning") return "mt-5";
+        if (isToolBlock(current, "first") && previous.role === "reasoning") {
+            return "mt-1";
+        }
+        if (current.role === "user") return "mt-6";
+        return "mt-5";
+    }
 </script>
 
 <div
@@ -43,7 +65,7 @@
     style="mask-image: linear-gradient(to bottom, transparent 0, black 80px, black 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 80px, black 100%);"
 >
     <div
-        class="max-w-4xl mx-auto flex flex-col gap-6 {transcript.length > 0
+        class="max-w-4xl mx-auto flex flex-col gap-0 {transcript.length > 0
             ? 'pt-10 md:pt-12'
             : ''}"
     >
@@ -58,29 +80,31 @@
         {/if}
 
         {#each transcript as item, itemIndex (item.id)}
-            {#if item.role === "user"}
-                <div
-                    class="self-end w-full flex justify-end max-w-[85%] md:max-w-[75%]"
-                >
-                    <UserMessage blocks={item.blocks} />
-                </div>
-            {:else if item.role === "reasoning"}
-                <ReasoningTranscriptItem
-                    {item}
-                    {itemIndex}
-                    transcriptLength={transcript.length}
-                    {expandedReasoning}
-                    {isSending}
-                    {onToggleReasoning}
-                    {reasoningSummary}
-                />
-            {:else}
-                <AssistantTranscriptItem
-                    {item}
-                    {expandedBlocks}
-                    {onToggleBlock}
-                />
-            {/if}
+            <div class={itemSpacing(itemIndex)}>
+                {#if item.role === "user"}
+                    <div
+                        class="ml-auto w-full flex justify-end max-w-[85%] md:max-w-[75%]"
+                    >
+                        <UserMessage blocks={item.blocks} />
+                    </div>
+                {:else if item.role === "reasoning"}
+                    <ReasoningTranscriptItem
+                        {item}
+                        {itemIndex}
+                        transcriptLength={transcript.length}
+                        {expandedReasoning}
+                        {isSending}
+                        {onToggleReasoning}
+                        {reasoningSummary}
+                    />
+                {:else}
+                    <AssistantTranscriptItem
+                        {item}
+                        {expandedBlocks}
+                        {onToggleBlock}
+                    />
+                {/if}
+            </div>
         {/each}
     </div>
 </div>

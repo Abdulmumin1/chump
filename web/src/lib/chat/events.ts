@@ -5,12 +5,14 @@ import type {
 } from "$lib/chump/types";
 import type { SteeringQueueItem } from "$lib/chat/types";
 import {
-    asArgsRecord,
-    asRecord,
     asString,
     buildUserMessageContentFromPayload,
 } from "$lib/chat/helpers";
 import { mergeReasoningText } from "$lib/chat/transcript";
+import {
+    applyToolLifecycleEvent,
+    isToolLifecycleEvent,
+} from "$lib/chat/tool-events";
 
 export function parseSteeringQueue(
     payload: Record<string, unknown>,
@@ -48,6 +50,10 @@ export function applyLiveEventToMessages(
     data: Record<string, unknown> | null,
 ): StoredMessage[] {
     if (!data) return source;
+
+    if (isToolLifecycleEvent(type)) {
+        return applyToolLifecycleEvent(source, type, data);
+    }
 
     const next = [...source];
 
@@ -88,51 +94,6 @@ export function applyLiveEventToMessages(
             parts.push({ type: "text", text: chunk });
         }
         return [...next];
-    }
-
-    if (type === "tool_call") {
-        const toolName = asString(data.name) || asString(data.tool) || "tool";
-        const args = asArgsRecord(data.args ?? data.payload ?? data.arguments ?? {});
-        const id =
-            asString(data.id) ||
-            asString(data.tool_call_id) ||
-            `live-${Date.now()}`;
-        const message = getOrCreateLiveAssistantMessage(next);
-        (message.content as MessagePart[]).push({
-            type: "tool_call",
-            tool_call: { id, name: toolName, arguments: args ?? {} },
-        });
-        return [...next];
-    }
-
-    if (type === "tool_result") {
-        const toolName =
-            asString(data.name) ||
-            asString(data.tool) ||
-            asString(data.tool_name) ||
-            "tool";
-        const toolCallId = asString(data.tool_call_id) || asString(data.id) || "";
-        const result = data.result ?? data.output ?? data.preview ?? "";
-        const isError =
-            data.ok === false ||
-            data.status === "error" ||
-            data.is_error === true;
-        const metadata = asRecord(data.metadata);
-        next.push({
-            role: "tool",
-            content: [
-                {
-                    type: "tool_result",
-                    tool_result: {
-                        tool_call_id: toolCallId,
-                        tool_name: toolName,
-                        result,
-                        is_error: isError,
-                        metadata: metadata ?? undefined,
-                    },
-                },
-            ],
-        });
     }
 
     return next;
