@@ -1,5 +1,12 @@
 # chump-server
 
+## Unreleased
+
+- Upgrade `ai-query` to 1.7.54 and forward typed tool-call readiness plus correlated provider and execution lifecycle events.
+- Stream native Codex Responses function-call argument deltas through the unified `ai-query` event pipeline.
+- Correlate tool calls, execution completion, rich result metadata, and final results by step, provider index, and call id so parallel bash and file-edit results cannot attach to the wrong call.
+- Preserve cumulative turn and session usage under the new per-step usage contract, and serialize concurrent tool bookkeeping updates.
+
 ## 0.0.43
 
 - Improve FFF search process handling, error propagation, and tool schema to return structured match metadata.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 from ..config import ChumpConfig
@@ -27,17 +28,14 @@ MAX_CHANGE_RECORDS = 200
 
 def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
     guard = WorkspaceGuard(config.workspace_root)
+    state_lock = asyncio.Lock()
 
     def log(message: str) -> None:
         if config.verbose:
             print(f"[chump:{agent.id}:tool] {message}", flush=True)
 
-    async def emit(event: str, **data: object) -> None:
-        await agent.emit(event, data)
-
     async def wrap_tool(name: str, payload: dict[str, object], runner):
         log(f"start {name} {json.dumps(payload, ensure_ascii=True)}")
-        await emit("tool_call", tool=name, name=name, payload=payload, args=payload)
         try:
             result = await runner()
             if isinstance(result, tuple):
@@ -46,12 +44,9 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
             else:
                 metadata = _result_metadata(result)
             preview = _multiline_preview(result) if name == "bash" else _preview(result)
-            await emit(
-                "tool_result",
-                tool=name,
-                name=name,
+            agent.capture_tool_result_detail(
+                name,
                 ok=True,
-                status="ok",
                 preview=preview,
                 metadata=metadata,
             )
@@ -63,19 +58,17 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
                 error_preview = error_preview.splitlines()[0] if error_preview else ""
             elif name == "bash":
                 error_preview = _multiline_preview(error_preview)
-            await emit(
-                "tool_result",
-                tool=name,
-                name=name,
+            metadata = {
+                "chars": len(str(exc)),
+                "preview_chars": len(error_preview),
+                "truncated": error_preview != str(exc),
+            }
+            agent.capture_tool_result_detail(
+                name,
                 ok=False,
-                status="error",
-                error=str(exc),
                 preview=error_preview,
-                metadata={
-                    "chars": len(str(exc)),
-                    "preview_chars": len(error_preview),
-                    "truncated": error_preview != str(exc),
-                },
+                metadata=metadata,
+                error=str(exc),
             )
             log(f"error {name}: {exc}")
             raise
@@ -87,44 +80,52 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
         if not diffs:
             return
 
-        files_touched = list(agent.state.get("files_touched", []))
-        file_diffs = dict(agent.state.get("file_diffs", {}))
-        change_records = list(agent.state.get("change_records", []))
+        async with state_lock:
+            files_touched = list(agent.state.get("files_touched", []))
+            file_diffs = dict(agent.state.get("file_diffs", {}))
+            change_records = list(agent.state.get("change_records", []))
 
-        for diff in diffs:
-            path = diff.get("path")
-            if not isinstance(path, str) or not path:
-                continue
+            for diff in diffs:
+                path = diff.get("path")
+                if not isinstance(path, str) or not path:
+                    continue
 
-            if path not in files_touched:
-                files_touched.append(path)
+                if path not in files_touched:
+                    files_touched.append(path)
 
-            source_path = diff.get("source_path")
-            if isinstance(source_path, str) and source_path and source_path not in files_touched:
-                files_touched.append(source_path)
+                source_path = diff.get("source_path")
+                if (
+                    isinstance(source_path, str)
+                    and source_path
+                    and source_path not in files_touched
+                ):
+                    files_touched.append(source_path)
 
-            current = file_diffs.get(path, {"added": 0, "removed": 0})
-            file_diffs[path] = {
-                "added": _as_int(current.get("added")) + _as_int(diff.get("added")),
-                "removed": _as_int(current.get("removed")) + _as_int(diff.get("removed")),
-            }
-            change_records.append(dict(diff))
+                current = file_diffs.get(path, {"added": 0, "removed": 0})
+                file_diffs[path] = {
+                    "added": _as_int(current.get("added")) + _as_int(diff.get("added")),
+                    "removed": _as_int(current.get("removed"))
+                    + _as_int(diff.get("removed")),
+                }
+                change_records.append(dict(diff))
 
-        await agent.update_state(
-            files_touched=files_touched,
-            file_diffs=file_diffs,
-            change_records=change_records[-MAX_CHANGE_RECORDS:],
-        )
+            await agent.update_state(
+                files_touched=files_touched,
+                file_diffs=file_diffs,
+                change_records=change_records[-MAX_CHANGE_RECORDS:],
+            )
 
     async def note_command(command: str) -> None:
-        commands_run = list(agent.state.get("commands_run", []))
-        commands_run.append(command)
-        await agent.update_state(commands_run=commands_run[-20:])
+        async with state_lock:
+            commands_run = list(agent.state.get("commands_run", []))
+            commands_run.append(command)
+            await agent.update_state(commands_run=commands_run[-20:])
 
     async def remember_file_read(raw_path: str, file_path) -> None:
-        read_files = dict(agent.state.get("read_files", {}))
-        read_files[_workspace_key(file_path)] = _fingerprint(file_path)
-        await agent.update_state(read_files=read_files)
+        async with state_lock:
+            read_files = dict(agent.state.get("read_files", {}))
+            read_files[_workspace_key(file_path)] = _fingerprint(file_path)
+            await agent.update_state(read_files=read_files)
 
     def require_fresh_read(raw_path: str, file_path) -> None:
         if not file_path.exists():
