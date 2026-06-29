@@ -11,8 +11,9 @@ import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import type { StoredMessage, SseEvent, TranscriptEvent } from "../core/types.ts";
 
 export type TranscriptRendererHooks = {
-  onToolActivity?: (() => void) | null;
+  onToolActivity?: ((preview: string) => void) | null;
   onToolCallStream?: ((preview: string | null) => void) | null;
+  onToolResult?: (() => void) | null;
   onReasoningActivity?: ((payload: Record<string, unknown>) => void) | null;
   onSteeringAccepted?: ((content: string) => void) | null;
   onAssistantText?: ((content: string) => boolean) | null;
@@ -52,9 +53,10 @@ export class TranscriptRenderer {
         this.renderUserMessage(event.payload);
         return;
       case "tool_call":
-        this.hooks.onToolActivity?.();
         this.finishReasoning();
-        this.toolActivityRenderer.renderToolCall(event.payload);
+        this.hooks.onToolActivity?.(
+          this.toolActivityRenderer.renderToolCall(event.payload),
+        );
         return;
       case "tool_call_stream":
         this.finishReasoning();
@@ -63,7 +65,9 @@ export class TranscriptRenderer {
         );
         return;
       case "tool_result":
-        this.toolActivityRenderer.renderToolResult(event.payload);
+        if (this.toolActivityRenderer.renderToolResult(event.payload)) {
+          this.hooks.onToolResult?.();
+        }
         return;
       case "reasoning":
         this.hooks.onReasoningActivity?.(event.payload);

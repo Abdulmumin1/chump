@@ -50,6 +50,7 @@ import {
   setSteeringQueueHook,
   setToolActivityHook,
   setToolCallStreamHook,
+  setToolResultHook,
   setTurnStatusHook,
   startEventStream,
 } from "../ui/events.ts";
@@ -65,11 +66,13 @@ import {
   renderError,
   renderFooterStatus,
   renderMuted,
+  renderThinkingActivity,
   renderUserMessage,
   renderWorkedFor,
 } from "../ui/render.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
 import { ToolActivityRenderer } from "../ui/tool-activity.ts";
+import { LiveReasoningTokenCounter } from "../ui/reasoning.ts";
 import { TranscriptRenderer } from "../ui/transcript.ts";
 import {
   ensureServerTarget,
@@ -925,22 +928,25 @@ function createActivityStatusController(
   stop: () => void;
   showAborting: () => void;
   beginTextStreaming: () => void;
-  noteToolActivity: () => void;
+  noteToolActivity: (preview: string) => void;
   noteToolCallPreview: (preview: string | null) => void;
-  noteReasoningPreview: (preview: string | null) => void;
+  noteToolResult: () => void;
+  noteReasoningActivity: (payload: Record<string, unknown>) => void;
 } {
   const label = options.label ?? "Transmogrifying";
   let active = false;
   let aborting = false;
   let spinnerFrame: string | null = null;
-  let toolCallPreview: string | null = null;
+  let activityPreview: string | null = null;
+  let reasoningTokenEstimate = 0;
+  const reasoningTokens = new LiveReasoningTokenCounter();
 
   const spinner = createSpinner((frame) => {
     spinnerFrame = frame;
     syncStatus();
   }, {
     label,
-    renderLabel: () => toolCallPreview ?? renderMuted(label),
+    renderLabel: () => activityPreview ?? renderMuted(label),
   });
 
   function syncStatus(): void {
@@ -954,14 +960,16 @@ function createActivityStatusController(
       return;
     }
 
-    setStatus(spinnerFrame ?? toolCallPreview ?? renderMuted(label));
+    setStatus(spinnerFrame ?? activityPreview ?? renderMuted(label));
   }
 
   return {
     start() {
       active = true;
       aborting = false;
-      toolCallPreview = null;
+      activityPreview = null;
+      reasoningTokenEstimate = 0;
+      reasoningTokens.reset();
       spinner.start();
       syncStatus();
     },
@@ -970,7 +978,9 @@ function createActivityStatusController(
       aborting = false;
       spinner.stop();
       spinnerFrame = null;
-      toolCallPreview = null;
+      activityPreview = null;
+      reasoningTokenEstimate = 0;
+      reasoningTokens.reset();
       setStatus(null);
     },
     showAborting() {
@@ -984,14 +994,16 @@ function createActivityStatusController(
         return;
       }
       aborting = false;
+      activityPreview = null;
+      spinner.refresh();
       syncStatus();
     },
-    noteToolActivity() {
+    noteToolActivity(preview) {
       if (!active) {
         return;
       }
       aborting = false;
-      toolCallPreview = null;
+      activityPreview = preview;
       spinner.refresh();
       syncStatus();
     },
@@ -1000,15 +1012,27 @@ function createActivityStatusController(
         return;
       }
       aborting = false;
-      toolCallPreview = preview;
+      activityPreview = preview;
       spinner.refresh();
       syncStatus();
     },
-    noteReasoningPreview(_preview) {
+    noteToolResult() {
       if (!active) {
         return;
       }
       aborting = false;
+      activityPreview = renderThinkingActivity(reasoningTokenEstimate);
+      spinner.refresh();
+      syncStatus();
+    },
+    noteReasoningActivity(payload) {
+      if (!active) {
+        return;
+      }
+      aborting = false;
+      reasoningTokenEstimate = reasoningTokens.update(payload);
+      activityPreview = renderThinkingActivity(reasoningTokenEstimate);
+      spinner.refresh();
       syncStatus();
     },
   };
@@ -1071,16 +1095,19 @@ async function runChatTurn(
   const turnStartedAt = Date.now();
   let toolCallCount = 0;
   activityStatus.start();
-  setToolActivityHook(() => {
+  setToolActivityHook((preview) => {
     toolCallCount += 1;
     localTranscript.finish();
-    activityStatus.noteToolActivity();
+    activityStatus.noteToolActivity(preview);
   });
   setToolCallStreamHook((preview) => {
     activityStatus.noteToolCallPreview(preview);
   });
+  setToolResultHook(() => {
+    activityStatus.noteToolResult();
+  });
   setReasoningActivityHook((payload) => {
-    activityStatus.noteReasoningPreview(null);
+    activityStatus.noteReasoningActivity(payload);
   });
   let receivedChunk = false;
   let receivedEnd = false;
@@ -1161,6 +1188,7 @@ async function runChatTurn(
     }
     setToolActivityHook(null);
     setToolCallStreamHook(null);
+    setToolResultHook(null);
     setReasoningActivityHook(null);
   }
 
@@ -1323,19 +1351,25 @@ function createSharedTurnSync(options: {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
-      activityStatus.noteReasoningPreview(null);
+      activityStatus.noteReasoningActivity(payload);
     });
-    setToolActivityHook(() => {
+    setToolActivityHook((preview) => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
-      activityStatus.noteToolActivity();
+      activityStatus.noteToolActivity(preview);
     });
     setToolCallStreamHook((preview) => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
       activityStatus.noteToolCallPreview(preview);
+    });
+    setToolResultHook(() => {
+      if (!remoteTurnRunning || options.getLocalTurnActive()) {
+        return;
+      }
+      activityStatus.noteToolResult();
     });
   };
 
@@ -1345,6 +1379,7 @@ function createSharedTurnSync(options: {
     setReasoningActivityHook(null);
     setToolActivityHook(null);
     setToolCallStreamHook(null);
+    setToolResultHook(null);
   };
 
   const beforeAssistantText = (): void => {

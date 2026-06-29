@@ -857,6 +857,18 @@ export function renderFileChangeSummary(
   return `${accent(label)} ${foreground(path)} ${success(`+${added}`)} ${danger(`-${removed}`)}`;
 }
 
+export function renderLiveActivity(label: string, detail = ""): string {
+  const suffix = detail ? ` ${foreground(detail)}` : "";
+  return `${accent(label)}${suffix}`;
+}
+
+export function renderThinkingActivity(estimatedTokens?: number): string {
+  const suffix = estimatedTokens && estimatedTokens > 0
+    ? ` ${muted(`· ~${estimatedTokens} tok`)}`
+    : "";
+  return `${italic(fg(palette.thinkingLabel, "Thinking"))}${suffix}`;
+}
+
 export type FileEditDiff = {
   path: string;
   kind?: "add" | "update" | "delete" | "move";

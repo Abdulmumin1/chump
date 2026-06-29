@@ -3,6 +3,7 @@ import {
   renderCommandOutput,
   renderFileChangeSummary,
   renderFileEditDiff,
+  renderLiveActivity,
   renderToolDone,
   renderToolResult,
   type FileEditDiff,
@@ -37,7 +38,7 @@ export class ToolActivityRenderer {
     return hadActivity;
   }
 
-  renderToolCall(payload: Record<string, unknown>): void {
+  renderToolCall(payload: Record<string, unknown>): string {
     const toolName = readToolName(payload);
     const key = readToolIdentity(payload);
     if (key) {
@@ -56,7 +57,7 @@ export class ToolActivityRenderer {
       // trailing blank is added after the result.
       this.writeLine(`\n${renderCommand(renderedArgs)}`);
       this.activity = true;
-      return;
+      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
     if (
       toolName === "read_file" ||
@@ -66,12 +67,12 @@ export class ToolActivityRenderer {
       this.writeCompactToolLine(renderToolDone(label, renderedArgs));
       this.activity = true;
       this.pendingTools.push({ name: toolName, args: renderedArgs, key });
-      return;
+      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
     if (toolName === "search") {
       // Defer to result — no call line rendered.
       this.pendingTools.push({ name: toolName, args: renderedArgs, key });
-      return;
+      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
     this.compactToolRunActive = false;
     // For apply_patch and write_file/create_file, render the diff from args
@@ -92,9 +93,10 @@ export class ToolActivityRenderer {
         key,
         preRendered: true,
       });
-      return;
+      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
     this.pendingTools.push({ name: toolName, args: renderedArgs, key });
+    return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
   }
 
   renderToolCallStream(payload: Record<string, unknown>): string | null {
@@ -122,15 +124,16 @@ export class ToolActivityRenderer {
     return formatStreamingToolPreview(current.name, args);
   }
 
-  renderToolResult(payload: Record<string, unknown>): void {
+  renderToolResult(payload: Record<string, unknown>): boolean {
     const key = readToolIdentity(payload);
     if (key && this.completedTools.has(key)) {
-      return;
+      return false;
     }
     if (key) {
       this.completedTools.add(key);
     }
     this.renderToolResultOnce(payload);
+    return true;
   }
 
   private renderToolResultOnce(payload: Record<string, unknown>): void {
@@ -305,7 +308,7 @@ function formatStreamingToolPreview(
 ): string {
   if (toolName === "bash") {
     const command = typeof args.command === "string" ? args.command : "";
-    return command ? renderCommand(command) : renderMuted("bash …");
+    return renderLiveActivity("Writing command", command || "…");
   }
   if (toolName === "write_file" || toolName === "create_file") {
     const path = stringArgument(args, "path", "file_path") || "…";
@@ -331,18 +334,59 @@ function formatStreamingToolPreview(
     );
     const counts = countPatchChanges(patch);
     return renderFileChangeSummary(
-      "Edited",
+      "Editing file",
       patchPath(patch) || stringArgument(args, "path", "file_path") || "…",
       counts.added,
       counts.removed,
     );
   }
-  const renderedArgs = formatToolArgs(toolName, args);
-  return renderMuted(
-    renderedArgs
-      ? `${displayToolName(toolName)} ${renderedArgs}`
-      : `${displayToolName(toolName)} …`,
-  );
+  return formatSemanticToolPreview(toolName, args);
+}
+
+function formatReadyToolPreview(toolName: string, value: unknown): string {
+  const args = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+  if (toolName === "bash") {
+    return renderLiveActivity(
+      "Running command",
+      stringArgument(args, "command") || "…",
+    );
+  }
+  return formatStreamingToolPreview(toolName, args);
+}
+
+function formatSemanticToolPreview(
+  toolName: string,
+  args: Record<string, unknown>,
+): string {
+  const renderedArgs = formatToolArgs(toolName, args) || "…";
+  const label = semanticToolLabel(toolName);
+  return renderLiveActivity(label, renderedArgs);
+}
+
+function semanticToolLabel(toolName: string): string {
+  switch (toolName) {
+    case "read_file":
+      return "Reading file";
+    case "search":
+      return "Searching files";
+    case "web_fetch":
+      return "Fetching page";
+    case "website":
+      return "Searching web";
+    case "skill":
+    case "load_skill":
+      return "Loading skill";
+    case "list_sessions":
+      return "Listing sessions";
+    case "inspect_session":
+      return "Inspecting session";
+    case "start_session":
+      return "Starting session";
+    default:
+      return `Running ${displayToolName(toolName)}`;
+  }
 }
 
 function stringArgument(

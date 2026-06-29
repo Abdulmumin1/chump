@@ -35,6 +35,7 @@ test("previews partial bash and write arguments as their JSON streams", () => {
     index: 0,
     arguments_delta: '{"command":"printf hel',
   });
+  assert.match(bashPreview ?? "", /Writing command/);
   assert.match(bashPreview ?? "", /printf hel/);
 
   renderer.renderToolCallStream({
@@ -75,9 +76,33 @@ test("previews partial bash and write arguments as their JSON streams", () => {
     arguments_delta:
       '{"patch":"*** Update File: demo.ts\\n@@\\n-old\\n+new\\n+extra',
   });
-  assert.match(patchPreview ?? "", /Edited.*demo\.ts/);
+  assert.match(patchPreview ?? "", /Editing file.*demo\.ts/);
   assert.match(patchPreview ?? "", /\+2/);
   assert.match(patchPreview ?? "", /-1/);
+});
+
+test("uses present-tense semantic labels for live tool activity", () => {
+  const renderer = new ToolActivityRenderer(() => {});
+
+  const runningCommand = renderer.renderToolCall({
+    name: "bash",
+    args: { command: "pnpm test" },
+  });
+  assert.match(runningCommand, /Running command.*pnpm test/);
+
+  const reading = renderer.renderToolCallStream({
+    call_id: "call_read",
+    name: "read_file",
+    arguments_delta: '{"path":"src/app.ts"}',
+  });
+  assert.match(reading ?? "", /Reading file.*src\/app\.ts/);
+
+  const searching = renderer.renderToolCallStream({
+    call_id: "call_search",
+    name: "search",
+    arguments_delta: '{"query":"spinner","path":"client"}',
+  });
+  assert.match(searching ?? "", /Searching files.*spinner.*client/);
 });
 
 test("correlates reverse-completing same-name tools by lifecycle identity", () => {
@@ -123,18 +148,18 @@ test("renders execution completion immediately and ignores the durable duplicate
     args: { command: "printf done" },
     ...identity,
   });
-  renderer.renderToolResult({
+  assert.equal(renderer.renderToolResult({
     name: "bash",
     status: "ok",
     preview: "done",
     ...identity,
-  });
-  renderer.renderToolResult({
+  }), true);
+  assert.equal(renderer.renderToolResult({
     name: "bash",
     status: "ok",
     preview: "done",
     ...identity,
-  });
+  }), false);
 
   assert.equal(output.length, 3);
   assert.match(output[1] ?? "", /done/);

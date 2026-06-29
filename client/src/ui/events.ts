@@ -8,8 +8,9 @@ const DEBUG_EVENT_STREAM =
   process.env.CHUMP_DEBUG_EVENTS === "1" ||
   process.env.CHUMP_DEBUG_EVENTS === "true";
 
-let toolActivityHook: (() => void) | null = null;
+let toolActivityHook: ((preview: string) => void) | null = null;
 let toolCallStreamHook: ((preview: string | null) => void) | null = null;
+let toolResultHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringAcceptedHook: ((content: string) => void) | null = null;
 let assistantTextHook: ((content: string) => boolean) | null = null;
@@ -19,8 +20,9 @@ let turnStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 let compactionStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 const transcriptRenderer = new TranscriptRenderer({
   hooks: {
-    onToolActivity: () => toolActivityHook?.(),
+    onToolActivity: (preview) => toolActivityHook?.(preview),
     onToolCallStream: (preview) => toolCallStreamHook?.(preview),
+    onToolResult: () => toolResultHook?.(),
     onReasoningActivity: (payload) => reasoningActivityHook?.(payload),
     onSteeringAccepted: (content) => steeringAcceptedHook?.(content),
     onAssistantText: (content) => assistantTextHook?.(content) ?? false,
@@ -31,7 +33,9 @@ const transcriptRenderer = new TranscriptRenderer({
   },
 });
 
-export function setToolActivityHook(hook: (() => void) | null): void {
+export function setToolActivityHook(
+  hook: ((preview: string) => void) | null,
+): void {
   toolActivityHook = hook;
 }
 
@@ -39,6 +43,10 @@ export function setToolCallStreamHook(
   hook: ((preview: string | null) => void) | null,
 ): void {
   toolCallStreamHook = hook;
+}
+
+export function setToolResultHook(hook: (() => void) | null): void {
+  toolResultHook = hook;
 }
 
 export function setReasoningActivityHook(

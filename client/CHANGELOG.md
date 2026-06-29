@@ -5,6 +5,7 @@
 ### Patch Changes
 
 - Correlate live tool output by step, provider index, and call id; preview streamed commands and file writes while their arguments arrive, then render execution-finished results immediately without duplicating the durable final result.
+- Use present-tense CLI activity labels for streamed and running tools, return the loader to thinking as soon as a tool completes, and show an explicitly approximate live reasoning-token count.
 
 ## 0.1.9
 
