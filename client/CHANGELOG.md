@@ -1,5 +1,11 @@
 # chump-agent
 
+## Unreleased
+
+### Patch Changes
+
+- Correlate live tool output by step, provider index, and call id; preview streamed commands and file writes while their arguments arrive, then render execution-finished results immediately without duplicating the durable final result.
+
 ## 0.1.9
 
 ### Patch Changes

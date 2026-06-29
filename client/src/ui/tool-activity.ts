@@ -1,6 +1,7 @@
 import {
   renderCommand,
   renderCommandOutput,
+  renderFileChangeSummary,
   renderFileEditDiff,
   renderToolDone,
   renderToolResult,
@@ -14,8 +15,14 @@ export class ToolActivityRenderer {
   private pendingTools: Array<{
     name: string;
     args: string;
+    key?: string;
     preRendered?: boolean;
   }> = [];
+  private readonly completedTools = new Set<string>();
+  private readonly streamingCalls = new Map<
+    string,
+    { name: string; argumentsText: string }
+  >();
 
   private activity = false;
   private compactToolRunActive = false;
@@ -32,6 +39,12 @@ export class ToolActivityRenderer {
 
   renderToolCall(payload: Record<string, unknown>): void {
     const toolName = readToolName(payload);
+    const key = readToolIdentity(payload);
+    if (key) {
+      this.streamingCalls.delete(key);
+      this.completedTools.delete(key);
+      this.pendingTools = this.pendingTools.filter((tool) => tool.key !== key);
+    }
     const label = displayToolName(toolName);
     const renderedArgs = formatToolArgs(
       toolName,
@@ -52,12 +65,12 @@ export class ToolActivityRenderer {
     ) {
       this.writeCompactToolLine(renderToolDone(label, renderedArgs));
       this.activity = true;
-      this.pendingTools.push({ name: toolName, args: renderedArgs });
+      this.pendingTools.push({ name: toolName, args: renderedArgs, key });
       return;
     }
     if (toolName === "search") {
       // Defer to result — no call line rendered.
-      this.pendingTools.push({ name: toolName, args: renderedArgs });
+      this.pendingTools.push({ name: toolName, args: renderedArgs, key });
       return;
     }
     this.compactToolRunActive = false;
@@ -76,14 +89,51 @@ export class ToolActivityRenderer {
       this.pendingTools.push({
         name: toolName,
         args: renderedArgs,
+        key,
         preRendered: true,
       });
       return;
     }
-    this.pendingTools.push({ name: toolName, args: renderedArgs });
+    this.pendingTools.push({ name: toolName, args: renderedArgs, key });
+  }
+
+  renderToolCallStream(payload: Record<string, unknown>): string | null {
+    const key = readToolIdentity(payload);
+    if (!key) return null;
+    const current = this.streamingCalls.get(key) ?? {
+      name: "",
+      argumentsText: "",
+    };
+    const explicitName = readToolName(payload);
+    const nameDelta =
+      typeof payload.name_delta === "string" ? payload.name_delta : "";
+    const argumentsDelta =
+      typeof payload.arguments_delta === "string"
+        ? payload.arguments_delta
+        : "";
+    current.name =
+      (explicitName === "tool" ? "" : explicitName) ||
+      `${current.name}${nameDelta}` ||
+      "tool";
+    current.argumentsText += argumentsDelta;
+    this.streamingCalls.set(key, current);
+
+    const args = parseToolArguments(current.argumentsText) ?? {};
+    return formatStreamingToolPreview(current.name, args);
   }
 
   renderToolResult(payload: Record<string, unknown>): void {
+    const key = readToolIdentity(payload);
+    if (key && this.completedTools.has(key)) {
+      return;
+    }
+    if (key) {
+      this.completedTools.add(key);
+    }
+    this.renderToolResultOnce(payload);
+  }
+
+  private renderToolResultOnce(payload: Record<string, unknown>): void {
     const toolName = readToolName(payload);
     const label = displayToolName(toolName);
     const ok =
@@ -111,7 +161,7 @@ export class ToolActivityRenderer {
     }
 
     if (toolName === "search") {
-      const pending = this.takePendingTool(toolName);
+      const pending = this.takePendingTool(toolName, payload);
       const searchMatches = readSearchMatches(payload);
       const args = pending?.args ?? "";
       const label = displayToolName("search");
@@ -155,7 +205,7 @@ export class ToolActivityRenderer {
         toolName === "apply_patch")
     ) {
       this.compactToolRunActive = false;
-      this.takePendingTool(toolName);
+      this.takePendingTool(toolName, payload);
       // Structured metadata diffs are authoritative — always render them.
       // (During live streaming, this replaces the args-based pre-render.)
       this.writeLine(
@@ -166,7 +216,7 @@ export class ToolActivityRenderer {
       return;
     }
 
-    const pending = this.takePendingTool(toolName);
+    const pending = this.takePendingTool(toolName, payload);
     // If already pre-rendered from args (replay: no result metadata available),
     // skip — the call path already emitted the diff AND its trailing blank.
     if (pending?.preRendered) {
@@ -197,12 +247,16 @@ export class ToolActivityRenderer {
     this.activity = true;
   }
 
-  private takePendingTool(name: string): {
+  private takePendingTool(name: string, payload: Record<string, unknown>): {
     name: string;
     args: string;
+    key?: string;
     preRendered?: boolean;
   } | null {
-    const index = this.pendingTools.findIndex((tool) => tool.name === name);
+    const key = readToolIdentity(payload);
+    const index = key
+      ? this.pendingTools.findIndex((tool) => tool.key === key)
+      : this.pendingTools.findIndex((tool) => tool.name === name);
     if (index === -1) {
       return null;
     }
@@ -227,6 +281,196 @@ export function readToolName(payload: Record<string, unknown>): string {
     return payload.tool_name;
   }
   return "tool";
+}
+
+function readToolIdentity(payload: Record<string, unknown>): string {
+  const step = finiteNumber(payload.step);
+  const index = finiteNumber(payload.index);
+  if (step !== null && index !== null) {
+    return `position:${step}:${index}`;
+  }
+  const callId = [payload.call_id, payload.tool_call_id, payload.id].find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  return callId ? `call:${callId}` : "";
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatStreamingToolPreview(
+  toolName: string,
+  args: Record<string, unknown>,
+): string {
+  if (toolName === "bash") {
+    const command = typeof args.command === "string" ? args.command : "";
+    return command ? renderCommand(command) : renderMuted("bash …");
+  }
+  if (toolName === "write_file" || toolName === "create_file") {
+    const path = stringArgument(args, "path", "file_path") || "…";
+    const content = stringArgument(args, "content");
+    return renderFileChangeSummary(
+      toolName === "create_file" ? "Creating file" : "Writing file",
+      path,
+      countContentLines(content),
+      0,
+    );
+  }
+  if (
+    toolName === "apply_patch" ||
+    toolName === "replace_in_file" ||
+    toolName === "edit_file"
+  ) {
+    const patch = stringArgument(
+      args,
+      "patch",
+      "patch_text",
+      "patchText",
+      "diff",
+    );
+    const counts = countPatchChanges(patch);
+    return renderFileChangeSummary(
+      "Edited",
+      patchPath(patch) || stringArgument(args, "path", "file_path") || "…",
+      counts.added,
+      counts.removed,
+    );
+  }
+  const renderedArgs = formatToolArgs(toolName, args);
+  return renderMuted(
+    renderedArgs
+      ? `${displayToolName(toolName)} ${renderedArgs}`
+      : `${displayToolName(toolName)} …`,
+  );
+}
+
+function stringArgument(
+  args: Record<string, unknown>,
+  ...names: string[]
+): string {
+  for (const name of names) {
+    if (typeof args[name] === "string") return args[name];
+  }
+  return "";
+}
+
+function countContentLines(value: string): number {
+  if (!value) return 0;
+  const normalized = value.replace(/\r\n?/g, "\n");
+  const trailingNewline = normalized.endsWith("\n") ? 1 : 0;
+  return normalized.split("\n").length - trailingNewline;
+}
+
+function countPatchChanges(value: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of value.replace(/\r\n?/g, "\n").split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) added += 1;
+    if (line.startsWith("-") && !line.startsWith("---")) removed += 1;
+  }
+  return { added, removed };
+}
+
+function patchPath(value: string): string {
+  const marker = /\*\*\* (?:Add|Update|Delete) File: ([^\n]+)/.exec(value);
+  if (marker?.[1]) return marker[1].trim();
+  const unified = /^\+\+\+ (?:b\/)?([^\n]+)/m.exec(value);
+  return unified?.[1]?.trim() ?? "";
+}
+
+function parseToolArguments(value: string): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return parsePartialJsonObject(value);
+  }
+}
+
+function parsePartialJsonObject(value: string): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {};
+  let cursor = skipWhitespace(value, 0);
+  if (value[cursor] !== "{") return null;
+  cursor += 1;
+
+  while (cursor < value.length) {
+    cursor = skipWhitespaceAndCommas(value, cursor);
+    if (value[cursor] !== '"') break;
+    const key = readJsonString(value, cursor, false);
+    if (!key.complete) break;
+    cursor = skipWhitespace(value, key.end);
+    if (value[cursor] !== ":") break;
+    cursor = skipWhitespace(value, cursor + 1);
+    if (value[cursor] !== '"') break;
+    const field = readJsonString(value, cursor, true);
+    result[key.value] = field.value;
+    cursor = field.end;
+    if (!field.complete) break;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function readJsonString(
+  source: string,
+  start: number,
+  allowPartial: boolean,
+): { value: string; end: number; complete: boolean } {
+  let value = "";
+  let cursor = start + 1;
+  while (cursor < source.length) {
+    const character = source[cursor] ?? "";
+    if (character === '"') {
+      return { value, end: cursor + 1, complete: true };
+    }
+    if (character !== "\\") {
+      value += character;
+      cursor += 1;
+      continue;
+    }
+    const escaped = source[cursor + 1];
+    if (escaped === undefined) break;
+    const simpleEscapes: Record<string, string> = {
+      '"': '"',
+      "\\": "\\",
+      "/": "/",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+    };
+    if (escaped === "u") {
+      const hex = source.slice(cursor + 2, cursor + 6);
+      if (!/^[0-9a-fA-F]{4}$/.test(hex)) break;
+      value += String.fromCharCode(Number.parseInt(hex, 16));
+      cursor += 6;
+      continue;
+    }
+    value += simpleEscapes[escaped] ?? escaped;
+    cursor += 2;
+  }
+  return {
+    value: allowPartial ? value : "",
+    end: source.length,
+    complete: false,
+  };
+}
+
+function skipWhitespace(source: string, start: number): number {
+  let cursor = start;
+  while (/\s/.test(source[cursor] ?? "")) cursor += 1;
+  return cursor;
+}
+
+function skipWhitespaceAndCommas(source: string, start: number): number {
+  let cursor = start;
+  while (/\s|,/.test(source[cursor] ?? "")) cursor += 1;
+  return cursor;
 }
 
 function displayToolName(name: string): string {

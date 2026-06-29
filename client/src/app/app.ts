@@ -49,6 +49,7 @@ import {
   setSteeringAcceptedHook,
   setSteeringQueueHook,
   setToolActivityHook,
+  setToolCallStreamHook,
   setTurnStatusHook,
   startEventStream,
 } from "../ui/events.ts";
@@ -876,6 +877,10 @@ function renderVerboseToolEvent(
     renderer.renderToolResult(payload);
     return true;
   }
+  if (type === "tool_execution.finished") {
+    renderer.renderToolResult(payload);
+    return true;
+  }
   return false;
 }
 
@@ -921,17 +926,22 @@ function createActivityStatusController(
   showAborting: () => void;
   beginTextStreaming: () => void;
   noteToolActivity: () => void;
+  noteToolCallPreview: (preview: string | null) => void;
   noteReasoningPreview: (preview: string | null) => void;
 } {
   const label = options.label ?? "Transmogrifying";
   let active = false;
   let aborting = false;
   let spinnerFrame: string | null = null;
+  let toolCallPreview: string | null = null;
 
   const spinner = createSpinner((frame) => {
     spinnerFrame = frame;
     syncStatus();
-  }, { label });
+  }, {
+    label,
+    renderLabel: () => toolCallPreview ?? renderMuted(label),
+  });
 
   function syncStatus(): void {
     if (!active) {
@@ -944,13 +954,14 @@ function createActivityStatusController(
       return;
     }
 
-    setStatus(spinnerFrame ?? renderMuted(label));
+    setStatus(spinnerFrame ?? toolCallPreview ?? renderMuted(label));
   }
 
   return {
     start() {
       active = true;
       aborting = false;
+      toolCallPreview = null;
       spinner.start();
       syncStatus();
     },
@@ -959,6 +970,7 @@ function createActivityStatusController(
       aborting = false;
       spinner.stop();
       spinnerFrame = null;
+      toolCallPreview = null;
       setStatus(null);
     },
     showAborting() {
@@ -979,6 +991,16 @@ function createActivityStatusController(
         return;
       }
       aborting = false;
+      toolCallPreview = null;
+      spinner.refresh();
+      syncStatus();
+    },
+    noteToolCallPreview(preview) {
+      if (!active) {
+        return;
+      }
+      aborting = false;
+      toolCallPreview = preview;
       spinner.refresh();
       syncStatus();
     },
@@ -1053,6 +1075,9 @@ async function runChatTurn(
     toolCallCount += 1;
     localTranscript.finish();
     activityStatus.noteToolActivity();
+  });
+  setToolCallStreamHook((preview) => {
+    activityStatus.noteToolCallPreview(preview);
   });
   setReasoningActivityHook((payload) => {
     activityStatus.noteReasoningPreview(null);
@@ -1135,6 +1160,7 @@ async function runChatTurn(
       }
     }
     setToolActivityHook(null);
+    setToolCallStreamHook(null);
     setReasoningActivityHook(null);
   }
 
@@ -1305,6 +1331,12 @@ function createSharedTurnSync(options: {
       }
       activityStatus.noteToolActivity();
     });
+    setToolCallStreamHook((preview) => {
+      if (!remoteTurnRunning || options.getLocalTurnActive()) {
+        return;
+      }
+      activityStatus.noteToolCallPreview(preview);
+    });
   };
 
   const dispose = (): void => {
@@ -1312,6 +1344,7 @@ function createSharedTurnSync(options: {
     setTurnStatusHook(null);
     setReasoningActivityHook(null);
     setToolActivityHook(null);
+    setToolCallStreamHook(null);
   };
 
   const beforeAssistantText = (): void => {

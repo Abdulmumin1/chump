@@ -9,6 +9,7 @@ const DEBUG_EVENT_STREAM =
   process.env.CHUMP_DEBUG_EVENTS === "true";
 
 let toolActivityHook: (() => void) | null = null;
+let toolCallStreamHook: ((preview: string | null) => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringAcceptedHook: ((content: string) => void) | null = null;
 let assistantTextHook: ((content: string) => boolean) | null = null;
@@ -19,6 +20,7 @@ let compactionStatusHook: ((payload: Record<string, unknown>) => void) | null = 
 const transcriptRenderer = new TranscriptRenderer({
   hooks: {
     onToolActivity: () => toolActivityHook?.(),
+    onToolCallStream: (preview) => toolCallStreamHook?.(preview),
     onReasoningActivity: (payload) => reasoningActivityHook?.(payload),
     onSteeringAccepted: (content) => steeringAcceptedHook?.(content),
     onAssistantText: (content) => assistantTextHook?.(content) ?? false,
@@ -31,6 +33,12 @@ const transcriptRenderer = new TranscriptRenderer({
 
 export function setToolActivityHook(hook: (() => void) | null): void {
   toolActivityHook = hook;
+}
+
+export function setToolCallStreamHook(
+  hook: ((preview: string | null) => void) | null,
+): void {
+  toolCallStreamHook = hook;
 }
 
 export function setReasoningActivityHook(

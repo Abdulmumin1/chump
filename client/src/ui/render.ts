@@ -848,6 +848,15 @@ export function renderToolDone(name: string, args: string): string {
   return `${success("·")} ${accent(name)}${suffix}`;
 }
 
+export function renderFileChangeSummary(
+  label: string,
+  path: string,
+  added: number,
+  removed: number,
+): string {
+  return `${accent(label)} ${foreground(path)} ${success(`+${added}`)} ${danger(`-${removed}`)}`;
+}
+
 export type FileEditDiff = {
   path: string;
   kind?: "add" | "update" | "delete" | "move";

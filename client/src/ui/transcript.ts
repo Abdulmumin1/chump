@@ -12,6 +12,7 @@ import type { StoredMessage, SseEvent, TranscriptEvent } from "../core/types.ts"
 
 export type TranscriptRendererHooks = {
   onToolActivity?: (() => void) | null;
+  onToolCallStream?: ((preview: string | null) => void) | null;
   onReasoningActivity?: ((payload: Record<string, unknown>) => void) | null;
   onSteeringAccepted?: ((content: string) => void) | null;
   onAssistantText?: ((content: string) => boolean) | null;
@@ -54,6 +55,12 @@ export class TranscriptRenderer {
         this.hooks.onToolActivity?.();
         this.finishReasoning();
         this.toolActivityRenderer.renderToolCall(event.payload);
+        return;
+      case "tool_call_stream":
+        this.finishReasoning();
+        this.hooks.onToolCallStream?.(
+          this.toolActivityRenderer.renderToolCallStream(event.payload),
+        );
         return;
       case "tool_result":
         this.toolActivityRenderer.renderToolResult(event.payload);
@@ -147,6 +154,21 @@ export function transcriptEventFromSse(event: SseEvent): TranscriptEvent | null 
   if (event.event === "assistant_text" && payload) {
     const content = typeof payload.content === "string" ? payload.content : "";
     return content ? { type: "assistant_text", content } : null;
+  }
+
+  if (event.event === "tool_execution.finished" && payload) {
+    return { type: "tool_result", payload };
+  }
+
+  if (
+    (event.event === "tool_call.started" ||
+      event.event === "tool_call.delta") &&
+    payload
+  ) {
+    return {
+      type: "tool_call_stream",
+      payload: { ...payload, lifecycle_type: event.event },
+    };
   }
 
   if (
@@ -244,7 +266,16 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
 
     const toolCall = readToolCallPart(part);
     if (toolCall) {
-      events.push({ type: "tool_call", payload: { name: toolCall.name, args: toolCall.arguments } });
+      events.push({
+        type: "tool_call",
+        payload: {
+          name: toolCall.name,
+          args: toolCall.arguments,
+          call_id: toolCall.callId,
+          step: toolCall.step,
+          index: toolCall.index,
+        },
+      });
       continue;
     }
 
@@ -257,6 +288,9 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
           ok: !toolResult.isError,
           status: toolResult.isError ? "error" : "ok",
           preview: toolResult.result,
+          call_id: toolResult.callId,
+          step: toolResult.step,
+          index: toolResult.index,
         },
       });
     }
@@ -401,6 +435,9 @@ function readTextPart(part: unknown): string | null {
 function readToolCallPart(part: unknown): {
   name: string;
   arguments: Record<string, unknown>;
+  callId?: string;
+  step?: number;
+  index?: number;
 } | null {
   if (!part || typeof part !== "object") {
     return null;
@@ -420,6 +457,9 @@ function readToolCallPart(part: unknown): {
         ? call.arguments
         : {}
     ) as Record<string, unknown>,
+    callId: typeof call.id === "string" ? call.id : undefined,
+    step: typeof call.step === "number" ? call.step : undefined,
+    index: typeof call.index === "number" ? call.index : undefined,
   };
 }
 
@@ -427,6 +467,9 @@ function readToolResultPart(part: unknown): {
   toolName: string;
   result: string;
   isError: boolean;
+  callId?: string;
+  step?: number;
+  index?: number;
 } | null {
   if (!part || typeof part !== "object") {
     return null;
@@ -447,6 +490,12 @@ function readToolResultPart(part: unknown): {
     toolName: result.tool_name,
     result: typeof result.result === "string" ? result.result : compactJson(result.result),
     isError: result.is_error === true,
+    callId:
+      typeof result.tool_call_id === "string"
+        ? result.tool_call_id
+        : undefined,
+    step: typeof result.step === "number" ? result.step : undefined,
+    index: typeof result.index === "number" ? result.index : undefined,
   };
 }
 
