@@ -74,11 +74,22 @@ export function buildTranscript(source: StoredMessage[]): TranscriptMessage[] {
                 if (block.kind === "tool-result") {
                     let found = false;
 
-                    for (const item of items) {
-                        for (const parentBlock of item.blocks) {
+                    for (
+                        let itemIndex = items.length - 1;
+                        itemIndex >= 0;
+                        itemIndex -= 1
+                    ) {
+                        const item = items[itemIndex]!;
+                        for (
+                            let blockIndex = item.blocks.length - 1;
+                            blockIndex >= 0;
+                            blockIndex -= 1
+                        ) {
+                            const parentBlock = item.blocks[blockIndex]!;
                             if (block.toolCallId) {
                                 if (
                                     parentBlock.kind === "tool-call" &&
+                                    !parentBlock.hasResult &&
                                     parentBlock.toolCallId === block.toolCallId
                                 ) {
                                     mergeToolResultIntoCall(parentBlock, block);
@@ -173,6 +184,8 @@ function mergeToolResultIntoCall(
 ): void {
     parentBlock.result = block.result;
     parentBlock.error = block.error;
+    parentBlock.status = block.status;
+    parentBlock.duration = block.duration ?? parentBlock.duration;
     if (block.metadata) {
         parentBlock.metadata = block.metadata;
         parentBlock.isDiff =
@@ -319,6 +332,11 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
             toolName: headerTitle,
             originalToolName: toolName,
             args: args ?? undefined,
+            status: toolCall?.status as TranscriptBlock["status"],
+            duration:
+                typeof toolCall?.duration === "number"
+                    ? toolCall.duration
+                    : undefined,
             isDiff,
             diffContent,
         };
@@ -334,6 +352,11 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
             error: toolResult?.is_error === true,
             result: toolResult?.result,
             metadata: asRecord(toolResult?.metadata) ?? undefined,
+            status: toolResult?.status as TranscriptBlock["status"],
+            duration:
+                typeof toolResult?.duration === "number"
+                    ? toolResult.duration
+                    : undefined,
             toolName,
             originalToolName: toolName,
         };

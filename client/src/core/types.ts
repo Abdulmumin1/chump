@@ -240,6 +240,7 @@ export type SseEvent = {
 export type TranscriptEvent =
   | { type: "assistant_text"; content: string }
   | { type: "user_message"; payload: Record<string, unknown> }
+  | { type: "tool_call_stream"; payload: Record<string, unknown> }
   | { type: "tool_call"; payload: Record<string, unknown> }
   | { type: "tool_result"; payload: Record<string, unknown> }
   | { type: "reasoning"; payload: Record<string, unknown> }

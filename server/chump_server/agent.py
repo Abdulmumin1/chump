@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict, deque
+import hashlib
 import json
 import time
 import traceback
@@ -93,6 +95,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._steering_lock = asyncio.Lock()
         self._turn_instruction_claims: set[str] = set()
         self._usage_summary: dict[str, Any] = default_usage_summary()
+        self._pending_tool_result_details: dict[str, deque[dict[str, Any]]] = (
+            defaultdict(deque)
+        )
+        self._correlated_tool_result_details: dict[
+            tuple[int, int, str], dict[str, Any]
+        ] = {}
 
     async def on_start(self) -> None:
         self._usage_summary = normalize_usage_summary(self.state.get("usage_summary"))
@@ -316,9 +324,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 if event.type == "step.finished":
                     await self._on_step_finish(event)
                     continue
+                if (
+                    event.type.startswith("tool_call.")
+                    or event.type.startswith("tool_execution.")
+                    or event.type == "tool_result"
+                ):
+                    await self._on_tool_lifecycle(event)
+                    continue
 
             result = await turn.result()
             final_response = await self._finalize_turn(result, full_response)
+            await self._ensure_final_assistant_persisted(result, final_response)
             if not full_response.strip():
                 await self.emit("assistant_text", {"content": final_response})
                 yield final_response
@@ -373,6 +389,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self._maybe_compact_before_turn()
         self._last_step_records = []
         self._turn_instruction_claims = set()
+        self._pending_tool_result_details.clear()
+        self._correlated_tool_result_details.clear()
         self._usage_summary["last_step"] = None
         self._usage_summary["current_turn"] = zero_usage_dict()
         raw_attachments = attachments or []
@@ -590,12 +608,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     async def _finalize_turn(self, result: Any, full_response: str) -> str:
         usage = await resolve_usage(result)
-        if usage is not None:
-            usage_dict = usage_to_dict(usage)
-            self._usage_summary["current_turn"] = usage_dict
-            self._usage_summary["last_turn"] = usage_dict
+        final_step_usage = usage_to_dict(usage)
+        current_turn_usage = self._usage_summary.get("current_turn")
+        if not isinstance(current_turn_usage, dict) or not any(
+            int(value or 0) for value in current_turn_usage.values()
+        ):
+            current_turn_usage = final_step_usage
+        if current_turn_usage is not None:
+            self._usage_summary["current_turn"] = current_turn_usage
+            self._usage_summary["last_turn"] = current_turn_usage
             self._usage_summary["session_total"] = merge_usage_dicts(
-                self._usage_summary.get("session_total"), usage_dict
+                self._usage_summary.get("session_total"), current_turn_usage
             )
             await self._persist_usage_summary()
             await self.emit("agent_status", await self.status())
@@ -606,6 +629,41 @@ class ChumpAgent(Agent[dict[str, Any]]):
             self._log(f"chat complete with {len(full_response)} chars")
 
         return full_response
+
+    async def _ensure_final_assistant_persisted(
+        self,
+        result: Any,
+        final_response: str,
+    ) -> None:
+        if not final_response.strip():
+            return
+
+        steps = getattr(result, "steps", None)
+        final_step = steps[-1] if isinstance(steps, list) and steps else None
+        final_step_text = (
+            str(getattr(final_step, "text", "") or "")
+            if final_step is not None
+            else ""
+        )
+        use_final_step = bool(
+            final_step is not None
+            and not getattr(final_step, "tool_calls", [])
+            and final_step_text.strip()
+        )
+        expected_text = final_step_text if use_final_step else final_response
+        if (
+            self._messages
+            and self._messages[-1].role == "assistant"
+            and message_content_text(self._messages[-1].content).strip()
+            == expected_text.strip()
+        ):
+            return
+
+        if use_final_step:
+            self._append_step_message(final_step)
+        else:
+            self._messages.append(Message(role="assistant", content=final_response))
+        await self._persist_messages()
 
     def _turn_provider_options(self) -> ProviderOptions | None:
         provider_options: ProviderOptions = dict(self.provider_options or {})
@@ -622,6 +680,172 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 await self.emit("user_message", self._pending_steering_events.pop(0))
                 await self._emit_steering_queue()
         await self.emit("status", {"phase": "step_start", "step": event.step_number})
+
+    async def _on_tool_lifecycle(self, event) -> None:
+        if event.type == "tool_call.ready":
+            call = event.tool_call
+            await self.emit(
+                "tool_call",
+                {
+                    "tool": call.name,
+                    "name": call.name,
+                    "payload": call.arguments,
+                    "args": call.arguments,
+                    "id": call.id,
+                    "call_id": call.id,
+                    "tool_call_id": call.id,
+                    "step": event.step_number,
+                    "index": event.index,
+                    "status": "ready",
+                },
+            )
+            return
+
+        if event.type == "tool_result":
+            call = event.tool_call
+            result = event.tool_result
+            key = self._tool_lifecycle_key(event)
+            detail = self._correlated_tool_result_details.pop(key, {})
+            preview = detail.get("preview")
+            if not isinstance(preview, str):
+                preview = str(result.result)
+                if len(preview) > 4_000:
+                    preview = preview[:3_980] + "\n...[truncated]"
+            payload = {
+                "tool": call.name,
+                "name": call.name,
+                "tool_name": result.tool_name,
+                "id": call.id,
+                "call_id": call.id,
+                "tool_call_id": result.tool_call_id or call.id,
+                "step": event.step_number,
+                "index": event.index,
+                "ok": not result.is_error,
+                "status": "error" if result.is_error else "ok",
+                "is_error": result.is_error,
+                "preview": preview,
+                "metadata": detail.get("metadata", {}),
+                "duration": detail.get("duration"),
+            }
+            if result.is_error:
+                payload["error"] = str(result.result)
+            await self.emit("tool_result", payload)
+            return
+
+        payload: dict[str, Any] = {
+            "step": event.step_number,
+            "index": event.index,
+        }
+        if event.type == "tool_call.started":
+            payload.update(
+                {
+                    "call_id": event.tool_call_id,
+                    "name": event.name,
+                }
+            )
+        elif event.type == "tool_call.delta":
+            payload.update(
+                {
+                    "call_id": event.tool_call_id,
+                    "name_delta": event.name_delta,
+                    "arguments_delta": event.arguments_delta,
+                }
+            )
+        else:
+            call = event.tool_call
+            payload.update(
+                {
+                    "tool": call.name,
+                    "call_id": call.id,
+                    "tool_call_id": call.id,
+                    "name": call.name,
+                }
+            )
+            if event.type == "tool_execution.finished":
+                key = self._tool_lifecycle_key(event)
+                detail = self._take_tool_result_detail(
+                    call.name,
+                    getattr(event, "tool_result", None),
+                )
+                detail["duration"] = event.duration
+                self._correlated_tool_result_details[key] = detail
+                payload.update(
+                    {
+                        "duration": event.duration,
+                        "error": event.error,
+                        "aborted": event.aborted,
+                        "ok": event.error is None and not event.aborted,
+                        "status": (
+                            "error" if event.error else "aborted" if event.aborted else "ok"
+                        ),
+                        "preview": detail.get("preview", ""),
+                        "metadata": detail.get("metadata", {}),
+                    }
+                )
+        await self.emit(event.type, payload, replay=False)
+
+    def capture_tool_result_detail(
+        self,
+        tool_name: str,
+        *,
+        ok: bool,
+        preview: str,
+        metadata: dict[str, object],
+        result: object,
+        error: str | None = None,
+    ) -> None:
+        self._pending_tool_result_details[tool_name].append(
+            {
+                "ok": ok,
+                "status": "ok" if ok else "error",
+                "preview": preview,
+                "metadata": metadata,
+                "error": error,
+                "result_fingerprint": self._tool_result_fingerprint(result),
+            }
+        )
+
+    def _take_tool_result_detail(
+        self,
+        tool_name: str,
+        tool_result: ToolResult | None,
+    ) -> dict[str, Any]:
+        pending = self._pending_tool_result_details.get(tool_name)
+        if not pending or tool_result is None:
+            return {}
+
+        expected = self._tool_result_fingerprint(tool_result.result)
+        matching_index = next(
+            (
+                index
+                for index, detail in enumerate(pending)
+                if detail.get("result_fingerprint") == expected
+            ),
+            None,
+        )
+        if matching_index is None:
+            return {}
+
+        detail = pending[matching_index]
+        del pending[matching_index]
+        if not pending:
+            self._pending_tool_result_details.pop(tool_name, None)
+        detail.pop("result_fingerprint", None)
+        return detail
+
+    @staticmethod
+    def _tool_result_fingerprint(result: object) -> str:
+        encoded = json.dumps(
+            result,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _tool_lifecycle_key(event) -> tuple[int, int, str]:
+        return (event.step_number, event.index, event.tool_call.id)
 
     async def _emit_steering_queue(self) -> None:
         await self.emit(
@@ -641,23 +865,15 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
 
     async def _on_step_finish(self, event) -> None:
-        raw_step_usage = (
-            getattr(event, "step_usage", None)
-            or getattr(event.step, "usage", None)
-        )
-        raw_cumulative_usage = (
-            getattr(event, "cumulative_usage", None)
-            or getattr(event, "usage", None)
+        raw_step_usage = getattr(event.step, "usage", None) or getattr(
+            event, "usage", None
         )
         step_usage = usage_to_dict(raw_step_usage)
-        cumulative_usage = usage_to_dict(raw_cumulative_usage)
         self._usage_summary["last_step"] = step_usage
-        if cumulative_usage is not None:
-            self._usage_summary["current_turn"] = cumulative_usage
-        else:
-            self._usage_summary["current_turn"] = merge_usage_dicts(
-                self._usage_summary.get("current_turn"), step_usage
-            )
+        cumulative_usage = merge_usage_dicts(
+            self._usage_summary.get("current_turn"), step_usage
+        )
+        self._usage_summary["current_turn"] = cumulative_usage
         record = {
             "step": event.step_number,
             "text": event.step.text,

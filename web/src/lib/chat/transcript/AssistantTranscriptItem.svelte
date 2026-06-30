@@ -14,8 +14,13 @@
     }>();
 </script>
 
-<div class="flex flex-col gap-2 min-w-0 {item.live ? 'opacity-90' : ''}">
+<div class="flex flex-col min-w-0 {item.live ? 'opacity-90' : ''}">
     {#each item.blocks as block, index (`${item.id}-${index}`)}
+        {@const prevBlock = index > 0 ? item.blocks[index - 1] : null}
+        {@const isTool = block.kind === "tool-call" || block.kind === "tool-result"}
+        {@const prevIsTool = prevBlock?.kind === "tool-call" || prevBlock?.kind === "tool-result"}
+        {@const isConsecutiveTool = isTool && prevIsTool}
+        <div class={index > 0 ? (isConsecutiveTool ? "mt-0.5" : "mt-2") : ""}>
         {#if block.kind === "text" && block.text.trim()}
             <div class="px-2">
                 <MarkdownText text={block.text} />
@@ -46,5 +51,6 @@
                 {block.text}
             </div>
         {/if}
+        </div>
     {/each}
 </div>

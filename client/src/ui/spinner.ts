@@ -3,7 +3,7 @@ import { preferredSpinnerFrames } from "./terminal-capabilities.ts";
 
 export function createSpinner(
   onFrame: (frame: string | null) => void,
-  options: { label?: string } = {},
+  options: { label?: string; renderLabel?: () => string } = {},
 ): {
   start: () => void;
   refresh: () => void;
@@ -23,10 +23,24 @@ export function createSpinner(
       }
       active = true;
       startedAt = Date.now();
-      onFrame(renderFrame(frames[index] ?? "✶", label, index, 0));
+      onFrame(
+        renderFrame(
+          frames[index] ?? "✶",
+          options.renderLabel?.() ?? renderMuted(label),
+          index,
+          0,
+        ),
+      );
       timer = setInterval(() => {
         index = (index + 1) % frames.length;
-        onFrame(renderFrame(frames[index] ?? "✶", label, index, Date.now() - startedAt));
+        onFrame(
+          renderFrame(
+            frames[index] ?? "✶",
+            options.renderLabel?.() ?? renderMuted(label),
+            index,
+            Date.now() - startedAt,
+          ),
+        );
       }, 190);
     },
     refresh() {
@@ -34,7 +48,14 @@ export function createSpinner(
         this.start();
         return;
       }
-      onFrame(renderFrame(frames[index] ?? "✶", label, index, Date.now() - startedAt));
+      onFrame(
+        renderFrame(
+          frames[index] ?? "✶",
+          options.renderLabel?.() ?? renderMuted(label),
+          index,
+          Date.now() - startedAt,
+        ),
+      );
     },
     stop() {
       if (!active) {
@@ -50,9 +71,14 @@ export function createSpinner(
   };
 }
 
-function renderFrame(symbol: string, label: string, index: number, elapsedMs: number): string {
+function renderFrame(
+  symbol: string,
+  renderedLabel: string,
+  index: number,
+  elapsedMs: number,
+): string {
   void index;
-  return `${renderAccent(symbol)} ${renderMuted(label)} ${renderMuted(formatElapsed(elapsedMs))}`;
+  return `${renderAccent(symbol)} ${renderedLabel} ${renderMuted(formatElapsed(elapsedMs))}`;
 }
 
 function formatElapsed(ms: number): string {

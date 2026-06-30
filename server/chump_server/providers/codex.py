@@ -17,6 +17,7 @@ from ai_query.types import (
     ReasoningPart,
     StreamChunk,
     ToolCall,
+    ToolCallStreamEvent,
     ToolSet,
     Usage,
 )
@@ -154,6 +155,7 @@ class CodexProvider(OpenAIProvider):
         finish_reason = None
         output_items: dict[str, dict[str, Any]] = {}
         saw_reasoning_delta = False
+        streamed_tool_calls: dict[int, dict[str, Any]] = {}
 
         async for chunk_bytes in self.transport.stream(
             f"{self.base_url}/responses",
@@ -196,6 +198,55 @@ class CodexProvider(OpenAIProvider):
                                     provider=self.name,
                                     text=text,
                                     data={"event": event_type},
+                                )
+                            ]
+                        )
+                    continue
+
+                if event_type == "response.output_item.added":
+                    item = event.get("item")
+                    output_index = event.get("output_index")
+                    if (
+                        isinstance(item, dict)
+                        and item.get("type") == "function_call"
+                        and isinstance(output_index, int)
+                    ):
+                        call_id = str(item.get("call_id") or item.get("id") or "")
+                        name = str(item.get("name") or "")
+                        tool_index = len(streamed_tool_calls)
+                        streamed_tool_calls[output_index] = {
+                            "call_id": call_id,
+                            "name": name,
+                            "index": tool_index,
+                        }
+                        yield StreamChunk(
+                            tool_call_events=[
+                                ToolCallStreamEvent(
+                                    kind="start",
+                                    index=tool_index,
+                                    tool_call_id=call_id or None,
+                                    name=name or None,
+                                )
+                            ]
+                        )
+                    continue
+
+                if event_type == "response.function_call_arguments.delta":
+                    output_index = event.get("output_index")
+                    delta = event.get("delta")
+                    if (
+                        isinstance(output_index, int)
+                        and isinstance(delta, str)
+                        and delta
+                    ):
+                        state = streamed_tool_calls.get(output_index, {})
+                        yield StreamChunk(
+                            tool_call_events=[
+                                ToolCallStreamEvent(
+                                    kind="delta",
+                                    index=int(state.get("index", output_index)),
+                                    tool_call_id=state.get("call_id") or None,
+                                    arguments_delta=delta,
                                 )
                             ]
                         )

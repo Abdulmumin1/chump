@@ -848,6 +848,27 @@ export function renderToolDone(name: string, args: string): string {
   return `${success("·")} ${accent(name)}${suffix}`;
 }
 
+export function renderFileChangeSummary(
+  label: string,
+  path: string,
+  added: number,
+  removed: number,
+): string {
+  return `${accent(label)} ${foreground(path)} ${success(`+${added}`)} ${danger(`-${removed}`)}`;
+}
+
+export function renderLiveActivity(label: string, detail = ""): string {
+  const suffix = detail ? ` ${foreground(detail)}` : "";
+  return `${accent(label)}${suffix}`;
+}
+
+export function renderThinkingActivity(estimatedTokens?: number): string {
+  const suffix = estimatedTokens && estimatedTokens > 0
+    ? ` ${muted(`· ~${estimatedTokens} tok`)}`
+    : "";
+  return `${italic(fg(palette.thinkingLabel, "Thinking"))}${suffix}`;
+}
+
 export type FileEditDiff = {
   path: string;
   kind?: "add" | "update" | "delete" | "move";

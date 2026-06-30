@@ -50,14 +50,38 @@
 
         return stringifyValue(block.args);
     });
+
+    let statusLabel = $derived.by(() => {
+        if (block.status === "error") return "Failed";
+        if (block.status === "aborted") return "Aborted";
+        if (block.status === "completed" || block.hasResult) {
+            return typeof block.duration === "number"
+                ? `${block.duration.toFixed(1)}s`
+                : "";
+        }
+        if (
+            block.status === "streaming" ||
+            block.status === "ready" ||
+            block.status === "running"
+        ) {
+            return "Running";
+        }
+        return "";
+    });
+
+    let isRunning = $derived(
+        block.status === "streaming" ||
+            block.status === "ready" ||
+            block.status === "running",
+    );
 </script>
 
 {#if block.isDiff}
     <ToolDiffBlock {block} />
 {:else}
-    <div class="my-0.5">
+    <div>
         <button
-            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-0.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">
@@ -87,6 +111,14 @@
                             >{readFileRange}</span
                         >
                     {/if}
+                {:else if block.originalToolName === "search"}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        >Search</span
+                    >
+                    {#if block.args?.query}
+                        <span class="truncate font-mono text-[11px] text-text-secondary">"{block.args.query}"{#if block.args.path} in {block.args.path}{/if}</span>
+                    {/if}
                 {:else if block.originalToolName === "apply_patch"}
                     <span
                         class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
@@ -108,6 +140,14 @@
                             class="ml-1 truncate font-mono text-[11px] text-text-secondary"
                             >{block.toolName}</span
                         >
+                    {/if}
+                {:else if block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch"}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        >Web</span
+                    >
+                    {#if block.args?.query || block.args?.url}
+                        <span class="truncate font-mono text-[11px] text-text-secondary">{block.args.query || block.args.url}</span>
                     {/if}
                 {:else if block.originalToolName === "skill" || block.originalToolName === "load_skill"}
                     <span
@@ -137,6 +177,21 @@
             <div
                 class="ml-4 flex flex-shrink-0 items-center gap-3 text-text-tertiary opacity-80 transition-opacity group-hover:opacity-100"
             >
+                {#if statusLabel}
+                    <span
+                        class="font-mono text-[11px] {block.status === 'error' ||
+                        block.status === 'aborted'
+                            ? 'text-error'
+                            : 'text-text-tertiary'}"
+                    >
+                        {#if isRunning}
+                            <span
+                                class="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-text-highlight"
+                            ></span>
+                        {/if}
+                        {statusLabel}
+                    </span>
+                {/if}
                 <svg
                     class="h-4 w-4 transition-transform duration-200 {expanded
                         ? 'rotate-180'

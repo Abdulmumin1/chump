@@ -1,6 +1,26 @@
 import { renderMuted, renderThinkingBlock, renderThinkingLabel } from "./render.ts";
 import { writeOutput } from "./terminal.ts";
 
+export class LiveReasoningTokenCounter {
+  private buffer = "";
+
+  update(payload: Record<string, unknown>): number {
+    const text = typeof payload.text === "string" ? payload.text : "";
+    if (text) {
+      this.buffer = mergeReasoningText(this.buffer, text);
+    }
+    return this.estimate();
+  }
+
+  reset(): void {
+    this.buffer = "";
+  }
+
+  private estimate(): number {
+    return this.buffer.length > 0 ? Math.max(1, Math.ceil(this.buffer.length / 4)) : 0;
+  }
+}
+
 export class ReasoningRenderer {
   private buffer = "";
   private activity = false;

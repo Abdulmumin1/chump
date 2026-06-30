@@ -119,6 +119,11 @@ export type ToolCallMessagePart = {
 		id: string;
 		name: string;
 		arguments?: Record<string, unknown>;
+		arguments_text?: string;
+		step?: number;
+		index?: number;
+		status?: ToolLifecycleStatus;
+		duration?: number;
 	};
 };
 
@@ -130,8 +135,20 @@ export type ToolResultMessagePart = {
 		result: unknown;
 		is_error: boolean;
 		metadata?: Record<string, unknown>;
+		step?: number;
+		index?: number;
+		status?: ToolLifecycleStatus;
+		duration?: number;
 	};
 };
+
+export type ToolLifecycleStatus =
+	| 'streaming'
+	| 'ready'
+	| 'running'
+	| 'completed'
+	| 'error'
+	| 'aborted';
 
 export type ImageMessagePart = {
 	type: 'image';
@@ -157,6 +174,7 @@ export type MessagePart =
 export type StoredMessage = {
 	role: string;
 	content: string | MessagePart[];
+	live?: boolean;
 };
 
 export type AgentMessagesResponse = {
