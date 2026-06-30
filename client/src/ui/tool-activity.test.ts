@@ -138,6 +138,48 @@ test("correlates reverse-completing same-name tools by lifecycle identity", () =
   assert.match(output[1] ?? "", /first/);
 });
 
+test("keeps each concurrent bash result with its originating command", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "bash",
+    args: { command: "printf first" },
+    call_id: "call_first",
+    step: 1,
+    index: 0,
+  });
+  renderer.renderToolCall({
+    name: "bash",
+    args: { command: "printf second" },
+    call_id: "call_second",
+    step: 1,
+    index: 1,
+  });
+
+  renderer.renderToolResult({
+    name: "bash",
+    preview: "second output",
+    status: "ok",
+    call_id: "call_second",
+    step: 1,
+    index: 1,
+  });
+  renderer.renderToolResult({
+    name: "bash",
+    preview: "first output",
+    status: "ok",
+    call_id: "call_first",
+    step: 1,
+    index: 0,
+  });
+
+  assert.match(output[0] ?? "", /printf second/);
+  assert.match(output[1] ?? "", /second output/);
+  assert.match(output[3] ?? "", /printf first/);
+  assert.match(output[4] ?? "", /first output/);
+});
+
 test("renders execution completion immediately and ignores the durable duplicate", () => {
   const output: string[] = [];
   const renderer = new ToolActivityRenderer((value = "") => output.push(value));

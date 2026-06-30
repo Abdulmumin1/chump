@@ -174,39 +174,40 @@ def test_same_name_parallel_results_keep_call_id_and_completion_metadata():
         ok=True,
         preview="second output",
         metadata={"command": "second"},
-    )
-    asyncio.run(
-        agent._on_tool_lifecycle(
-            SimpleNamespace(
-                type="tool_execution.finished",
-                step_number=1,
-                index=1,
-                tool_call=second_call,
-                duration=0.1,
-                error=None,
-                aborted=False,
-            )
-        )
+        result="second output",
     )
     agent.capture_tool_result_detail(
         "bash",
         ok=True,
         preview="first output",
         metadata={"command": "first"},
+        result="first output",
     )
-    asyncio.run(
-        agent._on_tool_lifecycle(
-            SimpleNamespace(
-                type="tool_execution.finished",
-                step_number=1,
-                index=0,
-                tool_call=first_call,
-                duration=0.2,
-                error=None,
-                aborted=False,
+
+    # Both same-name calls may record their details before lifecycle events are
+    # consumed. Completion order must not decide which call receives a result.
+    for index, call, output, duration in [
+        (1, second_call, "second output", 0.1),
+        (0, first_call, "first output", 0.2),
+    ]:
+        asyncio.run(
+            agent._on_tool_lifecycle(
+                SimpleNamespace(
+                    type="tool_execution.finished",
+                    step_number=1,
+                    index=index,
+                    tool_call=call,
+                    tool_result=ToolResult(
+                        tool_call_id=call.id,
+                        tool_name="bash",
+                        result=output,
+                    ),
+                    duration=duration,
+                    error=None,
+                    aborted=False,
+                )
             )
         )
-    )
 
     for index, call, output in [
         (0, first_call, "first output"),

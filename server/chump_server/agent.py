@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
+import hashlib
 import json
 import time
 import traceback
@@ -762,7 +763,10 @@ class ChumpAgent(Agent[dict[str, Any]]):
             )
             if event.type == "tool_execution.finished":
                 key = self._tool_lifecycle_key(event)
-                detail = self._take_tool_result_detail(call.name)
+                detail = self._take_tool_result_detail(
+                    call.name,
+                    getattr(event, "tool_result", None),
+                )
                 detail["duration"] = event.duration
                 self._correlated_tool_result_details[key] = detail
                 payload.update(
@@ -787,6 +791,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         ok: bool,
         preview: str,
         metadata: dict[str, object],
+        result: object,
         error: str | None = None,
     ) -> None:
         self._pending_tool_result_details[tool_name].append(
@@ -796,17 +801,47 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 "preview": preview,
                 "metadata": metadata,
                 "error": error,
+                "result_fingerprint": self._tool_result_fingerprint(result),
             }
         )
 
-    def _take_tool_result_detail(self, tool_name: str) -> dict[str, Any]:
+    def _take_tool_result_detail(
+        self,
+        tool_name: str,
+        tool_result: ToolResult | None,
+    ) -> dict[str, Any]:
         pending = self._pending_tool_result_details.get(tool_name)
-        if not pending:
+        if not pending or tool_result is None:
             return {}
-        detail = pending.popleft()
+
+        expected = self._tool_result_fingerprint(tool_result.result)
+        matching_index = next(
+            (
+                index
+                for index, detail in enumerate(pending)
+                if detail.get("result_fingerprint") == expected
+            ),
+            None,
+        )
+        if matching_index is None:
+            return {}
+
+        detail = pending[matching_index]
+        del pending[matching_index]
         if not pending:
             self._pending_tool_result_details.pop(tool_name, None)
+        detail.pop("result_fingerprint", None)
         return detail
+
+    @staticmethod
+    def _tool_result_fingerprint(result: object) -> str:
+        encoded = json.dumps(
+            result,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
     def _tool_lifecycle_key(event) -> tuple[int, int, str]:

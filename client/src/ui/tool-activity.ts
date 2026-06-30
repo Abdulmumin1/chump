@@ -52,10 +52,10 @@ export class ToolActivityRenderer {
       payload.args ?? payload.payload,
     );
     if (toolName === "bash") {
-      // Bash output follows directly in renderToolResult — no trailing blank
-      // here so the command and its output stay visually grouped. The
-      // trailing blank is added after the result.
-      this.writeLine(`\n${renderCommand(renderedArgs)}`);
+      // Keep the permanent command and its output together when the result
+      // arrives. The status row still previews the command live while its
+      // arguments stream and while it executes.
+      this.pendingTools.push({ name: toolName, args: renderedArgs, key });
       this.activity = true;
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
@@ -152,6 +152,8 @@ export class ToolActivityRenderer {
     const visiblePreview = userFacingToolPreview(toolName, ok, preview);
     if (toolName === "bash") {
       this.compactToolRunActive = false;
+      const pending = this.takePendingTool(toolName, payload);
+      this.writeLine(`\n${renderCommand(pending?.args || "command")}`);
       this.writeLine(
         renderCommandOutput(
           ok,

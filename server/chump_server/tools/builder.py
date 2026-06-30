@@ -49,6 +49,7 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
                 ok=True,
                 preview=preview,
                 metadata=metadata,
+                result=result,
             )
             log(f"ok {name}: {_preview(result, 240)}")
             return result
@@ -68,6 +69,7 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
                 ok=False,
                 preview=error_preview,
                 metadata=metadata,
+                result=f"Error: {exc}",
                 error=str(exc),
             )
             log(f"error {name}: {exc}")
