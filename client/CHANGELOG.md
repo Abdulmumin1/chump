@@ -1,11 +1,10 @@
 # chump-agent
 
-## Unreleased
+## 0.1.10
 
 ### Patch Changes
 
-- Correlate live tool output by step, provider index, and call id; preview streamed commands and file writes while their arguments arrive, then render execution-finished results immediately without duplicating the durable final result.
-- Use present-tense CLI activity labels for streamed and running tools, return the loader to thinking as soon as a tool completes, and show an explicitly approximate live reasoning-token count.
+- Correlate live tool output by step, provider index, and call id so streamed bash and file-edit activity stays attached to the right call in both the CLI and web transcript. Show present-tense live activity labels, preview streamed commands and file writes while arguments arrive, and display an explicitly approximate live reasoning-token counter.
 
 ## 0.1.9
 
