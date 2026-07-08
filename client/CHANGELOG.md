@@ -5,6 +5,7 @@
 ### Patch Changes
 
 - Improve `view_image` activity and result presentation in the terminal and web transcript.
+- Clear pasted image attachments when the terminal draft is cleared so later pastes do not accumulate stale images.
 
 ## 0.1.10
 

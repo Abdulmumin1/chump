@@ -870,11 +870,13 @@ function createInteractivePromptReader(): {
   }
 
   function clearDraft(): void {
-    if (value.length === 0) {
+    if (value.length === 0 && attachments.length === 0) {
       return;
     }
     value = "";
     cursor = 0;
+    attachments = attachmentsForDraft(value, attachments);
+    nextImageNumber = 1;
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
@@ -1611,6 +1613,13 @@ function formatSubmissionPreview(submission: PromptSubmission): string {
     pastes > 0 ? `${pastes} paste${pastes === 1 ? "" : "s"}` : "",
   ].filter(Boolean).join(" ");
   return [text, suffix].filter(Boolean).join(" ");
+}
+
+export function attachmentsForDraft(
+  value: string,
+  attachments: ChatAttachment[],
+): ChatAttachment[] {
+  return attachments.filter((attachment) => value.includes(attachment.label));
 }
 
 function findAttachmentLabelRange(
