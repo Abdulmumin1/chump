@@ -63,8 +63,12 @@ def _truncate_command_output(
     return f"{notice}\n\n{visible}" if visible else notice
 
 
-def _preview(value: str, limit: int = 160) -> str:
-    compact = " ".join(value.split())
+def _result_text(value: object) -> str:
+    return value if isinstance(value, str) else repr(value)
+
+
+def _preview(value: object, limit: int = 160) -> str:
+    compact = " ".join(_result_text(value).split())
     if len(compact) <= limit:
         return compact
     return compact[: limit - 3] + "..."
@@ -84,10 +88,11 @@ def _multiline_preview(
     return visible
 
 
-def _result_metadata(value: str, limit: int = 160) -> dict[str, object]:
-    compact = " ".join(value.split())
+def _result_metadata(value: object, limit: int = 160) -> dict[str, object]:
+    text = _result_text(value)
+    compact = " ".join(text.split())
     return {
-        "chars": len(value),
+        "chars": len(text),
         "preview_chars": min(len(compact), limit),
         "truncated": len(compact) > limit,
     }

@@ -15,6 +15,8 @@ from chump_server.tools._utils import (
     BASH_OUTPUT_LINE_LIMIT,
     DEFAULT_DIFF_CHANGE_LIMIT,
     _diff_metadata,
+    _preview,
+    _result_metadata,
     _truncate_command_output,
 )
 
@@ -66,6 +68,8 @@ class ViewImageTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.content[1].image, data)
         self.assertEqual(result.content[1].media_type, "image/png")
+        self.assertIn("ToolOutput", _preview(result))
+        self.assertGreater(_result_metadata(result)["chars"], 0)
 
     async def test_rejects_non_image_content(self) -> None:
         (self.root / "sample.png").write_text("not an image", encoding="utf-8")
