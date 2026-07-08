@@ -33,6 +33,13 @@
         return parts.join(" ");
     });
 
+    let isViewImage = $derived(block.originalToolName === "view_image");
+
+    let imagePath = $derived.by(() => {
+        if (!isViewImage) return "";
+        return String(block.args?.path ?? "");
+    });
+
     let expandedPreview = $derived.by(() => {
         if (block.kind !== "tool-call") {
             return block.text;
@@ -47,6 +54,8 @@
             );
             return [filePath, readFileRange].filter(Boolean).join(" ");
         }
+
+        if (isViewImage) return imagePath;
 
         return stringifyValue(block.args);
     });
@@ -111,6 +120,17 @@
                             >{readFileRange}</span
                         >
                     {/if}
+                {:else if isViewImage}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        >View image</span
+                    >
+                    <span
+                        class="flex-1 min-w-0 truncate font-mono text-[10px] md:text-[11px] text-text-secondary"
+                        >{block.toolName !== block.originalToolName
+                            ? block.toolName
+                            : imagePath}</span
+                    >
                 {:else if block.originalToolName === "search"}
                     <span
                         class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
@@ -239,12 +259,18 @@
                                 </div>
                             {/if}
                         </div>
-                        <pre
-                            class="text-[12px] font-mono leading-relaxed {block.error
-                                ? 'text-error'
-                                : 'text-text-warning'}">{stringifyValue(
-                                block.result,
-                            )}</pre>
+                        {#if isViewImage && !block.error}
+                            <div class="text-[12px] font-mono leading-relaxed text-text-warning">
+                                Image loaded and sent to the model.
+                            </div>
+                        {:else}
+                            <pre
+                                class="text-[12px] font-mono leading-relaxed {block.error
+                                    ? 'text-error'
+                                    : 'text-text-warning'}">{stringifyValue(
+                                    block.result,
+                                )}</pre>
+                        {/if}
                     </div>
                 {/if}
             </div>

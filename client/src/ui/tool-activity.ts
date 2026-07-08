@@ -371,6 +371,8 @@ function semanticToolLabel(toolName: string): string {
   switch (toolName) {
     case "read_file":
       return "Reading file";
+    case "view_image":
+      return "Viewing image";
     case "search":
       return "Searching files";
     case "web_fetch":
@@ -526,6 +528,8 @@ function displayToolName(name: string): string {
     return "web search";
   } else if (name === "read_file") {
     return "Read";
+  } else if (name === "view_image") {
+    return "View image";
   } else if (name === "skill") {
     return "Skill";
   } else if (name === "load_skill") {
@@ -551,6 +555,10 @@ export function formatToolArgs(toolName: string, value: unknown): string {
       .filter(Boolean)
       .join(" ");
     return [path, range].filter(Boolean).join(" ");
+  }
+
+  if (toolName === "view_image") {
+    return typeof args.path === "string" ? args.path : "";
   }
 
   if (toolName === "bash") {

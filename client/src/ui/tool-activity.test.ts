@@ -97,12 +97,38 @@ test("uses present-tense semantic labels for live tool activity", () => {
   });
   assert.match(reading ?? "", /Reading file.*src\/app\.ts/);
 
+  const viewing = renderer.renderToolCallStream({
+    call_id: "call_image",
+    name: "view_image",
+    arguments_delta: '{"path":".chump/tmp/sign.jpeg"}',
+  });
+  assert.match(viewing ?? "", /Viewing image.*\.chump\/tmp\/sign\.jpeg/);
+
   const searching = renderer.renderToolCallStream({
     call_id: "call_search",
     name: "search",
     arguments_delta: '{"query":"spinner","path":"client"}',
   });
   assert.match(searching ?? "", /Searching files.*spinner.*client/);
+});
+
+test("renders view_image as a semantic completed tool", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "view_image",
+    args: { path: ".chump/tmp/sign.jpeg" },
+    call_id: "call_image",
+  });
+  renderer.renderToolResult({
+    name: "view_image",
+    status: "ok",
+    preview: "ToolOutput(text=1, image=1, file=0)",
+    call_id: "call_image",
+  });
+
+  assert.match(output.at(-2) ?? "", /View image.*\.chump\/tmp\/sign\.jpeg/);
 });
 
 test("correlates reverse-completing same-name tools by lifecycle identity", () => {

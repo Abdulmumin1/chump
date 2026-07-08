@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.11
+
+### Patch Changes
+
+- Improve `view_image` activity and result presentation in the terminal and web transcript.
+
 ## 0.1.10
 
 ### Patch Changes

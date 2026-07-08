@@ -283,7 +283,11 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
         if (toolName === "bash" || toolName === "execute_command") {
             const command = asString(args.command) || asString(args.cmd) || "";
             if (command) headerTitle = `$ ${command}`;
-        } else if (toolName === "read_file" || toolName === "view_file") {
+        } else if (
+            toolName === "read_file" ||
+            toolName === "view_file" ||
+            toolName === "view_image"
+        ) {
             const file = asString(args.file_path) || asString(args.path) || "";
             if (file) headerTitle = file.split("/").pop() || file;
         } else if (
