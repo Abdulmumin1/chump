@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.45
+
+- Add a workspace-scoped `view_image` tool for PNG, JPEG, GIF, and WebP files using `ai-query` 1.7.55 multimodal tool outputs.
+
 ## 0.0.44
 
 - Upgrade `ai-query` to 1.7.54 and forward typed tool-call readiness plus correlated provider and execution lifecycle events.
