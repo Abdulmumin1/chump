@@ -44,6 +44,29 @@ export function parseSteeringQueue(
         );
 }
 
+export function removeSteeredQueueItem(
+    queue: SteeringQueueItem[],
+    payload: Record<string, unknown> | null,
+): SteeringQueueItem[] {
+    if (!payload || payload.steered !== true) {
+        return queue;
+    }
+    const content = (
+        asString(payload.display_content) || asString(payload.content)
+    ).trim();
+    if (!content) {
+        return queue;
+    }
+    const index = queue.findIndex(
+        (item) =>
+            (item.display_content?.trim() || item.content.trim()) === content,
+    );
+    if (index === -1) {
+        return queue;
+    }
+    return [...queue.slice(0, index), ...queue.slice(index + 1)];
+}
+
 export function applyLiveEventToMessages(
     source: StoredMessage[],
     type: string,

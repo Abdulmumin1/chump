@@ -83,6 +83,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  removeQueuedDisplay: (content: string) => void;
   setQueuedDisplay: (submissions: PromptSubmission[]) => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
@@ -104,6 +105,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       },
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
+      removeQueuedDisplay: () => {},
       setQueuedDisplay: () => {},
       setQueuedLinePopHandler: () => {},
       setModelSuggestions: () => {},
@@ -129,6 +131,7 @@ function createInteractivePromptReader(): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  removeQueuedDisplay: (content: string) => void;
   setQueuedDisplay: (submissions: PromptSubmission[]) => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
@@ -1477,6 +1480,18 @@ function createInteractivePromptReader(): {
     },
     popQueuedDisplay() {
       queuedDisplay.shift();
+      forceRedraw = true;
+      requestRedraw();
+    },
+    removeQueuedDisplay(content: string) {
+      const normalized = content.trim();
+      const index = queuedDisplay.findIndex(
+        (submission) => submission.text.trim() === normalized,
+      );
+      if (index === -1) {
+        return;
+      }
+      queuedDisplay.splice(index, 1);
       forceRedraw = true;
       requestRedraw();
     },

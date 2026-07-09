@@ -23,6 +23,7 @@ import {
     applyLiveEventToMessages,
     buildMessagesFromEventLog,
     parseSteeringQueue,
+    removeSteeredQueueItem,
 } from "$lib/chat/events";
 import { isToolLifecycleEvent } from "$lib/chat/tool-events";
 import { parseJson, toErrorMessage } from "$lib/chat/helpers";
@@ -475,6 +476,12 @@ export function createSessionController(
             event.event,
             payload,
         );
+        if (event.event === "user_message") {
+            state.steeringQueue = removeSteeredQueueItem(
+                state.steeringQueue,
+                payload,
+            );
+        }
 
         if (
             (event.event === "user_message" ||

@@ -349,6 +349,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       activeSteerHandler = handler;
     },
     popQueuedLine: () => lineQueue.popLast(),
+    removeQueuedDisplay: (content) => promptReader.removeQueuedDisplay(content),
   });
 
   const refreshCliHydration = async (): Promise<void> => {
@@ -547,7 +548,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
             (handler) => {
               activeSteerHandler = handler;
             },
-            () => promptReader.popQueuedDisplay(),
+            (content) => promptReader.removeQueuedDisplay(content),
             (handler) => {
               promptReader.setQueuedLinePopHandler(
                 handler
@@ -579,7 +580,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         (handler) => {
           activeSteerHandler = handler;
         },
-        () => promptReader.popQueuedDisplay(),
+        (content) => promptReader.removeQueuedDisplay(content),
         (handler) => {
           promptReader.setQueuedLinePopHandler(
             handler
@@ -1055,7 +1056,7 @@ async function runChatTurn(
   setStatus: (status: string | null) => void,
   setAbortHandler: (handler: (() => void) | null) => void,
   setSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void,
-  popSteeredDisplay: () => void,
+  popSteeredDisplay: (content: string) => void,
   setQueuedLinePopHandler: (handler: (() => void) | null) => void,
   requeueSteeredSubmission: (submission: PromptSubmission) => void,
 ): Promise<void> {
@@ -1084,7 +1085,7 @@ async function runChatTurn(
   setQueuedLinePopHandler(popPendingSteeringSubmission);
   setSteeringAcceptedHook((content) => {
     removePendingSteeringSubmission(content);
-    popSteeredDisplay();
+    popSteeredDisplay(content);
   });
   setSteerHandler(async (nextSubmission) => {
     const result = await withManagedServerRecovery(() => steerCurrentTurn(
@@ -1287,6 +1288,7 @@ function createSharedTurnSync(options: {
   getActiveSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null;
   setActiveSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void;
   popQueuedLine: () => PromptSubmission | null;
+  removeQueuedDisplay: (content: string) => void;
 }): {
   install: () => void;
   dispose: () => void;
@@ -1353,6 +1355,9 @@ function createSharedTurnSync(options: {
 
   const install = (): void => {
     setTurnStatusHook(applyTurnStatus);
+    setSteeringAcceptedHook((content) => {
+      options.removeQueuedDisplay(content);
+    });
     setReasoningActivityHook((payload) => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
@@ -1382,6 +1387,7 @@ function createSharedTurnSync(options: {
   const dispose = (): void => {
     activityStatus.stop();
     setTurnStatusHook(null);
+    setSteeringAcceptedHook(null);
     setReasoningActivityHook(null);
     setToolActivityHook(null);
     setToolCallStreamHook(null);

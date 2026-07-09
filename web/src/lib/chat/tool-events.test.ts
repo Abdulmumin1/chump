@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { StoredMessage } from "$lib/chump/types";
-import { applyLiveEventToMessages } from "$lib/chat/events";
+import {
+    applyLiveEventToMessages,
+    removeSteeredQueueItem,
+} from "$lib/chat/events";
 import { buildTranscript } from "$lib/chat/transcript";
 
 function apply(
@@ -408,5 +411,20 @@ describe("live tool lifecycle events", () => {
             hasResult: true,
         });
         expect(JSON.stringify(block)).not.toContain("<skill_content");
+    });
+
+    it("removes a queued steering item when its user message is accepted", () => {
+        const queue = [
+            { content: "first", display_content: "first" },
+            { content: "second", display_content: "second" },
+        ];
+
+        expect(
+            removeSteeredQueueItem(queue, {
+                content: "second",
+                display_content: "second",
+                steered: true,
+            }),
+        ).toEqual([{ content: "first", display_content: "first" }]);
     });
 });

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.14
+
+### Patch Changes
+
+- Remove queued steering placeholders when the same message starts processing so CLI and web transcripts do not show duplicate user messages.
+
 ## 0.1.13
 
 ### Patch Changes
