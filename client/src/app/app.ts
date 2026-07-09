@@ -438,7 +438,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
   if (options.sessionId) {
-    await renderSwitchedSession(
+    const switchedStatus = await renderSwitchedSession(
       config,
       shareManager,
       (footer) => promptReader.setFooter(footer),
@@ -450,6 +450,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         skipEmptyTranscript: true,
       },
     );
+    sharedTurnSync.applyTurnStatus({
+      running: switchedStatus.turn_running === true,
+      steering_queue: switchedStatus.steering_queue ?? [],
+    });
     promptReader.setSkillSuggestions((await getHealth(config)).skills);
   }
 
@@ -475,6 +479,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
+        setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -515,6 +520,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
+        setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -1540,6 +1546,7 @@ async function handleSlashCommand(
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
     setSkillSuggestions: (skills: Awaited<ReturnType<typeof getHealth>>["skills"]) => void;
+    setRemoteTurnStatus: (payload: Record<string, unknown>) => void;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
@@ -1672,7 +1679,7 @@ async function handleSlashCommand(
         const currentStatus = await getStatus(config);
         clearTerminal();
         writeOutput(`${renderBanner(config, { workspaceRoot: currentStatus.workspace_root })}\n`);
-        await renderSwitchedSession(
+        const switchedStatus = await renderSwitchedSession(
           config,
           context.shareManager,
           context.setFooter,
@@ -1682,6 +1689,10 @@ async function handleSlashCommand(
             skipEmptyTranscript: true,
           },
         );
+        context.setRemoteTurnStatus({
+          running: switchedStatus.turn_running === true,
+          steering_queue: switchedStatus.steering_queue ?? [],
+        });
         context.setSkillSuggestions((await getHealth(config)).skills);
         break;
       }
@@ -1690,13 +1701,17 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(
+      const switchedStatus = await renderSwitchedSession(
         config,
         context.shareManager,
         context.setFooter,
         context.setRuleBadge,
         context.setSessionSuggestions,
       );
+      context.setRemoteTurnStatus({
+        running: switchedStatus.turn_running === true,
+        steering_queue: switchedStatus.steering_queue ?? [],
+      });
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -1710,13 +1725,17 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(
+      const switchedStatus = await renderSwitchedSession(
         config,
         context.shareManager,
         context.setFooter,
         context.setRuleBadge,
         context.setSessionSuggestions,
       );
+      context.setRemoteTurnStatus({
+        running: switchedStatus.turn_running === true,
+        steering_queue: switchedStatus.steering_queue ?? [],
+      });
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -1755,7 +1774,7 @@ async function renderSwitchedSession(
   setRuleBadge: (badge: string | null) => void,
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
   options: { skipEmptyTranscript?: boolean } = {},
-): Promise<void> {
+): Promise<Awaited<ReturnType<typeof getStatus>>> {
   const [health, status, response, sessions] = await Promise.all([
     getHealth(config),
     getStatus(config),
@@ -1766,9 +1785,10 @@ async function renderSwitchedSession(
   setRuleBadge(await renderInputBadge(status));
   setSessionSuggestions(sessions.sessions);
   if (options.skipEmptyTranscript && response.messages.length === 0) {
-    return;
+    return status;
   }
   renderSessionTranscript(response.messages);
+  return status;
 }
 
 function renderFooter(

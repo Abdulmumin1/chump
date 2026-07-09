@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.13
+
+### Patch Changes
+
+- Start the CLI working spinner when reconnecting to or switching into a session that is already running.
+
 ## 0.1.12
 
 ### Patch Changes
