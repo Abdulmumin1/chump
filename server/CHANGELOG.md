@@ -5,6 +5,7 @@
 ## 0.0.45
 
 - Add a workspace-scoped `view_image` tool for PNG, JPEG, GIF, and WebP files using `ai-query` 1.7.55 multimodal tool outputs.
+- Fix `list_sessions` when the active session entry is a live agent rather than connection metadata.
 
 ## 0.0.44
 

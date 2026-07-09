@@ -36,6 +36,8 @@ def stored_sessions(
         messages = values.get(f"{session_id}:messages") or []
         event_log = values.get(f"{session_id}:event_log") or []
         active_meta = active_agents.get(session_id)
+        active_last_activity = active_agent_last_activity(active_meta)
+        active_connection_count = active_agent_connection_count(active_meta)
         file_diffs = state.get("file_diffs") if isinstance(state, dict) else None
         total_added, total_removed = diff_totals(file_diffs)
         created_at = state.get("created_at") if isinstance(state, dict) else None
@@ -56,8 +58,8 @@ def stored_sessions(
                 "last_user_goal": (
                     state.get("last_user_goal") if isinstance(state, dict) else None
                 ),
-                "last_activity": active_meta.last_activity if active_meta else None,
-                "connections": active_meta.connection_count if active_meta else 0,
+                "last_activity": active_last_activity,
+                "connections": active_connection_count,
                 "total_added": total_added,
                 "total_removed": total_removed,
             }
@@ -75,6 +77,27 @@ def stored_sessions(
     total = len(sessions)
     start = (page - 1) * page_size
     return sessions[start : start + page_size], total
+
+
+def active_agent_last_activity(active_meta: Any) -> float | None:
+    if active_meta is None:
+        return None
+    last_activity = getattr(active_meta, "last_activity", None)
+    if isinstance(last_activity, (int, float)):
+        return float(last_activity)
+    state = getattr(active_meta, "state", None)
+    if isinstance(state, dict):
+        updated_at = state.get("updated_at")
+        if isinstance(updated_at, (int, float)):
+            return float(updated_at)
+    return None
+
+
+def active_agent_connection_count(active_meta: Any) -> int:
+    if active_meta is None:
+        return 0
+    connection_count = getattr(active_meta, "connection_count", None)
+    return connection_count if isinstance(connection_count, int) else 0
 
 
 def diff_totals(file_diffs: Any) -> tuple[int, int]:
