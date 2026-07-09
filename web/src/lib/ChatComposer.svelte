@@ -212,6 +212,11 @@
             }
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
+                insertNewlineAtCursor();
+                return;
+            }
+            if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
+                event.preventDefault();
                 onSend();
             }
             return;
@@ -368,6 +373,17 @@
         mentionRange = null;
         fileSuggestions = [];
     }
+
+    function insertNewlineAtCursor() {
+        const cursor = textareaElement?.selectionStart ?? composerText.length;
+        const selectionEnd = textareaElement?.selectionEnd ?? cursor;
+        composerText = `${composerText.slice(0, cursor)}\n${composerText.slice(selectionEnd)}`;
+        const nextCursor = cursor + 1;
+        void tick().then(() => {
+            textareaElement?.focus();
+            textareaElement?.setSelectionRange(nextCursor, nextCursor);
+        });
+    }
 </script>
 
 <div
@@ -427,15 +443,6 @@
                 onEdit={onEditSteering}
             />
         {/if}
-
-        <div class="self-end min-h-[20px] flex items-center pr-1 md:pr-2">
-            {#if contextUsageLabel}
-                <span
-                    class="text-[10px] md:text-[11px] font-mono text-text-muted select-none"
-                    >{contextUsageLabel}</span
-                >
-            {/if}
-        </div>
 
         <div
             class="flex flex-col rounded-[8px] border border-border-default bg-bg-code focus-within:border-border-hover relative group"
@@ -516,10 +523,13 @@
                     {/if}
                 </div>
                 <div class="flex items-center gap-2">
-                    <span
-                        class="text-[11px] md:text-[12px] font-medium text-text-muted mr-1 md:mr-2 tracking-wide hidden sm:inline"
-                        >⌘ Enter</span
-                    >
+                    {#if contextUsageLabel}
+                        <span
+                            class="text-[10px] md:text-[11px] font-mono text-text-muted mr-1 md:mr-2 tracking-wide hidden sm:inline select-none"
+                            title="Enter sends · ⌘ Enter inserts a new line"
+                            >{contextUsageLabel}</span
+                        >
+                    {/if}
                     {#if isSending && !isCompacting && !composerText.trim() && !hasAttachments}
                         <button
                             aria-label="Abort"

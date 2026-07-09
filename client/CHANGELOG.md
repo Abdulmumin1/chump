@@ -1,5 +1,30 @@
 # chump-agent
 
+## 0.1.14
+
+### Patch Changes
+
+- Remove queued steering placeholders when the same message starts processing so CLI and web transcripts do not show duplicate user messages.
+
+## 0.1.13
+
+### Patch Changes
+
+- Start the CLI working spinner when reconnecting to or switching into a session that is already running.
+
+## 0.1.12
+
+### Patch Changes
+
+- Keep resumed CLI/web transcripts from dumping loaded skill content, show edit diffs only after successful edit results, and preserve the web working indicator when reconnecting to a running session.
+
+## 0.1.11
+
+### Patch Changes
+
+- Improve `view_image` activity and result presentation in the terminal and web transcript.
+- Clear pasted image attachments when the terminal draft is cleared so later pastes do not accumulate stale images.
+
 ## 0.1.10
 
 ### Patch Changes

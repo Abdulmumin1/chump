@@ -120,9 +120,7 @@
         if (block.status === "error") return "Failed";
         if (block.status === "aborted") return "Aborted";
         if (block.status === "completed" || block.hasResult) {
-            return typeof block.duration === "number"
-                ? `${block.duration.toFixed(1)}s`
-                : "";
+            return "";
         }
         if (
             block.status === "streaming" ||
@@ -209,20 +207,6 @@
                         {statusLabel}
                     </span>
                 {/if}
-                <svg
-                    class="h-4 w-4 transition-transform duration-200 {diffExpanded
-                        ? 'rotate-180'
-                        : '-rotate-90'}"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 9l-7 7-7-7"
-                    ></path></svg
-                >
             </div>
         </button>
 

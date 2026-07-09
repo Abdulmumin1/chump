@@ -270,11 +270,12 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
 
     const toolCall = readToolCallPart(part);
     if (toolCall) {
+      const args = normalizeToolCallArgs(toolCall.name, toolCall.arguments);
       events.push({
         type: "tool_call",
         payload: {
           name: toolCall.name,
-          args: toolCall.arguments,
+          args,
           call_id: toolCall.callId,
           step: toolCall.step,
           index: toolCall.index,
@@ -285,13 +286,16 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
 
     const toolResult = readToolResultPart(part);
     if (toolResult) {
+      const preview = isSkillTool(toolResult.toolName)
+        ? loadedSkillPreview(toolResult.result)
+        : toolResult.result;
       events.push({
         type: "tool_result",
         payload: {
           name: toolResult.toolName,
           ok: !toolResult.isError,
           status: toolResult.isError ? "error" : "ok",
-          preview: toolResult.result,
+          preview,
           call_id: toolResult.callId,
           step: toolResult.step,
           index: toolResult.index,
@@ -300,6 +304,33 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
     }
   }
   return events;
+}
+
+function normalizeToolCallArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!isSkillTool(toolName)) {
+    return args;
+  }
+
+  const rawName = typeof args.name === "string" ? args.name : "";
+  const normalizedName = skillNameFromContent(rawName) || rawName;
+  return normalizedName === rawName ? args : { ...args, name: normalizedName };
+}
+
+function isSkillTool(toolName: string): boolean {
+  return toolName === "skill" || toolName === "load_skill";
+}
+
+function skillNameFromContent(value: string): string {
+  const match = /<skill_content\s+name=["']([^"']+)["']/.exec(value);
+  return match?.[1]?.trim() ?? "";
+}
+
+function loadedSkillPreview(value: string): string {
+  const name = skillNameFromContent(value);
+  return name ? `Loaded skill: ${name}` : "Loaded skill.";
 }
 
 function parseEventPayload(value: string): Record<string, unknown> | null {

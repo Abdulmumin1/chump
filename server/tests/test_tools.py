@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.patch_tool import AddFilePatch, UpdateFilePatch, parse_patch
+from chump_server.safety import SafetyError, WorkspaceGuard
+from chump_server.tools.view_image import bind_view_image, detect_image_type
 from chump_server.tools._utils import (
     BASH_OUTPUT_BYTE_LIMIT,
     BASH_OUTPUT_LINE_LIMIT,
     DEFAULT_DIFF_CHANGE_LIMIT,
     _diff_metadata,
+    _preview,
+    _result_metadata,
     _truncate_command_output,
 )
 
@@ -40,6 +45,43 @@ class DiffMetadataTests(unittest.TestCase):
         self.assertEqual(diff["shown_changes"], DEFAULT_DIFF_CHANGE_LIMIT)
         self.assertEqual(diff["total_changes"], line_count * 2)
         self.assertEqual(len(diff["changes"]), DEFAULT_DIFF_CHANGE_LIMIT)
+
+
+class ViewImageTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+
+        async def wrap_tool(_name, _payload, runner):
+            return await runner()
+
+        self.tool = bind_view_image(WorkspaceGuard(self.root), wrap_tool)
+
+    async def asyncTearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    async def test_returns_multimodal_output_for_png(self) -> None:
+        data = b"\x89PNG\r\n\x1a\n" + b"image data"
+        (self.root / "sample.png").write_bytes(data)
+
+        result = await self.tool.run(path="sample.png")
+
+        self.assertEqual(result.content[1].image, data)
+        self.assertEqual(result.content[1].media_type, "image/png")
+        self.assertIn("ToolOutput", _preview(result))
+        self.assertGreater(_result_metadata(result)["chars"], 0)
+
+    async def test_rejects_non_image_content(self) -> None:
+        (self.root / "sample.png").write_text("not an image", encoding="utf-8")
+
+        with self.assertRaisesRegex(SafetyError, "unsupported image type"):
+            await self.tool.run(path="sample.png")
+
+    def test_detects_webp_by_container_signature(self) -> None:
+        self.assertEqual(
+            detect_image_type(b"RIFF\x00\x00\x00\x00WEBPpayload"),
+            "image/webp",
+        )
 
 
 class CommandOutputTruncationTests(unittest.TestCase):

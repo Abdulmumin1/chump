@@ -33,6 +33,13 @@
         return parts.join(" ");
     });
 
+    let isViewImage = $derived(block.originalToolName === "view_image");
+
+    let imagePath = $derived.by(() => {
+        if (!isViewImage) return "";
+        return String(block.args?.path ?? "");
+    });
+
     let expandedPreview = $derived.by(() => {
         if (block.kind !== "tool-call") {
             return block.text;
@@ -48,6 +55,8 @@
             return [filePath, readFileRange].filter(Boolean).join(" ");
         }
 
+        if (isViewImage) return imagePath;
+
         return stringifyValue(block.args);
     });
 
@@ -55,9 +64,7 @@
         if (block.status === "error") return "Failed";
         if (block.status === "aborted") return "Aborted";
         if (block.status === "completed" || block.hasResult) {
-            return typeof block.duration === "number"
-                ? `${block.duration.toFixed(1)}s`
-                : "";
+            return "";
         }
         if (
             block.status === "streaming" ||
@@ -74,6 +81,29 @@
             block.status === "ready" ||
             block.status === "running",
     );
+
+    let isSessionTool = $derived(
+        block.originalToolName === "list_sessions" ||
+            block.originalToolName === "inspect_session" ||
+            block.originalToolName === "start_session",
+    );
+
+    let sessionToolLabel = $derived.by(() => {
+        if (block.originalToolName === "list_sessions") return "List sessions";
+        if (block.originalToolName === "inspect_session") return "Inspect session";
+        if (block.originalToolName === "start_session") return "Start session";
+        return "Session";
+    });
+
+    let sessionToolDetail = $derived.by(() => {
+        if (!isSessionTool) return "";
+        if (block.originalToolName === "list_sessions") {
+            const page = block.args?.page;
+            return typeof page === "number" && page > 1 ? `page ${page}` : "";
+        }
+        const sessionId = String(block.args?.session_id ?? "");
+        return sessionId || (block.toolName !== block.originalToolName ? block.toolName || "" : "");
+    });
 </script>
 
 {#if block.isDiff}
@@ -81,13 +111,13 @@
 {:else}
     <div>
         <button
-            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-0.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="font-mono text-[11px] font-semibold text-text-highlight"
                         >$</span
                     >
                     <span
@@ -96,7 +126,7 @@
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Read file</span
                     >
                     <span
@@ -111,9 +141,20 @@
                             >{readFileRange}</span
                         >
                     {/if}
+                {:else if isViewImage}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        >View image</span
+                    >
+                    <span
+                        class="flex-1 min-w-0 truncate font-mono text-[10px] md:text-[11px] text-text-secondary"
+                        >{block.toolName !== block.originalToolName
+                            ? block.toolName
+                            : imagePath}</span
+                    >
                 {:else if block.originalToolName === "search"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Search</span
                     >
                     {#if block.args?.query}
@@ -121,7 +162,7 @@
                     {/if}
                 {:else if block.originalToolName === "apply_patch"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Edited</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -132,7 +173,7 @@
                     {/if}
                 {:else if block.originalToolName === "write_file" || block.originalToolName === "create_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Write file</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -143,7 +184,7 @@
                     {/if}
                 {:else if block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Web</span
                     >
                     {#if block.args?.query || block.args?.url}
@@ -151,7 +192,7 @@
                     {/if}
                 {:else if block.originalToolName === "skill" || block.originalToolName === "load_skill"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Skill</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -160,9 +201,20 @@
                             >{(block.toolName || "").replace(/^Skill\s+/i, "")}</span
                         >
                     {/if}
+                {:else if isSessionTool}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        >{sessionToolLabel}</span
+                    >
+                    {#if sessionToolDetail}
+                        <span
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            >{sessionToolDetail}</span
+                        >
+                    {/if}
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >{block.originalToolName || block.toolName || "tool"}</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -192,20 +244,6 @@
                         {statusLabel}
                     </span>
                 {/if}
-                <svg
-                    class="h-4 w-4 transition-transform duration-200 {expanded
-                        ? 'rotate-180'
-                        : '-rotate-90'}"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 9l-7 7-7-7"
-                    ></path></svg
-                >
             </div>
         </button>
 
@@ -239,12 +277,18 @@
                                 </div>
                             {/if}
                         </div>
-                        <pre
-                            class="text-[12px] font-mono leading-relaxed {block.error
-                                ? 'text-error'
-                                : 'text-text-warning'}">{stringifyValue(
-                                block.result,
-                            )}</pre>
+                        {#if isViewImage && !block.error}
+                            <div class="text-[12px] font-mono leading-relaxed text-text-warning">
+                                Image loaded and sent to the model.
+                            </div>
+                        {:else}
+                            <pre
+                                class="text-[12px] font-mono leading-relaxed {block.error
+                                    ? 'text-error'
+                                    : 'text-text-warning'}">{stringifyValue(
+                                    block.result,
+                                )}</pre>
+                        {/if}
                     </div>
                 {/if}
             </div>

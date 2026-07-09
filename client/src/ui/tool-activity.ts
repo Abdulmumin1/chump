@@ -17,7 +17,7 @@ export class ToolActivityRenderer {
     name: string;
     args: string;
     key?: string;
-    preRendered?: boolean;
+    deferredDiffs?: FileEditDiff[];
   }> = [];
   private readonly completedTools = new Set<string>();
   private readonly streamingCalls = new Map<
@@ -75,23 +75,17 @@ export class ToolActivityRenderer {
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
     this.compactToolRunActive = false;
-    // For apply_patch and write_file/create_file, render the diff from args
-    // immediately (used during replay from stored messages where result metadata
-    // is not available). The matching result render will skip via the
-    // preRendered marker, so this is the final visible piece — trailing
-    // blank added.
+    // For apply_patch and write_file/create_file, keep the diff from args
+    // available for replay when result metadata is absent, but do not render it
+    // until the result is known to be successful. Failed edits should not leave
+    // success-looking diffs in the transcript.
     const argsDiff = readArgsDiffs(toolName, payload.args ?? payload.payload);
     if (argsDiff.length > 0) {
-      this.writeLine(
-        `\n${argsDiff.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
-      );
-      this.writeLine("");
-      this.activity = true;
       this.pendingTools.push({
         name: toolName,
         args: renderedArgs,
         key,
-        preRendered: true,
+        deferredDiffs: argsDiff,
       });
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
@@ -222,9 +216,14 @@ export class ToolActivityRenderer {
     }
 
     const pending = this.takePendingTool(toolName, payload);
-    // If already pre-rendered from args (replay: no result metadata available),
-    // skip — the call path already emitted the diff AND its trailing blank.
-    if (pending?.preRendered) {
+    // Replay fallback: if a successful edit has no structured diff metadata,
+    // render the diff captured from the original tool arguments.
+    if (ok === "ok" && pending?.deferredDiffs?.length) {
+      this.compactToolRunActive = false;
+      this.writeLine(
+        `\n${pending.deferredDiffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
+      );
+      this.writeLine("");
       this.activity = true;
       return;
     }
@@ -256,7 +255,7 @@ export class ToolActivityRenderer {
     name: string;
     args: string;
     key?: string;
-    preRendered?: boolean;
+    deferredDiffs?: FileEditDiff[];
   } | null {
     const key = readToolIdentity(payload);
     const index = key
@@ -371,6 +370,8 @@ function semanticToolLabel(toolName: string): string {
   switch (toolName) {
     case "read_file":
       return "Reading file";
+    case "view_image":
+      return "Viewing image";
     case "search":
       return "Searching files";
     case "web_fetch":
@@ -526,10 +527,18 @@ function displayToolName(name: string): string {
     return "web search";
   } else if (name === "read_file") {
     return "Read";
+  } else if (name === "view_image") {
+    return "View image";
   } else if (name === "skill") {
     return "Skill";
   } else if (name === "load_skill") {
     return "Skill";
+  } else if (name === "list_sessions") {
+    return "List sessions";
+  } else if (name === "inspect_session") {
+    return "Inspect session";
+  } else if (name === "start_session") {
+    return "Start session";
   }
   return name;
 }
@@ -553,6 +562,10 @@ export function formatToolArgs(toolName: string, value: unknown): string {
     return [path, range].filter(Boolean).join(" ");
   }
 
+  if (toolName === "view_image") {
+    return typeof args.path === "string" ? args.path : "";
+  }
+
   if (toolName === "bash") {
     return typeof args.command === "string" ? args.command : "";
   }
@@ -570,12 +583,12 @@ export function formatToolArgs(toolName: string, value: unknown): string {
   }
 
   if (toolName === "skill") {
-    const name = typeof args.name === "string" ? args.name : "";
+    const name = skillDisplayName(typeof args.name === "string" ? args.name : "");
     return name;
   }
 
   if (toolName === "load_skill") {
-    const name = typeof args.name === "string" ? args.name : "";
+    const name = skillDisplayName(typeof args.name === "string" ? args.name : "");
     return name;
   }
 
@@ -587,6 +600,26 @@ export function formatToolArgs(toolName: string, value: unknown): string {
       path ? `in ${path}` : null,
     ].filter(Boolean);
     return parts.join(" ");
+  }
+
+  if (toolName === "list_sessions") {
+    const page = typeof args.page === "number" && args.page > 1 ? `page ${args.page}` : "";
+    const limit = typeof args.limit === "number" ? `limit=${args.limit}` : "";
+    return [page, limit].filter(Boolean).join(" ");
+  }
+
+  if (toolName === "inspect_session") {
+    const sessionId = typeof args.session_id === "string" ? args.session_id : "";
+    const messages = args.include_messages === true ? "with messages" : "";
+    return [sessionId, messages].filter(Boolean).join(" ");
+  }
+
+  if (toolName === "start_session") {
+    const sessionId = typeof args.session_id === "string" ? args.session_id : "";
+    const prompt = typeof args.prompt === "string" ? args.prompt.trim().replace(/\s+/g, " ") : "";
+    return [sessionId, prompt ? `“${prompt.slice(0, 80)}${prompt.length > 80 ? "…" : ""}”` : ""]
+      .filter(Boolean)
+      .join(" ");
   }
 
   return compactJson(value);
@@ -718,8 +751,9 @@ function readArgsDiffs(toolName: string, args: unknown): FileEditDiff[] {
   }
   const a = args as Record<string, unknown>;
 
-  if (toolName === "apply_patch" && typeof a.patch_text === "string") {
-    return parsePatchTextDiffs(a.patch_text);
+  const patchText = stringArgument(a, "patch_text", "patchText", "patch");
+  if (toolName === "apply_patch" && patchText) {
+    return parsePatchTextDiffs(patchText);
   }
 
   if (
@@ -855,6 +889,11 @@ function userFacingToolPreview(
     return firstLine;
   }
   return preview;
+}
+
+function skillDisplayName(value: string): string {
+  const match = /<skill_content\s+name=["']([^"']+)["']/.exec(value);
+  return match?.[1]?.trim() || value;
 }
 
 function truncateMultilinePreview(

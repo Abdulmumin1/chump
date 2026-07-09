@@ -83,6 +83,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  removeQueuedDisplay: (content: string) => void;
   setQueuedDisplay: (submissions: PromptSubmission[]) => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
@@ -104,6 +105,7 @@ export function createPromptReader(fallbackRl: Interface | null): {
       },
       close: () => fallbackRl?.close(),
       popQueuedDisplay: () => {},
+      removeQueuedDisplay: () => {},
       setQueuedDisplay: () => {},
       setQueuedLinePopHandler: () => {},
       setModelSuggestions: () => {},
@@ -129,6 +131,7 @@ function createInteractivePromptReader(): {
   read: () => Promise<PromptSubmission | null>;
   close: () => void;
   popQueuedDisplay: () => void;
+  removeQueuedDisplay: (content: string) => void;
   setQueuedDisplay: (submissions: PromptSubmission[]) => void;
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
@@ -870,11 +873,13 @@ function createInteractivePromptReader(): {
   }
 
   function clearDraft(): void {
-    if (value.length === 0) {
+    if (value.length === 0 && attachments.length === 0) {
       return;
     }
     value = "";
     cursor = 0;
+    attachments = attachmentsForDraft(value, attachments);
+    nextImageNumber = 1;
     historyIndex = inputHistory.length;
     slashSelection = 0;
     syncSlashSelection();
@@ -1478,6 +1483,18 @@ function createInteractivePromptReader(): {
       forceRedraw = true;
       requestRedraw();
     },
+    removeQueuedDisplay(content: string) {
+      const normalized = content.trim();
+      const index = queuedDisplay.findIndex(
+        (submission) => submission.text.trim() === normalized,
+      );
+      if (index === -1) {
+        return;
+      }
+      queuedDisplay.splice(index, 1);
+      forceRedraw = true;
+      requestRedraw();
+    },
     setQueuedDisplay(submissions: PromptSubmission[]) {
       queuedDisplay = [...submissions];
       forceRedraw = true;
@@ -1611,6 +1628,13 @@ function formatSubmissionPreview(submission: PromptSubmission): string {
     pastes > 0 ? `${pastes} paste${pastes === 1 ? "" : "s"}` : "",
   ].filter(Boolean).join(" ");
   return [text, suffix].filter(Boolean).join(" ");
+}
+
+export function attachmentsForDraft(
+  value: string,
+  attachments: ChatAttachment[],
+): ChatAttachment[] {
+  return attachments.filter((attachment) => value.includes(attachment.label));
 }
 
 function findAttachmentLabelRange(

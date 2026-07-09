@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { StoredMessage } from "$lib/chump/types";
-import { applyLiveEventToMessages } from "$lib/chat/events";
+import {
+    applyLiveEventToMessages,
+    removeSteeredQueueItem,
+} from "$lib/chat/events";
 import { buildTranscript } from "$lib/chat/transcript";
 
 function apply(
@@ -365,5 +368,63 @@ describe("live tool lifecycle events", () => {
             result: "second output",
             hasResult: true,
         });
+    });
+
+    it("replays loaded skills without exposing skill content", () => {
+        const skillContent =
+            '<skill_content name="svelte-code-writer">\\n# Svelte 5\\n</skill_content>';
+        const messages: StoredMessage[] = [
+            {
+                role: "assistant",
+                content: [
+                    {
+                        type: "tool_call",
+                        tool_call: {
+                            id: "call_skill",
+                            name: "skill",
+                            arguments: { name: skillContent },
+                        },
+                    },
+                ],
+            },
+            {
+                role: "tool",
+                content: [
+                    {
+                        type: "tool_result",
+                        tool_result: {
+                            tool_call_id: "call_skill",
+                            tool_name: "skill",
+                            result: skillContent,
+                            is_error: false,
+                        },
+                    },
+                ],
+            },
+        ];
+
+        const block = buildTranscript(messages)[0]?.blocks[0];
+
+        expect(block).toMatchObject({
+            toolName: "Skill svelte-code-writer",
+            result: "Loaded skill: svelte-code-writer",
+            hasResult: true,
+        });
+        expect(JSON.stringify(block)).not.toContain("<skill_content");
+    });
+
+    it("removes a queued steering item when its user message is accepted", () => {
+        const queue = [
+            { content: "first", display_content: "first" },
+            { content: "second", display_content: "second" },
+        ];
+
+        expect(
+            removeSteeredQueueItem(queue, {
+                content: "second",
+                display_content: "second",
+                steered: true,
+            }),
+        ).toEqual([{ content: "first", display_content: "first" }]);
     });
 });

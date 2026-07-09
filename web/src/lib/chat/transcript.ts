@@ -274,8 +274,11 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
 
     if (kind === "tool_call") {
         const toolCall = asRecord(candidate.tool_call);
-        const args = asArgsRecord(toolCall?.arguments ?? {});
+        let args = asArgsRecord(toolCall?.arguments ?? {});
         const toolName = asString(toolCall?.name) || "tool";
+        if (isSkillTool(toolName)) {
+            args = normalizeSkillArgs(args);
+        }
         let isDiff = false;
         let diffContent = "";
         let headerTitle = toolName;
@@ -283,7 +286,11 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
         if (toolName === "bash" || toolName === "execute_command") {
             const command = asString(args.command) || asString(args.cmd) || "";
             if (command) headerTitle = `$ ${command}`;
-        } else if (toolName === "read_file" || toolName === "view_file") {
+        } else if (
+            toolName === "read_file" ||
+            toolName === "view_file" ||
+            toolName === "view_image"
+        ) {
             const file = asString(args.file_path) || asString(args.path) || "";
             if (file) headerTitle = file.split("/").pop() || file;
         } else if (
@@ -296,7 +303,15 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
             if (file) headerTitle = file.split("/").pop() || file;
         } else if (toolName === "skill" || toolName === "load_skill") {
             const name = asString(args.name) || "";
-            if (name) headerTitle = `Skill ${name}`;
+            if (name) headerTitle = `Skill ${skillDisplayName(name)}`;
+        } else if (toolName === "list_sessions") {
+            headerTitle = "List sessions";
+        } else if (toolName === "inspect_session") {
+            const sessionId = asString(args.session_id) || "";
+            headerTitle = sessionId ? `Inspect ${sessionId}` : "Inspect session";
+        } else if (toolName === "start_session") {
+            const sessionId = asString(args.session_id) || "";
+            headerTitle = sessionId ? `Start ${sessionId}` : "Start session";
         }
 
         if (
@@ -345,12 +360,15 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
     if (kind === "tool_result") {
         const toolResult = asRecord(candidate.tool_result);
         const toolName = asString(toolResult?.tool_name) || "tool";
+        const result = isSkillTool(toolName)
+            ? loadedSkillPreview(toolResult?.result)
+            : toolResult?.result;
         return {
             kind: "tool-result",
             toolCallId: asString(toolResult?.tool_call_id),
-            text: stringifyValue(toolResult?.result),
+            text: stringifyValue(result),
             error: toolResult?.is_error === true,
-            result: toolResult?.result,
+            result,
             metadata: asRecord(toolResult?.metadata) ?? undefined,
             status: toolResult?.status as TranscriptBlock["status"],
             duration:
@@ -378,6 +396,27 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
     }
 
     return { kind: "text", text: stringifyValue(part) };
+}
+
+function isSkillTool(toolName: string): boolean {
+    return toolName === "skill" || toolName === "load_skill";
+}
+
+function skillDisplayName(value: string): string {
+    const match = /<skill_content\s+name=["']([^"']+)["']/.exec(value);
+    return match?.[1]?.trim() || value;
+}
+
+function normalizeSkillArgs(args: Record<string, unknown>): Record<string, unknown> {
+    const rawName = asString(args.name);
+    const displayName = skillDisplayName(rawName);
+    return displayName === rawName ? args : { ...args, name: displayName };
+}
+
+function loadedSkillPreview(value: unknown): string {
+    const raw = asString(value);
+    const name = skillDisplayName(raw);
+    return name && name !== raw ? `Loaded skill: ${name}` : "Loaded skill.";
 }
 
 function formatRole(role: string): string {

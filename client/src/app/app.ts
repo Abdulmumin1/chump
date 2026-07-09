@@ -349,6 +349,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       activeSteerHandler = handler;
     },
     popQueuedLine: () => lineQueue.popLast(),
+    removeQueuedDisplay: (content) => promptReader.removeQueuedDisplay(content),
   });
 
   const refreshCliHydration = async (): Promise<void> => {
@@ -438,7 +439,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
   if (options.sessionId) {
-    await renderSwitchedSession(
+    const switchedStatus = await renderSwitchedSession(
       config,
       shareManager,
       (footer) => promptReader.setFooter(footer),
@@ -450,6 +451,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         skipEmptyTranscript: true,
       },
     );
+    sharedTurnSync.applyTurnStatus({
+      running: switchedStatus.turn_running === true,
+      steering_queue: switchedStatus.steering_queue ?? [],
+    });
     promptReader.setSkillSuggestions((await getHealth(config)).skills);
   }
 
@@ -475,6 +480,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
+        setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -515,6 +521,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
+        setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           closeEventStream = await startEventStream(nextConfig);
@@ -541,7 +548,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
             (handler) => {
               activeSteerHandler = handler;
             },
-            () => promptReader.popQueuedDisplay(),
+            (content) => promptReader.removeQueuedDisplay(content),
             (handler) => {
               promptReader.setQueuedLinePopHandler(
                 handler
@@ -573,7 +580,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         (handler) => {
           activeSteerHandler = handler;
         },
-        () => promptReader.popQueuedDisplay(),
+        (content) => promptReader.removeQueuedDisplay(content),
         (handler) => {
           promptReader.setQueuedLinePopHandler(
             handler
@@ -1049,7 +1056,7 @@ async function runChatTurn(
   setStatus: (status: string | null) => void,
   setAbortHandler: (handler: (() => void) | null) => void,
   setSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void,
-  popSteeredDisplay: () => void,
+  popSteeredDisplay: (content: string) => void,
   setQueuedLinePopHandler: (handler: (() => void) | null) => void,
   requeueSteeredSubmission: (submission: PromptSubmission) => void,
 ): Promise<void> {
@@ -1078,7 +1085,7 @@ async function runChatTurn(
   setQueuedLinePopHandler(popPendingSteeringSubmission);
   setSteeringAcceptedHook((content) => {
     removePendingSteeringSubmission(content);
-    popSteeredDisplay();
+    popSteeredDisplay(content);
   });
   setSteerHandler(async (nextSubmission) => {
     const result = await withManagedServerRecovery(() => steerCurrentTurn(
@@ -1281,6 +1288,7 @@ function createSharedTurnSync(options: {
   getActiveSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null;
   setActiveSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void;
   popQueuedLine: () => PromptSubmission | null;
+  removeQueuedDisplay: (content: string) => void;
 }): {
   install: () => void;
   dispose: () => void;
@@ -1347,6 +1355,9 @@ function createSharedTurnSync(options: {
 
   const install = (): void => {
     setTurnStatusHook(applyTurnStatus);
+    setSteeringAcceptedHook((content) => {
+      options.removeQueuedDisplay(content);
+    });
     setReasoningActivityHook((payload) => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
@@ -1376,6 +1387,7 @@ function createSharedTurnSync(options: {
   const dispose = (): void => {
     activityStatus.stop();
     setTurnStatusHook(null);
+    setSteeringAcceptedHook(null);
     setReasoningActivityHook(null);
     setToolActivityHook(null);
     setToolCallStreamHook(null);
@@ -1540,6 +1552,7 @@ async function handleSlashCommand(
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
     setSkillSuggestions: (skills: Awaited<ReturnType<typeof getHealth>>["skills"]) => void;
+    setRemoteTurnStatus: (payload: Record<string, unknown>) => void;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
@@ -1672,7 +1685,7 @@ async function handleSlashCommand(
         const currentStatus = await getStatus(config);
         clearTerminal();
         writeOutput(`${renderBanner(config, { workspaceRoot: currentStatus.workspace_root })}\n`);
-        await renderSwitchedSession(
+        const switchedStatus = await renderSwitchedSession(
           config,
           context.shareManager,
           context.setFooter,
@@ -1682,6 +1695,10 @@ async function handleSlashCommand(
             skipEmptyTranscript: true,
           },
         );
+        context.setRemoteTurnStatus({
+          running: switchedStatus.turn_running === true,
+          steering_queue: switchedStatus.steering_queue ?? [],
+        });
         context.setSkillSuggestions((await getHealth(config)).skills);
         break;
       }
@@ -1690,13 +1707,17 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(
+      const switchedStatus = await renderSwitchedSession(
         config,
         context.shareManager,
         context.setFooter,
         context.setRuleBadge,
         context.setSessionSuggestions,
       );
+      context.setRemoteTurnStatus({
+        running: switchedStatus.turn_running === true,
+        steering_queue: switchedStatus.steering_queue ?? [],
+      });
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -1710,13 +1731,17 @@ async function handleSlashCommand(
       closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      await renderSwitchedSession(
+      const switchedStatus = await renderSwitchedSession(
         config,
         context.shareManager,
         context.setFooter,
         context.setRuleBadge,
         context.setSessionSuggestions,
       );
+      context.setRemoteTurnStatus({
+        running: switchedStatus.turn_running === true,
+        steering_queue: switchedStatus.steering_queue ?? [],
+      });
       context.setSkillSuggestions((await getHealth(config)).skills);
       break;
     }
@@ -1755,7 +1780,7 @@ async function renderSwitchedSession(
   setRuleBadge: (badge: string | null) => void,
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
   options: { skipEmptyTranscript?: boolean } = {},
-): Promise<void> {
+): Promise<Awaited<ReturnType<typeof getStatus>>> {
   const [health, status, response, sessions] = await Promise.all([
     getHealth(config),
     getStatus(config),
@@ -1766,9 +1791,10 @@ async function renderSwitchedSession(
   setRuleBadge(await renderInputBadge(status));
   setSessionSuggestions(sessions.sessions);
   if (options.skipEmptyTranscript && response.messages.length === 0) {
-    return;
+    return status;
   }
   renderSessionTranscript(response.messages);
+  return status;
 }
 
 function renderFooter(

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ToolActivityRenderer } from "./tool-activity.ts";
-import { transcriptEventFromSse } from "./transcript.ts";
+import {
+  transcriptEventFromSse,
+  transcriptEventsFromStoredMessages,
+} from "./transcript.ts";
 
 test("renders consecutive searches as a compact run without blank lines", () => {
   const output: string[] = [];
@@ -97,12 +100,142 @@ test("uses present-tense semantic labels for live tool activity", () => {
   });
   assert.match(reading ?? "", /Reading file.*src\/app\.ts/);
 
+  const viewing = renderer.renderToolCallStream({
+    call_id: "call_image",
+    name: "view_image",
+    arguments_delta: '{"path":".chump/tmp/sign.jpeg"}',
+  });
+  assert.match(viewing ?? "", /Viewing image.*\.chump\/tmp\/sign\.jpeg/);
+
   const searching = renderer.renderToolCallStream({
     call_id: "call_search",
     name: "search",
     arguments_delta: '{"query":"spinner","path":"client"}',
   });
   assert.match(searching ?? "", /Searching files.*spinner.*client/);
+});
+
+test("renders view_image as a semantic completed tool", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "view_image",
+    args: { path: ".chump/tmp/sign.jpeg" },
+    call_id: "call_image",
+  });
+  renderer.renderToolResult({
+    name: "view_image",
+    status: "ok",
+    preview: "ToolOutput(text=1, image=1, file=0)",
+    call_id: "call_image",
+  });
+
+  assert.match(output.at(-2) ?? "", /View image.*\.chump\/tmp\/sign\.jpeg/);
+});
+
+test("replays loaded skills without dumping skill content", () => {
+  const skillContent = '<skill_content name="svelte-code-writer">\\n# Svelte 5\\n</skill_content>';
+
+  const events = transcriptEventsFromStoredMessages([
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          tool_call: {
+            id: "call_skill",
+            name: "skill",
+            arguments: { name: skillContent },
+          },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool_result",
+          tool_result: {
+            tool_call_id: "call_skill",
+            tool_name: "skill",
+            result: skillContent,
+            is_error: false,
+          },
+        },
+      ],
+    },
+  ]);
+
+  assert.deepEqual(events, [
+    {
+      type: "tool_call",
+      payload: {
+        name: "skill",
+        args: { name: "svelte-code-writer" },
+        call_id: "call_skill",
+        step: undefined,
+        index: undefined,
+      },
+    },
+    {
+      type: "tool_result",
+      payload: {
+        name: "skill",
+        ok: true,
+        status: "ok",
+        preview: "Loaded skill: svelte-code-writer",
+        call_id: "call_skill",
+        step: undefined,
+        index: undefined,
+      },
+    },
+  ]);
+});
+
+test("does not render argument diff for failed edit results", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "apply_patch",
+    args: {
+      patch: "*** Update File: demo.txt\n@@\n-old\n+new",
+    },
+    call_id: "call_patch",
+  });
+  renderer.renderToolResult({
+    name: "apply_patch",
+    status: "error",
+    preview: "patch failed",
+    call_id: "call_patch",
+  });
+
+  assert.doesNotMatch(output.join("\n"), /demo\.txt|old|new/);
+  assert.match(output.join("\n"), /patch failed/);
+});
+
+test("renders deferred argument diff for successful edit replay", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "apply_patch",
+    args: {
+      patch: "*** Update File: demo.txt\n@@\n-old\n+new",
+    },
+    call_id: "call_patch",
+  });
+  renderer.renderToolResult({
+    name: "apply_patch",
+    status: "ok",
+    preview: "Done",
+    call_id: "call_patch",
+  });
+
+  assert.match(output.join("\n"), /demo\.txt/);
+  assert.match(output.join("\n"), /old/);
+  assert.match(output.join("\n"), /new/);
 });
 
 test("correlates reverse-completing same-name tools by lifecycle identity", () => {
