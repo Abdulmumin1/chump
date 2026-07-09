@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.12
+
+### Patch Changes
+
+- Keep resumed CLI/web transcripts from dumping loaded skill content, show edit diffs only after successful edit results, and preserve the web working indicator when reconnecting to a running session.
+
 ## 0.1.11
 
 ### Patch Changes

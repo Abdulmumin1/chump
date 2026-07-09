@@ -223,8 +223,7 @@ export function createSessionController(
                 return;
             }
 
-            state.status = nextStatus;
-            state.isSending = nextStatus.turn_running === true;
+            applyStatus(nextStatus);
             state.steeringQueue = parseSteeringQueue({
                 items: nextStatus.steering_queue ?? [],
             });
@@ -439,7 +438,7 @@ export function createSessionController(
         }
 
         if (event.event === "agent_status" && payload) {
-            state.status = payload as ChumpStatus;
+            applyStatus(payload as ChumpStatus);
             return;
         }
 
@@ -510,6 +509,13 @@ export function createSessionController(
             state.activeSessionId === sessionId &&
             state.streamToken === currentStreamToken
         );
+    }
+
+    function applyStatus(nextStatus: ChumpStatus): void {
+        state.status = nextStatus;
+        if (nextStatus.turn_running === true) {
+            state.isSending = true;
+        }
     }
 
     return {
