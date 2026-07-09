@@ -38,7 +38,7 @@
                     onclick={() => onToggleReasoning(`${item.id}-${index}`, isSending && itemIndex === transcriptLength - 1)}
                 >
                     <div
-                        class="mb-2 flex min-w-0 items-center gap-3 text-text-secondary"
+                        class="flex min-w-0 items-center gap-3 text-text-secondary"
                     >
                         <svg
                             class="h-5 w-5 flex-shrink-0 text-text-highlight"

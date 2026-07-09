@@ -90,13 +90,13 @@
 {:else}
     <div>
         <button
-            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-0.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="font-mono text-[11px] font-semibold text-text-highlight"
                         >$</span
                     >
                     <span
@@ -105,7 +105,7 @@
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Read file</span
                     >
                     <span
@@ -122,7 +122,7 @@
                     {/if}
                 {:else if isViewImage}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >View image</span
                     >
                     <span
@@ -133,7 +133,7 @@
                     >
                 {:else if block.originalToolName === "search"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Search</span
                     >
                     {#if block.args?.query}
@@ -141,7 +141,7 @@
                     {/if}
                 {:else if block.originalToolName === "apply_patch"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Edited</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -152,7 +152,7 @@
                     {/if}
                 {:else if block.originalToolName === "write_file" || block.originalToolName === "create_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Write file</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -163,7 +163,7 @@
                     {/if}
                 {:else if block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Web</span
                     >
                     {#if block.args?.query || block.args?.url}
@@ -171,7 +171,7 @@
                     {/if}
                 {:else if block.originalToolName === "skill" || block.originalToolName === "load_skill"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >Skill</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -182,7 +182,7 @@
                     {/if}
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
                         >{block.originalToolName || block.toolName || "tool"}</span
                     >
                     {#if block.toolName !== block.originalToolName}

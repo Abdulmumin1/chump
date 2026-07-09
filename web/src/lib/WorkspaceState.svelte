@@ -22,6 +22,22 @@
         onRequestCreatePr?: () => void;
     }>();
 
+    let isCollapsed = $state(
+        browser
+            ? localStorage.getItem("workspace-panel-collapsed") === "true"
+            : false,
+    );
+
+    function toggleCollapse() {
+        isCollapsed = !isCollapsed;
+        if (browser) {
+            localStorage.setItem(
+                "workspace-panel-collapsed",
+                String(isCollapsed),
+            );
+        }
+    }
+
     let modalOpen = $state(false);
     let selectedPath: string | null = $state(null);
     let userClosedDiff = $state(false);
@@ -71,8 +87,12 @@
     );
     let filesCount = $derived(filteredFiles.length);
     let totalChangesCount = $derived(groupedFiles.length);
-    let totalAdded = $derived(groupedFiles.reduce((sum, file) => sum + file.added, 0));
-    let totalRemoved = $derived(groupedFiles.reduce((sum, file) => sum + file.removed, 0));
+    let totalAdded = $derived(
+        groupedFiles.reduce((sum, file) => sum + file.added, 0),
+    );
+    let totalRemoved = $derived(
+        groupedFiles.reduce((sum, file) => sum + file.removed, 0),
+    );
 
     let selectedFile = $derived(
         filteredFiles.find((file) => file.path === selectedPath) ?? null,
@@ -113,14 +133,21 @@
     // Only auto-select on desktop to avoid locking mobile users into a diff view
     $effect(() => {
         if (!browser) return;
-        if (window.innerWidth > 768 && !selectedPath && filteredFiles.length > 0 && !userClosedDiff) {
+        if (
+            window.innerWidth > 768 &&
+            !selectedPath &&
+            filteredFiles.length > 0 &&
+            !userClosedDiff
+        ) {
             selectedPath = filteredFiles[0].path;
         }
     });
 
     function buildFileGroups(currentState: ChumpState | null): FileGroup[] {
         const grouped = new Map<string, FileGroup>();
-        const changeRecords = normalizeChangeRecords(currentState?.change_records);
+        const changeRecords = normalizeChangeRecords(
+            currentState?.change_records,
+        );
 
         changeRecords.forEach((record, index) => {
             const existing = grouped.get(record.path);
@@ -232,7 +259,10 @@
     }
 
     function selectNextFile(): void {
-        if (selectedFileIndex < 0 || selectedFileIndex >= filteredFiles.length - 1)
+        if (
+            selectedFileIndex < 0 ||
+            selectedFileIndex >= filteredFiles.length - 1
+        )
             return;
         const path = filteredFiles[selectedFileIndex + 1]?.path;
         if (path) openFile(path);
@@ -355,39 +385,63 @@
             record.kind === "add"
                 ? "/dev/null"
                 : record.source_path || record.path;
-        const afterPath =
-            record.kind === "delete" ? "/dev/null" : nextPath;
+        const afterPath = record.kind === "delete" ? "/dev/null" : nextPath;
 
         return [`--- ${prevPath}`, `+++ ${afterPath}`, ...body].join("\n");
     }
-
 </script>
 
 {#snippet diffPanel()}
-    <div class="flex min-w-0 flex-1 flex-col bg-bg-surface h-full overflow-hidden">
-        <div class="flex items-center justify-between border-b border-border-subtle px-4 md:px-6 py-2 md:py-3 shrink-0 bg-bg-surface">
+    <div
+        class="flex min-w-0 flex-1 flex-col bg-bg-surface h-full overflow-hidden"
+    >
+        <div
+            class="flex items-center justify-between border-b border-border-subtle px-4 md:px-6 py-2 md:py-3 shrink-0 bg-bg-surface"
+        >
             <div class="flex items-center gap-3 min-w-0">
                 <button
                     class="md:hidden p-1 -ml-2 text-text-tertiary active:bg-bg-hover rounded-full"
                     aria-label="Back to file list"
-                    onclick={() => selectedPath = null}
+                    onclick={() => (selectedPath = null)}
                 >
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    <svg
+                        class="w-5 h-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M15 19l-7-7 7-7"
+                        />
                     </svg>
                 </button>
-                <div class="truncate font-mono text-[11px] md:text-[13px] font-medium text-text-main">
+                <div
+                    class="truncate font-mono text-[11px] md:text-[13px] font-medium text-text-main"
+                >
                     All changes
                 </div>
-                <div class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex">
-                    {#if totalAdded > 0}<span class="text-text-success">+{totalAdded}</span>{/if}
-                    {#if totalRemoved > 0}<span class="text-text-error">-{totalRemoved}</span>{/if}
+                <div
+                    class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex"
+                >
+                    {#if totalAdded > 0}<span class="text-text-success"
+                            >+{totalAdded}</span
+                        >{/if}
+                    {#if totalRemoved > 0}<span class="text-text-error"
+                            >-{totalRemoved}</span
+                        >{/if}
                     <span class="text-text-tertiary">~{totalChangesCount}</span>
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <div class="md:hidden text-[10px] text-text-tertiary font-mono tabular-nums">
-                    {selectedFileIndex >= 0 ? selectedFileIndex + 1 : 0}/{filteredFiles.length}
+                <div
+                    class="md:hidden text-[10px] text-text-tertiary font-mono tabular-nums"
+                >
+                    {selectedFileIndex >= 0
+                        ? selectedFileIndex + 1
+                        : 0}/{filteredFiles.length}
                 </div>
                 <button
                     type="button"
@@ -396,24 +450,51 @@
                     disabled={selectedFileIndex <= 0}
                     aria-label="Previous changed file"
                 >
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    <svg
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M15 19l-7-7 7-7"
+                        />
                     </svg>
                 </button>
                 <button
                     type="button"
                     class="md:hidden h-7 w-7 flex items-center justify-center rounded border border-border-default text-text-tertiary disabled:opacity-35"
                     onclick={selectNextFile}
-                    disabled={selectedFileIndex < 0 || selectedFileIndex >= filteredFiles.length - 1}
+                    disabled={selectedFileIndex < 0 ||
+                        selectedFileIndex >= filteredFiles.length - 1}
                     aria-label="Next changed file"
                 >
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    <svg
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M9 5l7 7-7 7"
+                        />
                     </svg>
                 </button>
-                <div class="flex items-center gap-3 font-mono text-[12px] md:hidden">
-                    {#if totalAdded > 0}<span class="text-text-success">+{totalAdded}</span>{/if}
-                    {#if totalRemoved > 0}<span class="text-text-error">-{totalRemoved}</span>{/if}
+                <div
+                    class="flex items-center gap-3 font-mono text-[12px] md:hidden"
+                >
+                    {#if totalAdded > 0}<span class="text-text-success"
+                            >+{totalAdded}</span
+                        >{/if}
+                    {#if totalRemoved > 0}<span class="text-text-error"
+                            >-{totalRemoved}</span
+                        >{/if}
                     <span class="text-text-tertiary">~{totalChangesCount}</span>
                 </div>
                 {#if isLargeScreen}
@@ -421,10 +502,23 @@
                         type="button"
                         aria-label="Close diff"
                         class="hidden md:flex rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary ml-2"
-                        onclick={() => { selectedPath = null; userClosedDiff = true; }}
+                        onclick={() => {
+                            selectedPath = null;
+                            userClosedDiff = true;
+                        }}
                     >
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 6l12 12M18 6L6 18"></path>
+                        <svg
+                            class="h-4 w-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="1.8"
+                                d="M6 6l12 12M18 6L6 18"
+                            ></path>
                         </svg>
                     </button>
                 {/if}
@@ -432,9 +526,14 @@
         </div>
 
         {#if stackedFiles.length > 0}
-            <div class="md:hidden flex flex-col gap-3 border-b border-border-subtle px-5 py-3 shrink-0">
+            <div
+                class="md:hidden flex flex-col gap-3 border-b border-border-subtle px-5 py-3 shrink-0"
+            >
                 <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">Text Size</span>
+                    <span
+                        class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary"
+                        >Text Size</span
+                    >
                     <button
                         type="button"
                         class="text-[10px] font-mono text-text-tertiary hover:text-text-main transition-colors"
@@ -444,10 +543,20 @@
                     </button>
                 </div>
                 <div class="relative w-full h-6 flex items-center">
-                    <div class="absolute inset-0 flex items-center justify-between px-[7px] pointer-events-none">
+                    <div
+                        class="absolute inset-0 flex items-center justify-between px-[7px] pointer-events-none"
+                    >
                         {#each Array(21) as _, i (i)}
-                            {@const val = 9 + (i / 4)}
-                            <div class="w-[1.5px] rounded-full transition-colors duration-150 {i % 4 === 0 ? 'h-3.5' : 'h-1.5'} {mobileDiffFontSize >= val ? 'bg-text-main' : 'bg-border-default'}"></div>
+                            {@const val = 9 + i / 4}
+                            <div
+                                class="w-[1.5px] rounded-full transition-colors duration-150 {i %
+                                    4 ===
+                                0
+                                    ? 'h-3.5'
+                                    : 'h-1.5'} {mobileDiffFontSize >= val
+                                    ? 'bg-text-main'
+                                    : 'bg-border-default'}"
+                            ></div>
                         {/each}
                     </div>
                     <input
@@ -463,9 +572,13 @@
             </div>
         {/if}
 
-        <div class="min-h-0 flex-1 overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0">
+        <div
+            class="min-h-0 flex-1 overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0"
+        >
             {#if stackedFiles.length === 0}
-                <div class="flex h-full items-center justify-center text-[13px] text-text-tertiary">
+                <div
+                    class="flex h-full items-center justify-center text-[13px] text-text-tertiary"
+                >
                     Summary counts available. Full diffs for new edits.
                 </div>
             {:else}
@@ -475,25 +588,43 @@
                             class="scroll-mt-0 border-b-4 border-border-subtle"
                             data-workspace-diff-path={file.path}
                         >
-                            <div class="sticky top-0 z-10 flex items-center justify-between border-b border-border-subtle bg-bg-surface px-4 py-2 md:px-6">
-                                <div class="min-w-0 truncate font-mono text-[11px] font-medium text-text-main md:text-[13px]">
+                            <div
+                                class="sticky top-0 z-10 flex items-center justify-between border-b border-border-subtle bg-bg-surface px-4 py-2 md:px-6"
+                            >
+                                <div
+                                    class="min-w-0 truncate font-mono text-[11px] font-medium text-text-main md:text-[13px]"
+                                >
                                     {file.path}
                                 </div>
-                                <div class="ml-4 flex shrink-0 items-center gap-3 font-mono text-[11px]">
-                                    {#if file.added > 0}<span class="text-text-success">+{file.added}</span>{/if}
-                                    {#if file.removed > 0}<span class="text-text-error">-{file.removed}</span>{/if}
+                                <div
+                                    class="ml-4 flex shrink-0 items-center gap-3 font-mono text-[11px]"
+                                >
+                                    {#if file.added > 0}<span
+                                            class="text-text-success"
+                                            >+{file.added}</span
+                                        >{/if}
+                                    {#if file.removed > 0}<span
+                                            class="text-text-error"
+                                            >-{file.removed}</span
+                                        >{/if}
                                 </div>
                             </div>
                             {#each file.records as record, index (`${file.path}-${index}`)}
                                 <div>
-                                    <div class="flex items-center justify-between bg-bg-elevated/40 px-6 py-1.5 border-b border-border-subtle">
-                                        <div class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">
+                                    <div
+                                        class="flex items-center justify-between bg-bg-elevated/40 px-6 py-1.5 border-b border-border-subtle"
+                                    >
+                                        <div
+                                            class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary"
+                                        >
                                             {describeKind(record)}
                                         </div>
                                     </div>
                                     {#if file.recordDiffFiles[index] && file.recordDiffFiles[index].length > 0}
                                         {#each file.recordDiffFiles[index] as fileDiff, fileIndex (`${fileDiff.name}-${fileIndex}`)}
-                                            <div class="overflow-hidden bg-bg-code-block">
+                                            <div
+                                                class="overflow-hidden bg-bg-code-block"
+                                            >
                                                 <PierreDiff
                                                     file={fileDiff}
                                                     theme={appTheme}
@@ -507,13 +638,30 @@
                                             class="overflow-x-auto font-mono leading-5 md:leading-6 bg-bg-surface py-1 md:py-2 diff-mobile-scale"
                                             style={`--mobile-diff-font-size:${mobileDiffFontSize}px`}
                                         >
-                                            <table class="w-full border-collapse">
+                                            <table
+                                                class="w-full border-collapse"
+                                            >
                                                 <tbody>
                                                     {#each buildRows(record) as row (`${row.kind}-${row.oldLine ?? ""}-${row.newLine ?? ""}-${row.text}`)}
-                                                        <tr class="{lineClass(row.kind)} hover:bg-bg-hover/20 transition-colors group">
-                                                            <td class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30">{row.oldLine ?? ""}</td>
-                                                            <td class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30">{row.newLine ?? ""}</td>
-                                                            <td class="whitespace-pre px-3 md:px-4">{row.text}</td>
+                                                        <tr
+                                                            class="{lineClass(
+                                                                row.kind,
+                                                            )} hover:bg-bg-hover/20 transition-colors group"
+                                                        >
+                                                            <td
+                                                                class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30"
+                                                                >{row.oldLine ??
+                                                                    ""}</td
+                                                            >
+                                                            <td
+                                                                class="w-8 md:w-10 select-none pr-2 md:pr-3 text-right text-text-tertiary/30 border-r border-border-subtle/30"
+                                                                >{row.newLine ??
+                                                                    ""}</td
+                                                            >
+                                                            <td
+                                                                class="whitespace-pre px-3 md:px-4"
+                                                                >{row.text}</td
+                                                            >
                                                         </tr>
                                                     {/each}
                                                 </tbody>
@@ -530,13 +678,21 @@
     </div>
 {/snippet}
 
-{#if isLargeScreen && selectedPath && selectedFile}
-    <div class="hidden lg:flex flex-col h-full flex-1 min-w-[550px] border-l border-border-subtle bg-bg-surface text-text-main">
+{#if isLargeScreen && selectedPath && selectedFile && !isCollapsed}
+    <div
+        class="hidden lg:flex flex-col h-full flex-1 min-w-[550px] border-l border-border-subtle bg-bg-surface text-text-main"
+    >
         {@render diffPanel()}
     </div>
 {/if}
 
-<aside class="hidden md:flex h-full w-[420px] flex-shrink-0 flex-col border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all">
+<aside
+    class="hidden md:flex h-full flex-shrink-0 flex-col border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all duration-200"
+    class:w-[420px]={!isCollapsed}
+    class:w-0={isCollapsed}
+    class:overflow-hidden={isCollapsed}
+    class:border-l-0={isCollapsed}
+>
     <div class="border-b border-border-subtle px-4 py-2.5">
         <div class="flex min-w-0 items-center gap-3">
             <div class="flex items-center gap-1.5">
@@ -546,8 +702,18 @@
                     onclick={onRequestCommitPush}
                     disabled={!onRequestCommitPush || totalChangesCount === 0}
                 >
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5 12l4 4L19 6" />
+                    <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="1.9"
+                            d="M5 12l4 4L19 6"
+                        />
                     </svg>
                     Commit & Push
                 </button>
@@ -557,8 +723,18 @@
                     onclick={onRequestCreatePr}
                     disabled={!onRequestCreatePr}
                 >
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M7 7h7m0 0v7m0-7L5 16m10-1h4v4h-4z" />
+                    <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="1.9"
+                            d="M7 7h7m0 0v7m0-7L5 16m10-1h4v4h-4z"
+                        />
                     </svg>
                     Create PR
                 </button>
@@ -571,21 +747,42 @@
                     onclick={selectPreviousFile}
                     disabled={selectedFileIndex <= 0}
                 >
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 14l5-5 5 5" />
+                    <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M7 14l5-5 5 5"
+                        />
                     </svg>
                 </button>
                 <button
                     class="workspace-icon-button"
                     aria-label="Next changed file"
                     onclick={selectNextFile}
-                    disabled={selectedFileIndex < 0 || selectedFileIndex >= filteredFiles.length - 1}
+                    disabled={selectedFileIndex < 0 ||
+                        selectedFileIndex >= filteredFiles.length - 1}
                 >
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 10l5 5 5-5" />
+                    <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M7 10l5 5 5-5"
+                        />
                     </svg>
                 </button>
-                <button
+                <!-- <button
                     class="workspace-icon-button"
                     aria-label={selectedPath ? "Hide diff view" : "Show diff view"}
                     onclick={() => {
@@ -601,17 +798,46 @@
                     <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 5h16v14H4zM13 5v14" />
                     </svg>
-                </button>
+                </button> -->
                 <button
                     class="workspace-icon-button"
                     aria-label="Search changes"
                     onclick={() => {
-                        const input = document.getElementById('changes-search');
+                        const input = document.getElementById("changes-search");
                         input?.focus();
                     }}
                 >
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2.2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        />
+                    </svg>
+                </button>
+                <button
+                    class="workspace-icon-button"
+                    aria-label="Collapse workspace panel"
+                    onclick={toggleCollapse}
+                >
+                    <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="1.8"
+                            d="M4 5h16v14H4zM16 5v14"
+                        />
                     </svg>
                 </button>
             </div>
@@ -628,13 +854,23 @@
                 class="w-full bg-bg-elevated/40 border border-transparent focus:border-border-default rounded-md px-2 py-1 text-[11px] outline-none transition-all placeholder:text-text-muted/60"
             />
             {#if searchQuery}
-                <button 
+                <button
                     class="absolute right-2 text-text-tertiary hover:text-text-main"
                     aria-label="Clear search"
-                    onclick={() => searchQuery = ""}
+                    onclick={() => (searchQuery = "")}
                 >
-                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
+                    <svg
+                        class="w-3 h-3"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2.5"
+                            d="M6 18L18 6M6 6l12 12"
+                        />
                     </svg>
                 </button>
             {/if}
@@ -645,13 +881,14 @@
         {#if filesCount === 0}
             <div class="px-4 py-12 text-center">
                 <div class="text-[11px] font-medium text-text-tertiary">
-                    {searchQuery ? 'No matching files' : 'No files modified'}
+                    {searchQuery ? "No matching files" : "No files modified"}
                 </div>
                 {#if searchQuery}
-                    <button 
-                        onclick={() => searchQuery = ""}
+                    <button
+                        onclick={() => (searchQuery = "")}
                         class="mt-2 text-[10px] text-text-highlight hover:underline"
-                    >Clear filter</button>
+                        >Clear filter</button
+                    >
                 {/if}
             </div>
         {:else}
@@ -667,34 +904,65 @@
                         }`}
                         onclick={() => openFile(file.path)}
                     >
-                        <div class="flex-1 min-w-0 flex items-baseline gap-0.5 font-mono text-[12px]">
+                        <div
+                            class="flex-1 min-w-0 flex items-baseline gap-0.5 font-mono text-[12px]"
+                        >
                             {#if dir}
-                                <span class="text-text-tertiary truncate select-none">{dir}</span>
+                                <span
+                                    class="text-text-tertiary truncate select-none"
+                                    >{dir}</span
+                                >
                             {/if}
-                            <span class="text-text-main flex-shrink-0">{name}</span>
+                            <span class="text-text-main flex-shrink-0"
+                                >{name}</span
+                            >
                         </div>
-                        <div class="flex items-center gap-2 font-mono text-[11px] ml-3">
+                        <div
+                            class="flex items-center gap-2 font-mono text-[11px] ml-3"
+                        >
                             <div class="flex items-center gap-1.5">
                                 {#if file.added > 0}
-                                    <span class="text-text-success">+{file.added}</span>
+                                    <span class="text-text-success"
+                                        >+{file.added}</span
+                                    >
                                 {/if}
                                 {#if file.removed > 0}
-                                    <span class="text-text-error">-{file.removed}</span>
+                                    <span class="text-text-error"
+                                        >-{file.removed}</span
+                                    >
                                 {/if}
                             </div>
-                            <div class="w-3.5 h-3.5 rounded-[3px] border border-border-default flex items-center justify-center flex-shrink-0 bg-bg-surface-alt group-hover:border-border-hover transition-colors">
+                            <div
+                                class="w-3.5 h-3.5 rounded-[3px] border border-border-default flex items-center justify-center flex-shrink-0 bg-bg-surface-alt group-hover:border-border-hover transition-colors"
+                            >
                                 {#if file.added > 0 && file.removed > 0}
-                                    <div class="w-1.5 h-1.5 rounded-[1px] bg-text-highlight"></div>
+                                    <div
+                                        class="w-1.5 h-1.5 rounded-[1px] bg-text-highlight"
+                                    ></div>
                                 {:else if file.added > 0}
-                                    <svg class="w-2.5 h-2.5 text-text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                    <svg
+                                        class="w-2.5 h-2.5 text-text-success"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="3"
+                                    >
                                         <path d="M12 5v14M5 12h14" />
                                     </svg>
                                 {:else if file.removed > 0}
-                                    <svg class="w-2.5 h-2.5 text-text-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                    <svg
+                                        class="w-2.5 h-2.5 text-text-error"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="3"
+                                    >
                                         <path d="M5 12h14" />
                                     </svg>
                                 {:else}
-                                    <div class="w-1 h-1 rounded-full bg-text-tertiary"></div>
+                                    <div
+                                        class="w-1 h-1 rounded-full bg-text-tertiary"
+                                    ></div>
                                 {/if}
                             </div>
                         </div>
@@ -719,20 +987,39 @@
             tabindex="-1"
             aria-label="Workspace Changes"
         >
-            <div class="flex w-full md:w-72 flex-shrink-0 flex-col border-r border-border-subtle bg-bg-surface-alt {selectedPath ? 'hidden md:flex' : 'flex'}">
-                <div class="flex items-center justify-between px-4 py-4 md:py-3 border-b border-border-subtle">
-                    <span class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary">Changes</span>
-                <button
-                    type="button"
-                    aria-label="Close modal"
-                    class="rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
-                    onclick={closeModal}
+            <div
+                class="flex w-full md:w-72 flex-shrink-0 flex-col border-r border-border-subtle bg-bg-surface-alt {selectedPath
+                    ? 'hidden md:flex'
+                    : 'flex'}"
+            >
+                <div
+                    class="flex items-center justify-between px-4 py-4 md:py-3 border-b border-border-subtle"
                 >
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 6l12 12M18 6L6 18"></path>
-                    </svg>
-                </button>
-            </div>
+                    <span
+                        class="text-[10px] font-bold uppercase tracking-wider text-text-tertiary"
+                        >Changes</span
+                    >
+                    <button
+                        type="button"
+                        aria-label="Close modal"
+                        class="rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+                        onclick={closeModal}
+                    >
+                        <svg
+                            class="h-3.5 w-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="1.8"
+                                d="M6 6l12 12M18 6L6 18"
+                            ></path>
+                        </svg>
+                    </button>
+                </div>
                 <div class="flex-1 overflow-y-auto py-1">
                     <div class="flex flex-col pb-24 md:pb-0">
                         {#each filteredFiles as file (file.path)}
@@ -740,29 +1027,78 @@
                             <button
                                 type="button"
                                 class={`group flex w-full items-center px-4 py-3 md:py-2 text-left transition-colors ${
-                                    selectedPath === file.path ? "bg-bg-elevated" : "hover:bg-bg-hover/50"
+                                    selectedPath === file.path
+                                        ? "bg-bg-elevated"
+                                        : "hover:bg-bg-hover/50"
                                 }`}
                                 onclick={() => openFile(file.path)}
-                        >
-                            <div class="flex-1 min-w-0 flex items-baseline gap-0.5 font-mono text-[12px]">
-                                {#if dir}<span class="text-text-tertiary truncate select-none">{dir}</span>{/if}
-                                <span class="text-text-main flex-shrink-0">{name}</span>
-                            </div>
-                            <div class="flex items-center gap-2 font-mono text-[11px] ml-3">
-                                {#if file.added > 0}<span class="text-text-success">+{file.added}</span>{/if}
-                                {#if file.removed > 0}<span class="text-text-error">-{file.removed}</span>{/if}
-                            </div>
-                        </button>
-                    {/each}
+                            >
+                                <div
+                                    class="flex-1 min-w-0 flex items-baseline gap-0.5 font-mono text-[12px]"
+                                >
+                                    {#if dir}<span
+                                            class="text-text-tertiary truncate select-none"
+                                            >{dir}</span
+                                        >{/if}
+                                    <span class="text-text-main flex-shrink-0"
+                                        >{name}</span
+                                    >
+                                </div>
+                                <div
+                                    class="flex items-center gap-2 font-mono text-[11px] ml-3"
+                                >
+                                    {#if file.added > 0}<span
+                                            class="text-text-success"
+                                            >+{file.added}</span
+                                        >{/if}
+                                    {#if file.removed > 0}<span
+                                            class="text-text-error"
+                                            >-{file.removed}</span
+                                        >{/if}
+                                </div>
+                            </button>
+                        {/each}
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div class="flex min-w-0 flex-1 flex-col bg-bg-surface {!selectedPath ? 'hidden md:flex' : 'flex'}">
-            {@render diffPanel()}
+            <div
+                class="flex min-w-0 flex-1 flex-col bg-bg-surface {!selectedPath
+                    ? 'hidden md:flex'
+                    : 'flex'}"
+            >
+                {@render diffPanel()}
+            </div>
         </div>
     </div>
-</div>
+{/if}
+
+<!-- Desktop Expand Button when Collapsed -->
+{#if isCollapsed}
+    <div class="fixed top-3 right-3 z-30 hidden md:flex pointer-events-none">
+        <button
+            onclick={toggleCollapse}
+            class="pointer-events-auto flex h-8 items-center gap-1.5 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary hover:text-text-main active:scale-95 shadow-sm transition-all"
+            aria-label="Expand workspace panel"
+        >
+            <svg
+                class="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+            >
+                <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15 19l-7-7 7-7"
+                />
+            </svg>
+            <span class="text-[10px] font-bold tracking-wider uppercase"
+                >Changes</span
+            >
+        </button>
+    </div>
 {/if}
 
 <!-- Mobile Toggle Button -->
@@ -776,8 +1112,12 @@
             }}
             class="pointer-events-auto flex h-8 items-center gap-1.5 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary active:scale-95 transition-all"
         >
-            <span class="text-[10px] font-bold tracking-wider uppercase">Changes</span>
-            <span class="flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-bg-elevated text-[9px] font-bold text-text-main">
+            <span class="text-[10px] font-bold tracking-wider uppercase"
+                >Changes</span
+            >
+            <span
+                class="flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-bg-elevated text-[9px] font-bold text-text-main"
+            >
                 {totalChangesCount}
             </span>
         </button>
@@ -878,7 +1218,7 @@
         border-radius: 4px;
         cursor: pointer;
         border: 2px solid var(--bg-surface);
-        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         margin-top: 0;
     }
     .creative-slider::-moz-range-track {
@@ -892,6 +1232,6 @@
         border-radius: 4px;
         cursor: pointer;
         border: 2px solid var(--bg-surface);
-        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     }
 </style>

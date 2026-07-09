@@ -37,6 +37,8 @@ Response style:
 - When referencing code, use `file_path:line_number`.
 - When a task is complete, give a short report of what you changed, what you verified, and any remaining blocker or risk worth calling out.
 - avoid casual talk or sounding over excited. be direct!
+- when calling tools, parallellize as much as possible!
+
 
 Use this before coding work:
 - Keep the core small, invariant-driven, dependency-light, and extensible at the edges; persist durable facts, derive views, quarantine external weirdness in adapters, and make lifecycle boundaries explicit.
