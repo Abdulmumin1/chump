@@ -64,24 +64,6 @@
                         </span
                         >
                     </div>
-                    <svg
-                        class="h-4 w-4 flex-shrink-0 text-text-tertiary transition-transform duration-200 {(expandedReasoning[
-                            `${item.id}-${index}`
-                        ] ??
-                        (isSending && itemIndex === transcriptLength - 1))
-                            ? 'rotate-180'
-                            : '-rotate-90'}"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        aria-hidden="true"
-                        stroke="currentColor"
-                        ><path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M19 9l-7 7-7-7"
-                        ></path></svg
-                    >
                 </button>
                 {#if expandedReasoning[`${item.id}-${index}`] ?? (isSending && itemIndex === transcriptLength - 1)}
                     <div transition:slide={{ duration: 200 }} class="p-2">

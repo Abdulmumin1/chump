@@ -1075,10 +1075,10 @@
 
 <!-- Desktop Expand Button when Collapsed -->
 {#if isCollapsed}
-    <div class="fixed top-3 right-3 z-30 hidden md:flex pointer-events-none">
+    <div class="fixed top-4 right-14 z-30 hidden md:flex pointer-events-none">
         <button
             onclick={toggleCollapse}
-            class="pointer-events-auto flex h-8 items-center gap-1.5 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary hover:text-text-main active:scale-95 shadow-sm transition-all"
+            class="pointer-events-auto flex h-8 items-center gap-2 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary hover:text-text-main active:scale-95 transition-all"
             aria-label="Expand workspace panel"
         >
             <svg
@@ -1097,6 +1097,16 @@
             <span class="text-[10px] font-bold tracking-wider uppercase"
                 >Changes</span
             >
+            {#if totalAdded > 0 || totalRemoved > 0}
+                <span class="flex items-center gap-1 font-mono text-[11px]">
+                    {#if totalAdded > 0}
+                        <span class="text-text-success">+{totalAdded}</span>
+                    {/if}
+                    {#if totalRemoved > 0}
+                        <span class="text-text-error">-{totalRemoved}</span>
+                    {/if}
+                </span>
+            {/if}
         </button>
     </div>
 {/if}
@@ -1110,16 +1120,27 @@
                 selectedPath = null;
                 modalOpen = true;
             }}
-            class="pointer-events-auto flex h-8 items-center gap-1.5 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary active:scale-95 transition-all"
+            class="pointer-events-auto flex h-8 items-center gap-2 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary active:scale-95 transition-all"
         >
             <span class="text-[10px] font-bold tracking-wider uppercase"
                 >Changes</span
             >
-            <span
-                class="flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-bg-elevated text-[9px] font-bold text-text-main"
-            >
-                {totalChangesCount}
-            </span>
+            {#if totalAdded > 0 || totalRemoved > 0}
+                <span class="flex items-center gap-1 font-mono text-[11px]">
+                    {#if totalAdded > 0}
+                        <span class="text-text-success">+{totalAdded}</span>
+                    {/if}
+                    {#if totalRemoved > 0}
+                        <span class="text-text-error">-{totalRemoved}</span>
+                    {/if}
+                </span>
+            {:else}
+                <span
+                    class="flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-bg-elevated text-[9px] font-bold text-text-main"
+                >
+                    {totalChangesCount}
+                </span>
+            {/if}
         </button>
     </div>
 {/if}

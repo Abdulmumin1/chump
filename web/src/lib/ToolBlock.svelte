@@ -64,9 +64,7 @@
         if (block.status === "error") return "Failed";
         if (block.status === "aborted") return "Aborted";
         if (block.status === "completed" || block.hasResult) {
-            return typeof block.duration === "number"
-                ? `${block.duration.toFixed(1)}s`
-                : "";
+            return "";
         }
         if (
             block.status === "streaming" ||
@@ -83,6 +81,29 @@
             block.status === "ready" ||
             block.status === "running",
     );
+
+    let isSessionTool = $derived(
+        block.originalToolName === "list_sessions" ||
+            block.originalToolName === "inspect_session" ||
+            block.originalToolName === "start_session",
+    );
+
+    let sessionToolLabel = $derived.by(() => {
+        if (block.originalToolName === "list_sessions") return "List sessions";
+        if (block.originalToolName === "inspect_session") return "Inspect session";
+        if (block.originalToolName === "start_session") return "Start session";
+        return "Session";
+    });
+
+    let sessionToolDetail = $derived.by(() => {
+        if (!isSessionTool) return "";
+        if (block.originalToolName === "list_sessions") {
+            const page = block.args?.page;
+            return typeof page === "number" && page > 1 ? `page ${page}` : "";
+        }
+        const sessionId = String(block.args?.session_id ?? "");
+        return sessionId || (block.toolName !== block.originalToolName ? block.toolName || "" : "");
+    });
 </script>
 
 {#if block.isDiff}
@@ -180,6 +201,17 @@
                             >{(block.toolName || "").replace(/^Skill\s+/i, "")}</span
                         >
                     {/if}
+                {:else if isSessionTool}
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        >{sessionToolLabel}</span
+                    >
+                    {#if sessionToolDetail}
+                        <span
+                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            >{sessionToolDetail}</span
+                        >
+                    {/if}
                 {:else}
                     <span
                         class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
@@ -212,20 +244,6 @@
                         {statusLabel}
                     </span>
                 {/if}
-                <svg
-                    class="h-4 w-4 transition-transform duration-200 {expanded
-                        ? 'rotate-180'
-                        : '-rotate-90'}"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 9l-7 7-7-7"
-                    ></path></svg
-                >
             </div>
         </button>
 

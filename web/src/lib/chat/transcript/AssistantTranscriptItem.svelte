@@ -86,6 +86,9 @@
         if (block.originalToolName === "search") return "Search";
         if (block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch") return "Web";
         if (block.originalToolName === "skill" || block.originalToolName === "load_skill") return "Skill";
+        if (block.originalToolName === "list_sessions") return "List sessions";
+        if (block.originalToolName === "inspect_session") return "Inspect session";
+        if (block.originalToolName === "start_session") return "Start session";
         return block.originalToolName || block.toolName || "tool";
     }
 
@@ -105,6 +108,7 @@
         if (block.originalToolName === "search") return "search";
         if (block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch") return "web request";
         if (block.originalToolName === "skill" || block.originalToolName === "load_skill") return "skill";
+        if (block.originalToolName === "list_sessions" || block.originalToolName === "inspect_session" || block.originalToolName === "start_session") return "session";
         return "action";
     }
 
@@ -117,6 +121,7 @@
         if (kind === "search") return `Searched ${count} time${count === 1 ? "" : "s"}`;
         if (kind === "web request") return `Fetched ${count} web result${count === 1 ? "" : "s"}`;
         if (kind === "skill") return `Loaded ${count} skill${count === 1 ? "" : "s"}`;
+        if (kind === "session") return `Used ${count} session tool${count === 1 ? "" : "s"}`;
         return `${count} action${count === 1 ? "" : "s"}`;
     }
 
@@ -188,20 +193,6 @@
                         <span class="min-w-0 truncate font-mono text-[11px] text-text-secondary">{groupPreview(group)}</span>
                     {/if}
                 </div>
-                <svg
-                    class="ml-4 h-4 w-4 flex-shrink-0 text-text-tertiary opacity-80 transition-transform duration-200 group-hover:opacity-100 {isGroupExpanded(group)
-                        ? 'rotate-180'
-                        : '-rotate-90'}"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 9l-7 7-7-7"
-                    ></path></svg
-                >
             </button>
 
             {#if isGroupExpanded(group)}
