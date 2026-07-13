@@ -4,8 +4,11 @@
 
 ## 0.0.45
 
-- Add a workspace-scoped `view_image` tool for PNG, JPEG, GIF, and WebP files using `ai-query` 1.7.55 multimodal tool outputs.
+- Upgrade `ai-query` to 1.8.0 with automatic prompt caching telemetry for OpenAI, Anthropic, DeepSeek, and Google providers.
+- Add GLM-5.2 (`@cf/zai-org/glm-5.2`) to Cloudflare Workers AI provider.
+- Add a workspace-scoped `view_image` tool for PNG, JPEG, GIF, and WebP files using `ai-query` multimodal tool outputs.
 - Fix `list_sessions` when the active session entry is a live agent rather than connection metadata.
+- Remove deprecated models: GPT 5.3 and below, Kimi K2.6 and below, Gemini 2.5 and below.
 
 ## 0.0.44
 

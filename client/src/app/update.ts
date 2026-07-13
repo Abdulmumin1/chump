@@ -370,11 +370,11 @@ async function readBundledServerVersion(): Promise<string | null> {
         return version;
       }
       if (failedToStart || child.exitCode !== null) {
-        return "0.0.0";
+        return null;
       }
       await delay(SERVER_VERSION_PROBE_INTERVAL_MS);
     }
-    return "0.0.0";
+    return null;
   } finally {
     child.kill();
   }

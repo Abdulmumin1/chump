@@ -1,5 +1,13 @@
 # chump-agent
 
+## 0.1.15
+
+### Patch Changes
+
+- - Add GLM-5.2 model to Cloudflare Workers AI provider.
+  - Remove deprecated models: GPT 5.3 and below, Kimi K2.6 and below, Gemini 2.5 and below.
+  - Fix spurious server update notice when bundled server version cannot be probed.
+
 ## 0.1.14
 
 ### Patch Changes

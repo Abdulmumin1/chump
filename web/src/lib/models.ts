@@ -8,13 +8,6 @@ export const FALLBACK_MODELS: Record<string, any> = {
       "gpt-5.5": { id: "gpt-5.5", name: "GPT-5.5", reasoning: true },
       "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", reasoning: true },
       "gpt-5.4-mini": { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", reasoning: true },
-      "gpt-5.3-codex": { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", reasoning: true },
-      "gpt-5.2": { id: "gpt-5.2", name: "GPT-5.2", reasoning: true },
-      "gpt-5.2-codex": { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", reasoning: true },
-      "gpt-5.1-codex": { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", reasoning: true },
-      "gpt-5.1-codex-max": { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", reasoning: true },
-      "gpt-5.1-codex-mini": { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", reasoning: true },
-      "gpt-5-codex": { id: "gpt-5-codex", name: "GPT-5 Codex", reasoning: true },
     },
   },
   openai: {
@@ -26,14 +19,6 @@ export const FALLBACK_MODELS: Record<string, any> = {
       "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", reasoning: true },
       "gpt-5.4-mini": { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", reasoning: true },
       "gpt-5.4-nano": { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", reasoning: true },
-      "gpt-5.3-codex": { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", reasoning: true },
-      "gpt-5.2": { id: "gpt-5.2", name: "GPT-5.2", reasoning: true },
-      "gpt-5.2-pro": { id: "gpt-5.2-pro", name: "GPT-5.2 Pro", reasoning: true },
-      "gpt-5.1": { id: "gpt-5.1", name: "GPT-5.1", reasoning: true },
-      "gpt-5": { id: "gpt-5", name: "GPT-5", reasoning: true },
-      "gpt-5-mini": { id: "gpt-5-mini", name: "GPT-5 Mini", reasoning: true },
-      "gpt-5-nano": { id: "gpt-5-nano", name: "GPT-5 Nano", reasoning: true },
-      "gpt-5-codex": { id: "gpt-5-codex", name: "GPT-5 Codex", reasoning: true },
     },
   },
   anthropic: {
@@ -60,15 +45,18 @@ export const FALLBACK_MODELS: Record<string, any> = {
       "gemini-3.1-pro-preview": { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", reasoning: true },
       "gemini-3-pro-preview": { id: "gemini-3-pro-preview", name: "Gemini 3 Pro Preview", reasoning: true },
       "gemini-3-flash-preview": { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview", reasoning: true },
-      "gemini-2.5-flash": { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", reasoning: true },
-      "gemini-2.5-pro": { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", reasoning: true },
-      "gemini-2.5-flash-lite": { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", reasoning: true },
     },
   },
   workers_ai: {
     id: "workers_ai",
     name: "Cloudflare Workers AI",
     models: {
+      "@cf/zai-org/glm-5.2": {
+        id: "@cf/zai-org/glm-5.2",
+        name: "GLM-5.2",
+        reasoning: true,
+        limit: { context: 262_144, output: 262_144 },
+      },
       "@cf/zai-org/glm-4.7-flash": {
         id: "@cf/zai-org/glm-4.7-flash",
         name: "GLM 4.7 Flash",
@@ -77,16 +65,6 @@ export const FALLBACK_MODELS: Record<string, any> = {
       "@cf/nvidia/nemotron-3-120b-a12b": {
         id: "@cf/nvidia/nemotron-3-120b-a12b",
         name: "Nemotron 3 120B",
-        reasoning: true,
-      },
-      "@cf/moonshotai/kimi-k2.5": {
-        id: "@cf/moonshotai/kimi-k2.5",
-        name: "Kimi K2.5",
-        reasoning: true,
-      },
-      "@cf/moonshotai/kimi-k2.6": {
-        id: "@cf/moonshotai/kimi-k2.6",
-        name: "Kimi K2.6",
         reasoning: true,
       },
       "@cf/moonshotai/kimi-k2.7-code": {
@@ -139,13 +117,6 @@ const CODEX_MODELS = new Set([
   "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
-  "gpt-5.3-codex",
-  "gpt-5.2",
-  "gpt-5.2-codex",
-  "gpt-5.1-codex",
-  "gpt-5.1-codex-max",
-  "gpt-5.1-codex-mini",
-  "gpt-5-codex",
 ]);
 
 const SUPPORTED_MODELS: Record<string, Set<string>> = {
@@ -156,14 +127,6 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gpt-5.3-codex",
-    "gpt-5.2",
-    "gpt-5.2-pro",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-5-nano",
-    "gpt-5-codex",
   ]),
   chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
   google: new Set([
@@ -171,16 +134,12 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
     "gemini-3-flash-preview",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash-lite",
   ]),
   anthropic: new Set(["claude-sonnet-4-20250514"]),
   workers_ai: new Set([
+    "@cf/zai-org/glm-5.2",
     "@cf/zai-org/glm-4.7-flash",
     "@cf/nvidia/nemotron-3-120b-a12b",
-    "@cf/moonshotai/kimi-k2.5",
-    "@cf/moonshotai/kimi-k2.6",
     "@cf/moonshotai/kimi-k2.7-code",
   ]),
   deepseek: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
@@ -240,37 +199,21 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
-      "gpt-5.3-codex",
-      "gpt-5.2",
-      "gpt-5.2-codex",
-      "gpt-5.1",
-      "gpt-5",
     ],
     codex: [
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
-      "gpt-5.3-codex",
-      "gpt-5.2",
-      "gpt-5.2-codex",
-      "gpt-5.1-codex",
-      "gpt-5.1-codex-max",
-      "gpt-5.1-codex-mini",
-      "gpt-5-codex",
     ],
     google: [
       "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3-pro-preview",
       "gemini-3-flash-preview",
-      "gemini-2.5-pro",
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
     ],
     workers_ai: [
+      "@cf/zai-org/glm-5.2",
       "@cf/moonshotai/kimi-k2.7-code",
-      "@cf/moonshotai/kimi-k2.6",
-      "@cf/moonshotai/kimi-k2.5",
       "@cf/zai-org/glm-4.7-flash",
       "@cf/nvidia/nemotron-3-120b-a12b",
     ],
@@ -388,24 +331,6 @@ export function latestContextTokens(usage: UsageSummary | null | undefined): num
   const lastStepTotal = usage?.last_step?.total_tokens ?? null;
   if (lastStepTotal && lastStepTotal > 0) {
     return lastStepTotal;
-  }
-  return null;
-}
-
-export async function formatCtxLabel(
-  health: ChumpHealth | ChumpStatus,
-): Promise<string | null> {
-  const limit = await getModelContextLimit(health.provider, health.model);
-  const latestContext = latestContextTokens(health.usage);
-
-  if (limit && latestContext !== null && latestContext >= 0) {
-    return `(ctx ${formatNumber(Math.min(latestContext, limit))} / ${formatNumber(limit)})`;
-  }
-  if (limit) {
-    return `(ctx ${formatNumber(limit)})`;
-  }
-  if (latestContext !== null && latestContext > 0) {
-    return `(ctx ${formatNumber(latestContext)})`;
   }
   return null;
 }
