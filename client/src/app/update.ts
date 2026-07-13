@@ -367,14 +367,14 @@ async function readBundledServerVersion(): Promise<string | null> {
     for (let attempt = 0; attempt < SERVER_VERSION_PROBE_ATTEMPTS; attempt += 1) {
       const version = await fetchServerHealthVersion(port);
       if (version) {
-        return version;
+        return version === "0.0.0" ? null : version;
       }
       if (failedToStart || child.exitCode !== null) {
-        return "0.0.0";
+        return null;
       }
       await delay(SERVER_VERSION_PROBE_INTERVAL_MS);
     }
-    return "0.0.0";
+    return null;
   } finally {
     child.kill();
   }
