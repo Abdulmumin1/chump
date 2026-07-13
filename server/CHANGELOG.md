@@ -1,11 +1,15 @@
 # chump-server
 
-## Unreleased
-
 ## 0.0.45
 
 - Add a workspace-scoped `view_image` tool for PNG, JPEG, GIF, and WebP files using `ai-query` 1.7.55 multimodal tool outputs.
 - Fix `list_sessions` when the active session entry is a live agent rather than connection metadata.
+- Add `@cf/zai-org/glm-5.2` (262K context) to Workers AI and all model lists; set it as the Workers AI default.
+- Switch the `opencode_go` default model to `deepseek-v4-flash`.
+- Upgrade the backend dependency to `ai-query==1.8.0`.
+- Remove deprecated models: GPT 5.3 and below, Kimi K2.6 and below, Gemini 2.5 and below.
+- Stop the update checker from reporting a false `server 0.0.0 -> <latest>` notice when the bundled server version probe fails.
+- Preserve leading system messages when compacting session history.
 
 ## 0.0.44
 

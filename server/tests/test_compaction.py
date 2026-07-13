@@ -1,7 +1,10 @@
 from ai_query.types import Message
 
 from chump_server.agent import ChumpAgent
-from chump_server.runtime.compaction import choose_compaction_start
+from chump_server.runtime.compaction import (
+    choose_compaction_start,
+    replace_compacted_messages,
+)
 from chump_server.runtime.usage import context_usage_dict, latest_usage_context_tokens
 
 
@@ -111,6 +114,29 @@ def test_forced_compaction_keeps_recent_messages_when_local_estimate_is_low():
 
     assert choose_compaction_start(messages, keep_recent_tokens=200_000) == 1
     assert choose_compaction_start(messages, keep_recent_tokens=200_000, force=True) == 3
+
+
+def test_compaction_preserves_leading_system_messages():
+    messages = [
+        Message(role="system", content="Follow these instructions."),
+        Message(role="user", content="one"),
+        Message(role="assistant", content="two"),
+        Message(role="user", content="three"),
+        Message(role="assistant", content="four"),
+    ]
+
+    keep_start = choose_compaction_start(
+        messages,
+        keep_recent_tokens=2,
+        force=True,
+    )
+    compacted = replace_compacted_messages(messages, keep_start, "Summary.")
+
+    assert keep_start == 3
+    assert compacted[0] == messages[0]
+    assert compacted[0].role == "system"
+    assert compacted[1].role == "user"
+    assert "Summary." in str(compacted[1].content)
 
 
 def test_context_token_estimate_uses_last_step_total_as_source_of_truth():

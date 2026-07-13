@@ -44,7 +44,7 @@ def test_normalize_model_name_accepts_openrouter_provider_model_pair():
 
 
 def test_normalize_model_name_accepts_opencode_go_provider_model_pair():
-    assert normalize_model_name("opencode_go", "kimi-k2.6") == "kimi-k2.6"
+    assert normalize_model_name("opencode_go", "deepseek-v4-flash") == "deepseek-v4-flash"
 
 
 def test_normalize_model_name_accepts_github_copilot_provider_model_pair():
@@ -72,6 +72,13 @@ def test_workers_ai_accepts_kimi_k2_7_code():
     assert (
         normalize_model_name("workers_ai", "@cf/moonshotai/kimi-k2.7-code")
         == "@cf/moonshotai/kimi-k2.7-code"
+    )
+
+
+def test_workers_ai_accepts_glm_5_2():
+    assert (
+        normalize_model_name("workers_ai", "@cf/zai-org/glm-5.2")
+        == "@cf/zai-org/glm-5.2"
     )
 
 
@@ -179,7 +186,7 @@ def test_load_config_uses_opencode_go_default_model(monkeypatch, tmp_path):
     config = load_config()
 
     assert config.provider == "opencode_go"
-    assert config.model == "kimi-k2.6"
+    assert config.model == "deepseek-v4-flash"
 
 
 def test_load_config_uses_github_copilot_default_model(monkeypatch, tmp_path):

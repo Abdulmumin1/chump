@@ -41,7 +41,7 @@ export const PROVIDERS = {
   },
   opencode_go: {
     label: "OpenCode Go",
-    defaultModel: "kimi-k2.6",
+    defaultModel: "deepseek-v4-flash",
     fields: [{ key: "OPENCODE_API_KEY", label: "OpenCode API key", secret: true }],
   },
   openrouter: {
@@ -86,7 +86,7 @@ export const PROVIDERS = {
   },
   workers_ai: {
     label: "Cloudflare Workers AI",
-    defaultModel: "@cf/moonshotai/kimi-k2.5",
+    defaultModel: "@cf/zai-org/glm-5.2",
     fields: [
       { key: "CLOUDFLARE_ACCOUNT_ID", label: "Cloudflare account ID" },
       {

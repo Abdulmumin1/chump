@@ -16,10 +16,11 @@ from ai_query.types import AbortSignal, Message, ProviderOptions
 from .config import ChumpConfig, load_auth_config, load_config
 from .resources import ResourceCatalog, build_skill_bundle
 from .runtime.compaction import (
-    build_compaction_summary_message,
     choose_compaction_start,
     estimate_messages_tokens,
     generate_compaction_summary,
+    leading_system_message_count,
+    replace_compacted_messages,
 )
 from .runtime.messages import (
     build_session_title,
@@ -488,7 +489,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
             # minimal old slice when provider usage crosses the threshold.
             force=reason in {"auto", "manual"},
         )
-        if keep_start <= 1:
+        protected_count = leading_system_message_count(self._messages)
+        if keep_start <= protected_count:
             return {
                 "status": "skipped",
                 "reason": "nothing_to_compact",
@@ -517,9 +519,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
                     "reason": reason,
                 },
             )
-        summary_message = build_compaction_summary_message(summary)
         before_count = len(self._messages)
-        self._messages = [summary_message, *recent_messages]
+        self._messages = replace_compacted_messages(
+            self._messages,
+            keep_start,
+            summary,
+        )
         await self._persist_messages()
         tokens_after = estimate_messages_tokens(self._messages)
         self._usage_summary["last_step"] = context_usage_dict(tokens_after)
