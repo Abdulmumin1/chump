@@ -5,6 +5,10 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "codex",
     name: "Codex",
     models: {
+      "gpt-5.6": { id: "gpt-5.6", name: "GPT-5.6", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
+      "gpt-5.6-sol": { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
+      "gpt-5.6-terra": { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
+      "gpt-5.6-luna": { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
       "gpt-5.5": { id: "gpt-5.5", name: "GPT-5.5", reasoning: true },
       "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", reasoning: true },
       "gpt-5.4-mini": { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", reasoning: true },
@@ -21,6 +25,10 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "openai",
     name: "OpenAI",
     models: {
+      "gpt-5.6": { id: "gpt-5.6", name: "GPT-5.6", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
+      "gpt-5.6-sol": { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
+      "gpt-5.6-terra": { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
+      "gpt-5.6-luna": { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
       "gpt-5.5": { id: "gpt-5.5", name: "GPT-5.5", reasoning: true },
       "gpt-5.4-pro": { id: "gpt-5.4-pro", name: "GPT-5.4 Pro", reasoning: true },
       "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", reasoning: true },
@@ -136,6 +144,10 @@ export const FALLBACK_MODELS: Record<string, any> = {
 };
 
 const CODEX_MODELS = new Set([
+  "gpt-5.6",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
   "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
@@ -151,6 +163,10 @@ const CODEX_MODELS = new Set([
 const SUPPORTED_MODELS: Record<string, Set<string>> = {
   codex: new Set(CODEX_MODELS),
   openai: new Set([
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4-pro",
     "gpt-5.4",
@@ -237,6 +253,10 @@ function isUsableChatModel(provider: string, model: any): boolean {
 function modelRank(provider: string, model: string): number {
   const priorities: Record<string, string[]> = {
     openai: [
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
@@ -247,6 +267,10 @@ function modelRank(provider: string, model: string): number {
       "gpt-5",
     ],
     codex: [
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",

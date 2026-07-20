@@ -35,7 +35,6 @@
         serverUrl = "",
         apiTarget = null,
         gitBranch = "",
-        currentProvider = "",
         reasoningInfo = null,
         contextUsageLabel = null,
         steeringQueue = [],
@@ -54,7 +53,6 @@
         isCompacting?: boolean;
         models: ModelChoice[];
         currentModel: string;
-        currentProvider: string;
         workspaceRoot: string;
         serverUrl: string;
         apiTarget?: ChumpApiTarget | null;
@@ -84,7 +82,7 @@
     let searchSequence = 0;
 
     const suggestions = $derived(
-        buildComposerSuggestions(composerText, models, currentProvider),
+        buildComposerSuggestions(composerText, models),
     );
     const visible = $derived(suggestions.length > 0 && menuOpen);
     const fileVisible = $derived(fileMenuOpen && mentionRange !== null);

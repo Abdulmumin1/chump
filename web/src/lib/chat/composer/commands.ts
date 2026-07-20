@@ -70,7 +70,6 @@ const THINKING_PRESETS: Suggestion[] = [
 export function buildComposerSuggestions(
     composerText: string,
     models: ModelChoice[],
-    currentProvider: string,
 ): Suggestion[] {
     if (!composerText.startsWith("/")) {
         return [];
@@ -83,10 +82,9 @@ export function buildComposerSuggestions(
         return models
             .filter(
                 (model) =>
-                    model.provider === currentProvider &&
-                    (!query ||
-                        model.label.toLowerCase().includes(query) ||
-                        model.description.toLowerCase().includes(query)),
+                    !query ||
+                    model.label.toLowerCase().includes(query) ||
+                    model.description.toLowerCase().includes(query),
             )
             .map((model) => ({
                 label: model.label,
