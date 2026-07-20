@@ -1,141 +1,26 @@
-import { supportsSynchronizedOutput } from "./terminal-capabilities.ts";
-
-export type DraftRenderer = {
-  buildClear: () => string;
-  buildRedraw: () => string;
-  beforeFlush?: () => void;
+export type TerminalMarkdownStream = {
+  write: (value: string) => void;
+  end: () => void;
 };
 
-let activeDraft: DraftRenderer | null = null;
+export type TerminalOutputSink = {
+  write: (value: string) => void;
+  clear: () => void;
+  createMarkdownStream?: () => TerminalMarkdownStream;
+};
 
-// CSI 2026 synchronized output sequences for atomic screen updates
-const SYNC_START = "\x1b[?2026h";
-const SYNC_END = "\x1b[?2026l";
+let activeOutputSink: TerminalOutputSink | null = null;
 
-function synchronizedFrame(payload: string): string {
-  if (!supportsSynchronizedOutput()) {
-    return payload;
-  }
-  return `${SYNC_START}${payload}${SYNC_END}`;
-}
-
-// ---- write batching ----
-// During model streaming, writeOutput is called many times per second (once
-// per token / line).  Each call recomputes the entire input frame via
-// buildClear + buildRedraw, which is expensive.  Batching coalesces writes
-// into a single clear→content→redraw cycle.
-//
-// To avoid overwhelming slow terminal emulators (e.g. embedded editor
-// terminals like VS Code) — which can drop keystrokes when flooded with
-// escape sequences — we enforce a minimum interval between successive
-// flushes.  The first flush after a quiet period fires immediately (via
-// setImmediate, which runs after I/O so pending stdin events are processed
-// first).  Subsequent flushes within the throttle window are delayed,
-// coalescing multiple tokens into fewer screen updates.
-//
-const MIN_FLUSH_INTERVAL_MS = 50; // ~20 fps
-const INPUT_PRIORITY_WINDOW_MS = 120;
-
-let batchBuffer = "";
-let batchScheduled = false;
-let lastFlushAt = 0;
-let lastInputAt = 0;
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-let flushImmediate: ReturnType<typeof setImmediate> | null = null;
-
-function flushBatch(): void {
-  batchScheduled = false;
-  if (flushImmediate !== null) {
-    clearImmediate(flushImmediate);
-    flushImmediate = null;
-  }
-  if (flushTimer !== null) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  lastFlushAt = Date.now();
-  if (!batchBuffer) {
-    return;
-  }
-  if (!activeDraft) {
-    process.stdout.write(batchBuffer);
-    batchBuffer = "";
-    return;
-  }
-  activeDraft.beforeFlush?.();
-  const clear = activeDraft.buildClear();
-  const redraw = activeDraft.buildRedraw();
-  let payload = batchBuffer;
-  batchBuffer = "";
-  if (payload && !payload.endsWith("\n")) {
-    payload += "\n";
-  }
-  process.stdout.write(synchronizedFrame(`${clear}${payload}${redraw}`));
-}
-
-function scheduleFlush(): void {
-  if (batchScheduled) {
-    return;
-  }
-  batchScheduled = true;
-  schedulePendingFlush();
-}
-
-function schedulePendingFlush(): void {
-  const now = Date.now();
-  const flushAt = Math.max(
-    lastFlushAt + MIN_FLUSH_INTERVAL_MS,
-    lastInputAt + INPUT_PRIORITY_WINDOW_MS,
-  );
-  const delay = flushAt - now;
-  if (delay <= 0) {
-    // Enough time since last flush — go on the next event-loop pass.
-    // setImmediate runs after I/O, so pending stdin events are drained first.
-    flushImmediate = setImmediate(flushBatch);
-  } else {
-    // Throttle and keep a short quiet window after keyboard activity. Model
-    // output can wait; echoing the user's draft cannot.
-    flushTimer = setTimeout(
-      () => {
-        flushTimer = null;
-        schedulePendingFlush();
-      },
-      delay,
-    );
-  }
-}
-
-export function hasPendingBatch(): boolean {
-  return batchScheduled;
-}
-
-export function noteInputActivity(): void {
-  lastInputAt = Date.now();
-  if (!batchScheduled) {
-    return;
-  }
-  if (flushTimer !== null) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  if (flushImmediate !== null) {
-    clearImmediate(flushImmediate);
-    flushImmediate = null;
-  }
-  schedulePendingFlush();
-}
-
-export function setActiveDraft(renderer: DraftRenderer | null): void {
-  activeDraft = renderer;
+export function setTerminalOutputSink(sink: TerminalOutputSink | null): void {
+  activeOutputSink = sink;
 }
 
 export function writeOutput(value: string): void {
-  if (!activeDraft) {
-    process.stdout.write(value);
+  if (activeOutputSink) {
+    activeOutputSink.write(value);
     return;
   }
-  batchBuffer += value;
-  scheduleFlush();
+  process.stdout.write(value);
 }
 
 export function writeOutputLine(value = ""): void {
@@ -143,40 +28,20 @@ export function writeOutputLine(value = ""): void {
 }
 
 export function clearTerminal(): void {
-  if (!activeDraft) {
-    process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+  if (activeOutputSink) {
+    activeOutputSink.clear();
     return;
   }
-  if (batchScheduled) {
-    flushBatch();
-  }
-  const clear = activeDraft.buildClear();
-  const redraw = activeDraft.buildRedraw();
-  process.stdout.write(synchronizedFrame(`${clear}\x1b[2J\x1b[3J\x1b[H${redraw}`));
+  process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
 }
 
-// Run an action that needs the live draft cleared (e.g. when reading raw input
-// from the TTY synchronously). Temporarily disables the draft so that
-// writeOutput calls inside the action go directly to stdout without
-// clear/redraw cycles.
+export function createLiveMarkdownStream(): TerminalMarkdownStream | null {
+  return activeOutputSink?.createMarkdownStream?.() ?? null;
+}
+
+// Retained for callers that synchronously print a menu in non-interactive
+// mode. Pi owns the terminal in interactive mode, so no draft teardown is
+// necessary anymore.
 export function withDraftPaused(action: () => void): void {
-  if (!activeDraft) {
-    action();
-    return;
-  }
-  const draft = activeDraft;
-  if (batchScheduled) {
-    flushBatch();
-  }
-  // Clear the input frame
-  process.stdout.write(draft.buildClear());
-  // Temporarily disable the draft so writeOutput goes directly to stdout
-  activeDraft = null;
-  try {
-    action();
-  } finally {
-    // Restore the draft and redraw
-    activeDraft = draft;
-    process.stdout.write(draft.buildRedraw());
-  }
+  action();
 }

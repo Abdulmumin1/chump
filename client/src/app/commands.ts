@@ -129,7 +129,7 @@ export function completeSlashCommand(
 }
 
 function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
-  if (!/^\/thinking(?:\s|$)/.test(line)) {
+  if (!/^\/thinking\s/.test(line)) {
     return [];
   }
 
@@ -146,7 +146,7 @@ function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
 }
 
 function completeShareCommand(line: string): SlashCommandSuggestion[] {
-  if (!/^\/share(?:\s|$)/.test(line)) {
+  if (!/^\/share\s/.test(line)) {
     return [];
   }
 
@@ -182,7 +182,7 @@ function completeModelCommand(
   line: string,
   models: ModelSuggestion[],
 ): SlashCommandSuggestion[] {
-  if (!/^\/model(?:\s|$)/.test(line)) {
+  if (!/^\/model\s/.test(line)) {
     return [];
   }
 
@@ -207,7 +207,7 @@ function completeSessionCommand(
   line: string,
   sessions: SessionSummary[],
 ): SlashCommandSuggestion[] {
-  if (!/^\/session(?:\s|$)/.test(line)) {
+  if (!/^\/session\s/.test(line)) {
     return [];
   }
 
