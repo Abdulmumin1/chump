@@ -56,6 +56,8 @@ import {
   startEventStream,
 } from "../ui/events.ts";
 import { createPromptReader } from "../ui/input.ts";
+import { createActivityStatusController } from "../ui/activity-status.ts";
+import type { StatusDisplay } from "../ui/status.ts";
 import {
   renderSessionTranscript,
   renderServerStatus,
@@ -66,13 +68,11 @@ import {
   renderAccent,
   renderError,
   renderMuted,
-  renderThinkingActivity,
   renderUserMessage,
   renderWorkedFor,
 } from "../ui/render.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
 import { ToolActivityRenderer } from "../ui/tool-activity.ts";
-import { LiveReasoningTokenCounter } from "../ui/reasoning.ts";
 import { TranscriptRenderer } from "../ui/transcript.ts";
 import {
   ensureServerTarget,
@@ -98,7 +98,6 @@ import {
   runDaemonCommand,
 } from "./daemon-command.ts";
 import { parseAppCommand, runAppCommand } from "./app-command.ts";
-import { createSpinner } from "../ui/spinner.ts";
 import { renderSessionFooter } from "../ui/footer.ts";
 import type {
   ChumpConfig,
@@ -272,8 +271,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let recoveryPromise: Promise<void> | null = null;
   let localCompactionActive = false;
 
-  const statusValues = new Map<string, string | null>();
-  const setCoordinatedStatus = (source: string, statusText: string | null) => {
+  const statusValues = new Map<string, StatusDisplay>();
+  const setCoordinatedStatus = (source: string, statusText: StatusDisplay) => {
     statusValues.set(source, statusText);
     const compaction = statusValues.get("compaction");
     if (compaction) {
@@ -928,124 +927,6 @@ function formatCompactNames(values: string[], limit = 4): string {
   return `${visible}, ${values.length - limit} more`;
 }
 
-function createActivityStatusController(
-  setStatus: (status: string | null) => void,
-  options: { label?: string } = {},
-): {
-  start: () => void;
-  stop: () => void;
-  showAborting: () => void;
-  beginTextStreaming: () => void;
-  noteToolActivity: (preview: string) => void;
-  noteToolCallPreview: (preview: string | null) => void;
-  noteToolResult: () => void;
-  noteReasoningActivity: (payload: Record<string, unknown>) => void;
-} {
-  const label = options.label ?? "Transmogrifying";
-  let active = false;
-  let aborting = false;
-  let spinnerFrame: string | null = null;
-  let activityPreview: string | null = null;
-  let reasoningTokenEstimate = 0;
-  const reasoningTokens = new LiveReasoningTokenCounter();
-
-  const spinner = createSpinner((frame) => {
-    spinnerFrame = frame;
-    syncStatus();
-  }, {
-    label,
-    renderLabel: () => activityPreview ?? renderMuted(label),
-  });
-
-  function syncStatus(): void {
-    if (!active) {
-      setStatus(null);
-      return;
-    }
-
-    if (aborting) {
-      setStatus(renderMuted("Aborting..."));
-      return;
-    }
-
-    setStatus(spinnerFrame ?? activityPreview ?? renderMuted(label));
-  }
-
-  return {
-    start() {
-      active = true;
-      aborting = false;
-      activityPreview = null;
-      reasoningTokenEstimate = 0;
-      reasoningTokens.reset();
-      spinner.start();
-      syncStatus();
-    },
-    stop() {
-      active = false;
-      aborting = false;
-      spinner.stop();
-      spinnerFrame = null;
-      activityPreview = null;
-      reasoningTokenEstimate = 0;
-      reasoningTokens.reset();
-      setStatus(null);
-    },
-    showAborting() {
-      active = true;
-      aborting = true;
-      spinner.start();
-      syncStatus();
-    },
-    beginTextStreaming() {
-      if (!active) {
-        return;
-      }
-      aborting = false;
-      activityPreview = null;
-      spinner.refresh();
-      syncStatus();
-    },
-    noteToolActivity(preview) {
-      if (!active) {
-        return;
-      }
-      aborting = false;
-      activityPreview = preview;
-      spinner.refresh();
-      syncStatus();
-    },
-    noteToolCallPreview(preview) {
-      if (!active) {
-        return;
-      }
-      aborting = false;
-      activityPreview = preview;
-      spinner.refresh();
-      syncStatus();
-    },
-    noteToolResult() {
-      if (!active) {
-        return;
-      }
-      aborting = false;
-      activityPreview = renderThinkingActivity(reasoningTokenEstimate);
-      spinner.refresh();
-      syncStatus();
-    },
-    noteReasoningActivity(payload) {
-      if (!active) {
-        return;
-      }
-      aborting = false;
-      reasoningTokenEstimate = reasoningTokens.update(payload);
-      activityPreview = renderThinkingActivity(reasoningTokenEstimate);
-      spinner.refresh();
-      syncStatus();
-    },
-  };
-}
-
 async function runChatTurn(
   config: ChumpConfig,
   submission: PromptSubmission,
@@ -1054,7 +935,7 @@ async function runChatTurn(
     task: () => Promise<T>,
     options?: { canRetry?: (error: unknown) => boolean },
   ) => Promise<T>,
-  setStatus: (status: string | null) => void,
+  setStatus: (status: StatusDisplay) => void,
   setAbortHandler: (handler: (() => void) | null) => void,
   setSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void,
   popSteeredDisplay: (content: string) => void,
@@ -1108,15 +989,15 @@ async function runChatTurn(
     // Flush them before the event stream prints the following tool row.
     localTranscript.finish();
   });
-  setToolActivityHook((preview) => {
+  setToolActivityHook((preview, payload) => {
     toolCallCount += 1;
-    activityStatus.noteToolActivity(preview);
+    activityStatus.noteToolActivity(preview, payload);
   });
-  setToolCallStreamHook((preview) => {
-    activityStatus.noteToolCallPreview(preview);
+  setToolCallStreamHook((preview, payload) => {
+    activityStatus.noteToolCallPreview(preview, payload);
   });
-  setToolResultHook(() => {
-    activityStatus.noteToolResult();
+  setToolResultHook((payload) => {
+    activityStatus.noteToolResult(payload);
   });
   setReasoningActivityHook((payload) => {
     activityStatus.noteReasoningActivity(payload);
@@ -1285,7 +1166,7 @@ class LiveSyncTracker {
 function createSharedTurnSync(options: {
   config: () => ChumpConfig;
   promptReader: ReturnType<typeof createPromptReader>;
-  setStatus: (status: string | null) => void;
+  setStatus: (status: StatusDisplay) => void;
   withManagedServerRecovery: <T>(
     task: () => Promise<T>,
     options?: { canRetry?: (error: unknown) => boolean },
@@ -1370,23 +1251,23 @@ function createSharedTurnSync(options: {
       }
       activityStatus.noteReasoningActivity(payload);
     });
-    setToolActivityHook((preview) => {
+    setToolActivityHook((preview, payload) => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
-      activityStatus.noteToolActivity(preview);
+      activityStatus.noteToolActivity(preview, payload);
     });
-    setToolCallStreamHook((preview) => {
+    setToolCallStreamHook((preview, payload) => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
-      activityStatus.noteToolCallPreview(preview);
+      activityStatus.noteToolCallPreview(preview, payload);
     });
-    setToolResultHook(() => {
+    setToolResultHook((payload) => {
       if (!remoteTurnRunning || options.getLocalTurnActive()) {
         return;
       }
-      activityStatus.noteToolResult();
+      activityStatus.noteToolResult(payload);
     });
   };
 
@@ -1552,7 +1433,7 @@ async function handleSlashCommand(
     shareManager: ShareManager;
     metadata: ManagedServerMetadata | null;
     setFooter: (footer: string | null) => void;
-    setStatus: (status: string | null) => void;
+    setStatus: (status: StatusDisplay) => void;
     setLocalCompactionActive: (active: boolean) => void;
     setRuleBadge: (badge: string | null) => void;
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;

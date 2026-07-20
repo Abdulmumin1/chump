@@ -12,13 +12,20 @@ import {
 
 export class ToolActivityRenderer {
   private readonly writeLine: (value?: string) => void;
+  private capturedOutput: string[] | null = null;
 
   private pendingTools: Array<{
     name: string;
     args: string;
     key?: string;
+    step: number | null;
+    index: number | null;
     deferredDiffs?: FileEditDiff[];
   }> = [];
+  private readonly bufferedParallelResults = new Map<
+    number,
+    Array<{ index: number; output: string[] }>
+  >();
   private readonly completedTools = new Set<string>();
   private readonly streamingCalls = new Map<
     string,
@@ -59,7 +66,7 @@ export class ToolActivityRenderer {
       // Keep the permanent command and its output together when the result
       // arrives. The status row still previews the command live while its
       // arguments stream and while it executes.
-      this.pendingTools.push({ name: toolName, args: renderedArgs, key });
+      this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
       this.activity = true;
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
@@ -72,12 +79,12 @@ export class ToolActivityRenderer {
       // until completion so a failed call replaces its pending state instead
       // of looking like one successful call followed by a second failed call.
       this.activity = true;
-      this.pendingTools.push({ name: toolName, args: renderedArgs, key });
+      this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
     if (toolName === "search") {
       // Defer to result — no call line rendered.
-      this.pendingTools.push({ name: toolName, args: renderedArgs, key });
+      this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
     this.compactToolRunActive = false;
@@ -91,11 +98,13 @@ export class ToolActivityRenderer {
         name: toolName,
         args: renderedArgs,
         key,
+        step: finiteNumber(payload.step),
+        index: finiteNumber(payload.index),
         deferredDiffs: argsDiff,
       });
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
     }
-    this.pendingTools.push({ name: toolName, args: renderedArgs, key });
+    this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
     return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
   }
 
@@ -132,8 +141,70 @@ export class ToolActivityRenderer {
     if (key) {
       this.completedTools.add(key);
     }
-    this.renderToolResultOnce(payload);
+    this.renderToolResultInInvocationOrder(payload);
     return true;
+  }
+
+  flushPendingBatches(): void {
+    for (const step of [...this.bufferedParallelResults.keys()].sort((a, b) => a - b)) {
+      this.flushParallelBatch(step);
+    }
+  }
+
+  private renderToolResultInInvocationOrder(
+    payload: Record<string, unknown>,
+  ): void {
+    const step = finiteNumber(payload.step);
+    const index = finiteNumber(payload.index);
+    if (step === null || index === null) {
+      this.renderToolResultOnce(payload);
+      return;
+    }
+
+    const pendingInStep = this.pendingTools.filter((tool) => tool.step === step).length;
+    const buffered = this.bufferedParallelResults.get(step);
+    const isParallel = pendingInStep > 1 || buffered !== undefined;
+    if (!isParallel) {
+      this.renderToolResultOnce(payload);
+      return;
+    }
+
+    const previousCompactState = this.compactToolRunActive;
+    this.compactToolRunActive = false;
+    const output: string[] = [];
+    this.capturedOutput = output;
+    try {
+      this.renderToolResultOnce(payload);
+    } finally {
+      this.capturedOutput = null;
+      this.compactToolRunActive = previousCompactState;
+    }
+
+    const batch = buffered ?? [];
+    batch.push({ index, output });
+    this.bufferedParallelResults.set(step, batch);
+    if (!this.pendingTools.some((tool) => tool.step === step)) {
+      this.flushParallelBatch(step);
+    }
+  }
+
+  private flushParallelBatch(step: number): void {
+    const batch = this.bufferedParallelResults.get(step);
+    if (!batch) {
+      return;
+    }
+    this.bufferedParallelResults.delete(step);
+    this.compactToolRunActive = false;
+    for (const [resultIndex, result] of batch
+      .sort((a, b) => a.index - b.index)
+      .entries()) {
+      for (const [lineIndex, line] of result.output.entries()) {
+        const value = resultIndex > 0 && lineIndex === 0 && line.startsWith("\n")
+          ? line.slice(1)
+          : line;
+        this.writeLine(value);
+      }
+    }
   }
 
   private renderToolResultOnce(payload: Record<string, unknown>): void {
@@ -153,8 +224,8 @@ export class ToolActivityRenderer {
     if (toolName === "bash") {
       this.compactToolRunActive = false;
       const pending = this.takePendingTool(toolName, payload);
-      this.writeLine(`\n${renderCommand(pending?.args || "command")}`);
-      this.writeLine(
+      this.emit(`\n${renderCommand(pending?.args || "command")}`);
+      this.emit(
         renderCommandOutput(
           ok,
           truncateMultilinePreview(
@@ -164,7 +235,7 @@ export class ToolActivityRenderer {
           ),
         ),
       );
-      this.writeLine("");
+      this.emit("");
       this.activity = true;
       return;
     }
@@ -188,7 +259,7 @@ export class ToolActivityRenderer {
             ? searchMatches.totalMatched - searchMatches.matches.length
             : 0;
         if (omitted > 0) {
-          this.writeLine(
+          this.emit(
             `  ${renderMuted(`[${omitted} additional matches omitted]`)}`,
           );
         }
@@ -217,10 +288,10 @@ export class ToolActivityRenderer {
       this.takePendingTool(toolName, payload);
       // Structured metadata diffs are authoritative — always render them.
       // (During live streaming, this replaces the args-based pre-render.)
-      this.writeLine(
+      this.emit(
         `\n${diffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
       );
-      this.writeLine("");
+      this.emit("");
       this.activity = true;
       return;
     }
@@ -230,10 +301,10 @@ export class ToolActivityRenderer {
     // render the diff captured from the original tool arguments.
     if (ok === "ok" && pending?.deferredDiffs?.length) {
       this.compactToolRunActive = false;
-      this.writeLine(
+      this.emit(
         `\n${pending.deferredDiffs.map((diff) => renderFileEditDiff(diff)).join("\n")}`,
       );
-      this.writeLine("");
+      this.emit("");
       this.activity = true;
       return;
     }
@@ -247,7 +318,7 @@ export class ToolActivityRenderer {
         : renderToolResult(
           ok,
           label,
-          [pending?.args, visiblePreview].filter(Boolean).join(" · "),
+          pending?.args || visiblePreview,
         );
       this.writeCompactToolLine(line);
       this.activity = true;
@@ -256,15 +327,15 @@ export class ToolActivityRenderer {
 
     if (ok === "ok" && pending) {
       this.compactToolRunActive = false;
-      this.writeLine(`\n${renderToolDone(label, pending.args)}`);
-      this.writeLine("");
+      this.emit(`\n${renderToolDone(label, pending.args)}`);
+      this.emit("");
       this.activity = true;
       return;
     }
 
     this.compactToolRunActive = false;
-    this.writeLine(`\n${renderToolResult(ok, label, visiblePreview)}`);
-    this.writeLine("");
+    this.emit(`\n${renderToolResult(ok, label, visiblePreview)}`);
+    this.emit("");
     this.activity = true;
   }
 
@@ -272,6 +343,8 @@ export class ToolActivityRenderer {
     name: string;
     args: string;
     key?: string;
+    step: number | null;
+    index: number | null;
     deferredDiffs?: FileEditDiff[];
   } | null {
     const key = readToolIdentity(payload);
@@ -286,9 +359,38 @@ export class ToolActivityRenderer {
   }
 
   private writeCompactToolLine(line: string): void {
-    this.writeLine(this.compactToolRunActive ? line : `\n${line}`);
+    this.emit(this.compactToolRunActive ? line : `\n${line}`);
     this.compactToolRunActive = true;
   }
+
+  private emit(value = ""): void {
+    if (this.capturedOutput) {
+      this.capturedOutput.push(value);
+      return;
+    }
+    this.writeLine(value);
+  }
+}
+
+function pendingTool(
+  name: string,
+  args: string,
+  key: string,
+  payload: Record<string, unknown>,
+): {
+  name: string;
+  args: string;
+  key?: string;
+  step: number | null;
+  index: number | null;
+} {
+  return {
+    name,
+    args,
+    key: key || undefined,
+    step: finiteNumber(payload.step),
+    index: finiteNumber(payload.index),
+  };
 }
 
 export function readToolName(payload: Record<string, unknown>): string {
@@ -304,7 +406,7 @@ export function readToolName(payload: Record<string, unknown>): string {
   return "tool";
 }
 
-function readToolIdentity(payload: Record<string, unknown>): string {
+export function readToolIdentity(payload: Record<string, unknown>): string {
   const step = finiteNumber(payload.step);
   const index = finiteNumber(payload.index);
   if (step !== null && index !== null) {

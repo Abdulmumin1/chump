@@ -1042,6 +1042,10 @@ export function renderError(message: string): string {
   return `${danger("[error]")} ${message}`;
 }
 
+export function renderDanger(message: string): string {
+  return danger(message);
+}
+
 export function renderMuted(message: string): string {
   return muted(message);
 }

@@ -671,12 +671,10 @@ class ChumpAgent(Agent[dict[str, Any]]):
         await self._persist_messages()
 
     def _turn_provider_options(self) -> ProviderOptions | None:
-        provider_options: ProviderOptions = dict(self.provider_options or {})
-        if self._config.provider == "codex":
-            codex_options = dict(provider_options.get("codex") or {})
-            codex_options.setdefault("instructions", self.system)
-            provider_options["codex"] = codex_options
-        return provider_options or None
+        # ai-query already inserts ``self.system`` as the first system message.
+        # Also forwarding it as Responses API ``instructions`` sends the full
+        # prompt twice and inflates Codex context usage.
+        return dict(self.provider_options or {}) or None
 
     async def _on_step_start(self, event) -> None:
         self._log(f"step {event.step_number} start")

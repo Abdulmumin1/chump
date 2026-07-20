@@ -8,10 +8,16 @@ const DEBUG_EVENT_STREAM =
   process.env.CHUMP_DEBUG_EVENTS === "1" ||
   process.env.CHUMP_DEBUG_EVENTS === "true";
 
-let toolActivityHook: ((preview: string) => void) | null = null;
+let toolActivityHook: ((
+  preview: string,
+  payload: Record<string, unknown>,
+) => void) | null = null;
 let beforeToolActivityHook: (() => void) | null = null;
-let toolCallStreamHook: ((preview: string | null) => void) | null = null;
-let toolResultHook: (() => void) | null = null;
+let toolCallStreamHook: ((
+  preview: string | null,
+  payload: Record<string, unknown>,
+) => void) | null = null;
+let toolResultHook: ((payload: Record<string, unknown>) => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
 let steeringAcceptedHook: ((content: string) => void) | null = null;
 let assistantTextHook: ((content: string) => boolean) | null = null;
@@ -22,9 +28,10 @@ let compactionStatusHook: ((payload: Record<string, unknown>) => void) | null = 
 const transcriptRenderer = new TranscriptRenderer({
   hooks: {
     onBeforeToolActivity: () => beforeToolActivityHook?.(),
-    onToolActivity: (preview) => toolActivityHook?.(preview),
-    onToolCallStream: (preview) => toolCallStreamHook?.(preview),
-    onToolResult: () => toolResultHook?.(),
+    onToolActivity: (preview, payload) => toolActivityHook?.(preview, payload),
+    onToolCallStream: (preview, payload) =>
+      toolCallStreamHook?.(preview, payload),
+    onToolResult: (payload) => toolResultHook?.(payload),
     onReasoningActivity: (payload) => reasoningActivityHook?.(payload),
     onSteeringAccepted: (content) => steeringAcceptedHook?.(content),
     onAssistantText: (content) => assistantTextHook?.(content) ?? false,
@@ -40,18 +47,23 @@ export function setBeforeToolActivityHook(hook: (() => void) | null): void {
 }
 
 export function setToolActivityHook(
-  hook: ((preview: string) => void) | null,
+  hook: ((preview: string, payload: Record<string, unknown>) => void) | null,
 ): void {
   toolActivityHook = hook;
 }
 
 export function setToolCallStreamHook(
-  hook: ((preview: string | null) => void) | null,
+  hook: ((
+    preview: string | null,
+    payload: Record<string, unknown>,
+  ) => void) | null,
 ): void {
   toolCallStreamHook = hook;
 }
 
-export function setToolResultHook(hook: (() => void) | null): void {
+export function setToolResultHook(
+  hook: ((payload: Record<string, unknown>) => void) | null,
+): void {
   toolResultHook = hook;
 }
 

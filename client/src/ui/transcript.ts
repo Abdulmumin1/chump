@@ -16,9 +16,15 @@ import type { StoredMessage, SseEvent, TranscriptEvent } from "../core/types.ts"
 
 export type TranscriptRendererHooks = {
   onBeforeToolActivity?: (() => void) | null;
-  onToolActivity?: ((preview: string) => void) | null;
-  onToolCallStream?: ((preview: string | null) => void) | null;
-  onToolResult?: (() => void) | null;
+  onToolActivity?: ((
+    preview: string,
+    payload: Record<string, unknown>,
+  ) => void) | null;
+  onToolCallStream?: ((
+    preview: string | null,
+    payload: Record<string, unknown>,
+  ) => void) | null;
+  onToolResult?: ((payload: Record<string, unknown>) => void) | null;
   onReasoningActivity?: ((payload: Record<string, unknown>) => void) | null;
   onSteeringAccepted?: ((content: string) => void) | null;
   onAssistantText?: ((content: string) => boolean) | null;
@@ -62,17 +68,19 @@ export class TranscriptRenderer {
         this.hooks.onBeforeToolActivity?.();
         this.hooks.onToolActivity?.(
           this.toolActivityRenderer.renderToolCall(event.payload),
+          event.payload,
         );
         return;
       case "tool_call_stream":
         this.finishReasoning();
         this.hooks.onToolCallStream?.(
           this.toolActivityRenderer.renderToolCallStream(event.payload),
+          event.payload,
         );
         return;
       case "tool_result":
         if (this.toolActivityRenderer.renderToolResult(event.payload)) {
-          this.hooks.onToolResult?.();
+          this.hooks.onToolResult?.(event.payload);
         }
         return;
       case "reasoning":
@@ -94,6 +102,7 @@ export class TranscriptRenderer {
       case "stream_end":
         this.finishReasoning();
         this.flushAssistantStream();
+        this.toolActivityRenderer.flushPendingBatches();
         if (event.fallback) {
           writeOutput(`${renderMuted(event.fallback)}\n`);
         }
@@ -101,6 +110,7 @@ export class TranscriptRenderer {
       case "stream_error":
         this.finishReasoning();
         this.flushAssistantStream();
+        this.toolActivityRenderer.flushPendingBatches();
         writeOutput(
           event.aborted
             ? `${renderMuted("(aborted)")}\n`
@@ -121,6 +131,7 @@ export class TranscriptRenderer {
   finish(): void {
     this.flushAssistantStream();
     this.finishReasoning();
+    this.toolActivityRenderer.flushPendingBatches();
   }
 
   private renderAssistantText(content: string): void {

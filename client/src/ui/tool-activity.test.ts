@@ -78,9 +78,10 @@ test("renders each failed read once on its correlated compact row", () => {
   }
 
   assert.equal(output.length, 3);
-  assert.match(output[0] ?? "", /\n.*×.*Read.*first\.ts.*file not found/s);
-  assert.match(output[1] ?? "", /×.*Read.*second\.ts.*file not found/s);
-  assert.match(output[2] ?? "", /×.*Read.*third\.ts.*file not found/s);
+  assert.match(output[0] ?? "", /\n.*×.*Read.*first\.ts/s);
+  assert.match(output[1] ?? "", /×.*Read.*second\.ts/s);
+  assert.match(output[2] ?? "", /×.*Read.*third\.ts/s);
+  assert.doesNotMatch(output.join("\n"), /file not found/);
   assert.equal(output[1]?.startsWith("\n"), false);
   assert.equal(output[2]?.startsWith("\n"), false);
   assert.equal(output.includes(""), false);
@@ -347,8 +348,8 @@ test("correlates reverse-completing same-name tools by lifecycle identity", () =
     index: 0,
   });
 
-  assert.match(output[0] ?? "", /second/);
-  assert.match(output[1] ?? "", /first/);
+  assert.match(output[0] ?? "", /first/);
+  assert.match(output[1] ?? "", /second/);
 });
 
 test("keeps each concurrent bash result with its originating command", () => {
@@ -387,10 +388,11 @@ test("keeps each concurrent bash result with its originating command", () => {
     index: 0,
   });
 
-  assert.match(output[0] ?? "", /printf second/);
-  assert.match(output[1] ?? "", /second output/);
-  assert.match(output[3] ?? "", /printf first/);
-  assert.match(output[4] ?? "", /first output/);
+  assert.equal(output.length, 6);
+  assert.match(output[0] ?? "", /printf first/);
+  assert.match(output[1] ?? "", /first output/);
+  assert.match(output[3] ?? "", /printf second/);
+  assert.match(output[4] ?? "", /second output/);
 });
 
 test("caps long single-line command output to roughly five terminal rows", () => {
