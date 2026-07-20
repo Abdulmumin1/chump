@@ -4,7 +4,7 @@ TypeScript CLI package for `chump`.
 
 ## Requirements
 
-- Node.js `>=22`
+- Node.js `>=22.19`
 - pnpm `>=10` for repository development
 
 ## Local Install
@@ -69,6 +69,35 @@ pnpm run dev
 pnpm run typecheck
 pnpm run build
 ```
+
+## TUI Extensions
+
+The interactive client is built on
+[`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui).
+Its shell exposes named component slots, key handlers, autocomplete providers,
+and output transforms. Extensions can be registered in-process through the
+`chump-agent/tui` export, or loaded from explicit paths with
+`CHUMP_TUI_EXTENSIONS` (separate multiple paths with your platform's path
+delimiter).
+
+```ts
+import { Text } from "@earendil-works/pi-tui";
+import type { ChumpTuiExtension } from "chump-agent/tui";
+
+const extension: ChumpTuiExtension = (ui) => {
+  const status = new Text(ui.theme.muted("project extension active"), 1, 0);
+  return ui.addComponent("beforeInput", status);
+};
+
+export default extension;
+```
+
+```bash
+CHUMP_TUI_EXTENSIONS=./tools/chump-tui.ts chump
+```
+
+Project files are never auto-executed; extension paths must be opted into
+explicitly.
 
 ## Packaging
 
