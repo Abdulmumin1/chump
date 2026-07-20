@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import { writeOutput } from "./terminal.ts";
 import { armOsc11ResponseFilter } from "./terminal-query.ts";
 
@@ -54,11 +55,33 @@ const lightPalette = {
   codeDiffMeta: "#787878",
 };
 
+// Use Chump's established lime/neutral palette through Pi's theme hooks.
+// Explicit foregrounds avoid SGR dim, whose appearance varies widely between
+// terminal emulators.
+const darkTuiPalette = {
+  accent: "#b8dd35",
+  border: "#666666",
+  text: "#d0d0d0",
+  muted: "#8a8a8a",
+  dim: "#737373",
+  code: "#a8cf4f",
+};
+
+const lightTuiPalette = {
+  accent: "#4f6900",
+  border: "#767676",
+  text: "#343434",
+  muted: "#545454",
+  dim: "#787878",
+  code: "#5d7800",
+};
+
 // Theme detection may issue a synchronous OSC 11 query. Compute it once at
 // startup; doing this from frequently-called style helpers made every input
 // redraw block for up to 100ms on terminals that do not answer the query.
 const lightTerminal = isLightTerminal();
 const palette = lightTerminal ? lightPalette : darkPalette;
+const tuiPalette = lightTerminal ? lightTuiPalette : darkTuiPalette;
 
 type MarkdownRenderState = {
   inCodeBlock: boolean;
@@ -229,17 +252,7 @@ function success(value: string): string {
 }
 
 function muted(value: string): string {
-  if (lightTerminal) {
-    return fg(palette.muted, value);
-  }
-  return ansi("\x1b[2m", value);
-}
-
-function faint(value: string): string {
-  if (lightTerminal) {
-    return ansi(`\x1b[2m\x1b[38;2;130;130;130m`, value);
-  }
-  return ansi(`\x1b[2m\x1b[38;2;80;80;80m`, value);
+  return fg(palette.muted, value);
 }
 
 function danger(value: string): string {
@@ -1025,23 +1038,6 @@ export function renderInput(value: string): string {
   return renderInlineAttachments(value);
 }
 
-export function renderInputRule(
-  width: number = process.stdout.columns ?? 80,
-  badge: string | null = null,
-): string {
-  const totalWidth = Math.max(12, width);
-  if (!badge) {
-    return faint("─".repeat(totalWidth));
-  }
-  const badgeText = `(${badge})`;
-  const rightWidth = totalWidth - badgeText.length >= 6 ? 1 : 0;
-  const leftWidth = totalWidth - badgeText.length - rightWidth - 2;
-  if (leftWidth < 4) {
-    return faint("─".repeat(totalWidth));
-  }
-  return `${faint("─".repeat(leftWidth))} ${success(badgeText)} ${faint("─".repeat(rightWidth))}`;
-}
-
 export function renderError(message: string): string {
   return `${danger("[error]")} ${message}`;
 }
@@ -1062,8 +1058,43 @@ export function renderAccent(message: string): string {
   return accent(message);
 }
 
-export function renderFooterStatus(parts: string[]): string {
-  return muted(parts.filter(Boolean).join(" · "));
+export function renderTuiAccent(message: string): string {
+  return fg(tuiPalette.accent, message);
+}
+
+export function renderTuiBorder(message: string): string {
+  return fg(tuiPalette.border, message);
+}
+
+export function renderTuiMuted(message: string): string {
+  return fg(tuiPalette.muted, message);
+}
+
+export function renderTuiDim(message: string): string {
+  return fg(tuiPalette.dim, message);
+}
+
+export function renderTuiText(message: string): string {
+  return fg(tuiPalette.text, message);
+}
+
+export function createTuiMarkdownTheme(): MarkdownTheme {
+  return {
+    heading: (value) => bold(renderTuiAccent(value)),
+    link: (value) => underline(renderTuiAccent(value)),
+    linkUrl: renderTuiMuted,
+    code: (value) => fg(tuiPalette.code, value),
+    codeBlock: renderTuiText,
+    codeBlockBorder: renderTuiDim,
+    quote: renderTuiMuted,
+    quoteBorder: renderTuiDim,
+    hr: renderTuiDim,
+    listBullet: renderTuiAccent,
+    bold,
+    italic,
+    strikethrough: (value) => ansi("\x1b[9m", value),
+    underline,
+  };
 }
 
 export function renderEscHint(): string {
@@ -1345,7 +1376,7 @@ export function renderUserMessage(message: string): string {
   const tail = rest.map(
     (line) => `${muted("╎")} ${renderInlineAttachments(line)}`,
   );
-  return ["", head, ...tail, ""].join("\n");
+  return ["", head, ...tail].join("\n");
 }
 
 export function renderSteeringMessage(message: string): string {
@@ -1355,7 +1386,7 @@ export function renderSteeringMessage(message: string): string {
   const tail = rest.map(
     (line) => `${muted("↳")} ${renderInlineAttachments(line)}`,
   );
-  return ["", head, ...tail, ""].join("\n");
+  return ["", head, ...tail].join("\n");
 }
 
 function renderInlineAttachments(value: string): string {

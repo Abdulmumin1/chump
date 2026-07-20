@@ -68,7 +68,9 @@ export class ToolActivityRenderer {
       toolName === "web_fetch" ||
       toolName === "website"
     ) {
-      this.writeCompactToolLine(renderToolDone(label, renderedArgs));
+      // The status row previews these while they run. Defer the permanent row
+      // until completion so a failed call replaces its pending state instead
+      // of looking like one successful call followed by a second failed call.
       this.activity = true;
       this.pendingTools.push({ name: toolName, args: renderedArgs, key });
       return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
@@ -155,7 +157,11 @@ export class ToolActivityRenderer {
       this.writeLine(
         renderCommandOutput(
           ok,
-          truncateMultilinePreview(visiblePreview, 4000, 5),
+          truncateMultilinePreview(
+            visiblePreview,
+            commandOutputPreviewLimit(),
+            5,
+          ),
         ),
       );
       this.writeLine("");
@@ -232,12 +238,19 @@ export class ToolActivityRenderer {
       return;
     }
     if (
-      ok === "ok" &&
-      (toolName === "read_file" ||
-        toolName === "web_fetch" ||
-        toolName === "website")
+      toolName === "read_file" ||
+      toolName === "web_fetch" ||
+      toolName === "website"
     ) {
-      // Call already rendered its final compact line.
+      const line = ok === "ok"
+        ? renderToolDone(label, pending?.args ?? "")
+        : renderToolResult(
+          ok,
+          label,
+          [pending?.args, visiblePreview].filter(Boolean).join(" · "),
+        );
+      this.writeCompactToolLine(line);
+      this.activity = true;
       return;
     }
 
@@ -916,6 +929,11 @@ function truncateMultilinePreview(
     return `${visible}\n...[truncated]`;
   }
   return visible;
+}
+
+function commandOutputPreviewLimit(): number {
+  const columns = process.stdout.columns ?? 80;
+  return Math.max(240, Math.min(1200, columns * 5));
 }
 
 function readSearchMatch(value: unknown): SearchMatch | null {

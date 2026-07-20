@@ -1,6 +1,6 @@
 {
   "name": "chump-agent",
-  "version": "0.1.16",
+  "version": "0.2.0",
   "private": false,
   "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",
@@ -17,6 +17,10 @@
   "bin": {
     "chump": "./dist/chump.js"
   },
+  "exports": {
+    "./tui": "./dist/ui/tui/extensions.js",
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "sync-version": "node scripts/sync-version.mjs",
     "build": "pnpm run sync-version && tsc --project tsconfig.build.json",
@@ -32,7 +36,7 @@
     "bin:uninstall": "pnpm unlink --global chump-agent"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   },
   "publishConfig": {
     "access": "public"
@@ -59,6 +63,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
+    "@earendil-works/pi-tui": "0.80.10",
     "@ff-labs/fff-bun": "0.9.4",
     "onlocal": "^0.6.0"
   }

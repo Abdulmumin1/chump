@@ -6,7 +6,11 @@ import {
   renderUserMessage,
 } from "./render.ts";
 import { LiveReasoningStream, ReasoningRenderer } from "./reasoning.ts";
-import { writeOutput, writeOutputLine } from "./terminal.ts";
+import {
+  createLiveMarkdownStream,
+  writeOutput,
+  writeOutputLine,
+} from "./terminal.ts";
 import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import type { StoredMessage, SseEvent, TranscriptEvent } from "../core/types.ts";
 
@@ -127,7 +131,7 @@ export class TranscriptRenderer {
     if (this.hooks.onAssistantText?.(content)) {
       return;
     }
-    this.assistantStream ??= createMarkdownStream();
+    this.assistantStream ??= createLiveMarkdownStream() ?? createMarkdownStream();
     this.assistantStream.write(content);
   }
 

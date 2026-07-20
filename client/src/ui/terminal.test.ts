@@ -2,43 +2,55 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  noteInputActivity,
-  setActiveDraft,
+  clearTerminal,
+  createLiveMarkdownStream,
+  setTerminalOutputSink,
   writeOutput,
 } from "./terminal.ts";
 
-test("gives keyboard activity priority over streaming writes", async () => {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const writes: Array<{ at: number; value: string }> = [];
-  process.stdout.write = ((value: string | Uint8Array) => {
-    const rendered = String(value);
-    if (rendered.includes("__CHUMP_STREAM_PAYLOAD__")) {
-      writes.push({ at: Date.now(), value: rendered });
-      return true;
-    }
-    return originalWrite(value);
-  }) as typeof process.stdout.write;
+test("routes output and clears through an active Pi TUI sink", () => {
+  const writes: string[] = [];
+  let clears = 0;
+  setTerminalOutputSink({
+    write: (value) => writes.push(value),
+    clear: () => {
+      clears += 1;
+    },
+  });
 
   try {
-    setActiveDraft({
-      buildClear: () => "<clear>",
-      buildRedraw: () => "<draft>",
-    });
-    const inputAt = Date.now();
-    writeOutput("__CHUMP_STREAM_PAYLOAD__");
-    noteInputActivity();
-
-    assert.equal(writes.length, 0);
-    await delay(180);
-    assert.equal(writes.length, 1);
-    assert.ok((writes[0]?.at ?? 0) - inputAt >= 100);
-    assert.match(writes[0]?.value ?? "", /<clear>__CHUMP_STREAM_PAYLOAD__\n<draft>/);
+    writeOutput("hello from Pi");
+    clearTerminal();
+    assert.deepEqual(writes, ["hello from Pi"]);
+    assert.equal(clears, 1);
   } finally {
-    setActiveDraft(null);
-    process.stdout.write = originalWrite as typeof process.stdout.write;
+    setTerminalOutputSink(null);
   }
 });
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
+test("routes assistant deltas through the live Pi Markdown stream", () => {
+  const chunks: string[] = [];
+  let ended = false;
+  setTerminalOutputSink({
+    write: () => {},
+    clear: () => {},
+    createMarkdownStream: () => ({
+      write: (value) => chunks.push(value),
+      end: () => {
+        ended = true;
+      },
+    }),
+  });
+
+  try {
+    const stream = createLiveMarkdownStream();
+    assert.ok(stream);
+    stream.write("smooth");
+    stream.write(" stream");
+    assert.deepEqual(chunks, ["smooth", " stream"]);
+    stream.end();
+    assert.equal(ended, true);
+  } finally {
+    setTerminalOutputSink(null);
+  }
+});

@@ -32,6 +32,10 @@ test("starts a new compact tool run after intervening text", () => {
     name: "read_file",
     args: { path: "first.ts" },
   });
+  renderer.renderToolResult({
+    name: "read_file",
+    status: "ok",
+  });
 
   // The transcript consumes activity before rendering assistant text and uses
   // the return value to insert the blank line above that text.
@@ -43,6 +47,44 @@ test("starts a new compact tool run after intervening text", () => {
   assert.equal(output.length, 2);
   assert.match(output[0] ?? "", /\n.*Read.*first\.ts/s);
   assert.match(output[1] ?? "", /\n.*search.*second/s);
+});
+
+test("renders each failed read once on its correlated compact row", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+  const paths = ["first.ts", "second.ts", "third.ts"];
+
+  for (const [index, path] of paths.entries()) {
+    renderer.renderToolCall({
+      name: "read_file",
+      args: { path },
+      call_id: `call_${index}`,
+      step: 1,
+      index,
+    });
+  }
+
+  assert.equal(output.length, 0);
+
+  for (const [index] of paths.entries()) {
+    renderer.renderToolResult({
+      name: "read_file",
+      status: "error",
+      preview: "file not found",
+      call_id: `call_${index}`,
+      step: 1,
+      index,
+    });
+  }
+
+  assert.equal(output.length, 3);
+  assert.match(output[0] ?? "", /\n.*×.*Read.*first\.ts.*file not found/s);
+  assert.match(output[1] ?? "", /×.*Read.*second\.ts.*file not found/s);
+  assert.match(output[2] ?? "", /×.*Read.*third\.ts.*file not found/s);
+  assert.equal(output[1]?.startsWith("\n"), false);
+  assert.equal(output[2]?.startsWith("\n"), false);
+  assert.equal(output.includes(""), false);
+  assert.equal((output.join("\n").match(/Read/g) ?? []).length, 3);
 });
 
 test("flushes buffered assistant text before rendering the next tool", () => {
@@ -351,6 +393,27 @@ test("keeps each concurrent bash result with its originating command", () => {
   assert.match(output[4] ?? "", /first output/);
 });
 
+test("caps long single-line command output to roughly five terminal rows", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "bash",
+    args: { command: "curl http://127.0.0.1:8080/health" },
+    call_id: "call_health",
+  });
+  renderer.renderToolResult({
+    name: "bash",
+    status: "ok",
+    preview: "x".repeat(5000),
+    call_id: "call_health",
+  });
+
+  const renderedOutput = stripTestAnsi(output[1] ?? "");
+  assert.match(renderedOutput, /\.\.\.\[truncated\]$/u);
+  assert.ok(renderedOutput.length <= 420);
+});
+
 test("renders execution completion immediately and ignores the durable duplicate", () => {
   const output: string[] = [];
   const renderer = new ToolActivityRenderer((value = "") => output.push(value));
@@ -443,4 +506,8 @@ function searchResult(query: string, totalMatched: number): Record<string, unkno
     preview: totalMatched > 0 ? query : "No matches found.",
     metadata: { matches, totalMatched, totalFiles: 1 },
   };
+}
+
+function stripTestAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*m/gu, "");
 }

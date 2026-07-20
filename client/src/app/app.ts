@@ -65,7 +65,6 @@ import {
   createMarkdownStream,
   renderAccent,
   renderError,
-  renderFooterStatus,
   renderMuted,
   renderThinkingActivity,
   renderUserMessage,
@@ -100,6 +99,7 @@ import {
 } from "./daemon-command.ts";
 import { parseAppCommand, runAppCommand } from "./app-command.ts";
 import { createSpinner } from "../ui/spinner.ts";
+import { renderSessionFooter } from "../ui/footer.ts";
 import type {
   ChumpConfig,
   CliOptions,
@@ -293,7 +293,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     getStatus(config),
     getSessions(config),
   ]);
-  promptReader.setFooter(renderFooter(config, status, shareManager.current()));
+  promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
   promptReader.setRuleBadge(await renderInputBadge(status));
   promptReader.setSessionSuggestions(sessions.sessions);
   promptReader.setModelSuggestions(await loadModelSuggestions());
@@ -310,7 +310,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       git_branch?: string;
       usage?: UsageSummary | null;
     };
-    promptReader.setFooter(renderFooter(config, status, shareManager.current()));
+    promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
     void renderInputBadge(status).then((badge) => {
       promptReader.setRuleBadge(badge);
     });
@@ -359,7 +359,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       getStatus(config),
       getSessions(config),
     ]);
-    promptReader.setFooter(renderFooter(config, status, shareManager.current()));
+    promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
     promptReader.setRuleBadge(await renderInputBadge(status));
     promptReader.setSessionSuggestions(sessions.sessions);
     promptReader.setSkillSuggestions(health.skills);
@@ -430,12 +430,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 
   if (target.note) {
-    console.log(`[server] ${target.note}`);
+    writeOutput(`[server] ${target.note}\n`);
   }
-  console.log(renderBanner(config, { workspaceRoot: health.workspace_root }));
+  writeOutput(`${renderBanner(config, { workspaceRoot: health.workspace_root })}\n`);
   const updateNotice = await maybeRenderUpdateNotice();
   if (updateNotice) {
-    console.log(renderMuted(updateNotice));
+    writeOutput(`${renderMuted(updateNotice)}\n`);
   }
   renderLoadedResources(health, config.workspaceRoot);
   closeEventStream = await startEventStream(config);
@@ -1601,7 +1601,7 @@ async function handleSlashCommand(
       }
       const status = await setModel(config, provider, model);
       await updateGlobalAuth({ provider: status.provider, model: status.model });
-      context.setFooter(renderFooter(config, status, context.shareManager.current()));
+      context.setFooter(renderSessionFooter(config, status, context.shareManager.current()));
       context.setRuleBadge(await renderInputBadge(status));
       context.setModelSuggestions(await loadModelSuggestions());
       writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
@@ -1613,7 +1613,7 @@ async function handleSlashCommand(
         const result = await context.shareManager.start(config);
         renderShareStatus(result.share, result.reused ? "share already active" : "share started");
         writeOutput(`${renderMuted("note: transport is live; Chump share auth is the next step")}\n`);
-        context.setFooter(renderFooter(config, await getStatus(config), context.shareManager.current()));
+        context.setFooter(renderSessionFooter(config, await getStatus(config), context.shareManager.current()));
         break;
       }
       if (mode === "status") {
@@ -1632,7 +1632,7 @@ async function handleSlashCommand(
           break;
         }
         writeOutput(`${renderMuted(`share stopped: ${share.publicUrl}`)}\n`);
-        context.setFooter(renderFooter(config, await getStatus(config), context.shareManager.current()));
+        context.setFooter(renderSessionFooter(config, await getStatus(config), context.shareManager.current()));
         break;
       }
       writeOutput(`${renderMuted("usage: /share [status|stop]")}\n`);
@@ -1646,7 +1646,7 @@ async function handleSlashCommand(
       }
       const status = await setReasoning(config, mode);
       await updateGlobalAuth({ reasoning: { mode } });
-      context.setFooter(renderFooter(config, status, context.shareManager.current()));
+      context.setFooter(renderSessionFooter(config, status, context.shareManager.current()));
       context.setRuleBadge(await renderInputBadge(status));
       writeOutput(`${renderMuted(`thinking set to ${mode}`)}\n`);
       break;
@@ -1675,7 +1675,7 @@ async function handleSlashCommand(
         activityStatus.stop();
         context.setLocalCompactionActive(false);
       }
-      context.setFooter(renderFooter(config, await getStatus(config), context.shareManager.current()));
+      context.setFooter(renderSessionFooter(config, await getStatus(config), context.shareManager.current()));
       break;
     }
     case "session": {
@@ -1793,7 +1793,7 @@ async function renderSwitchedSession(
     getMessages(config),
     getSessions(config),
   ]);
-  setFooter(renderFooter(config, status, shareManager.current()));
+  setFooter(renderSessionFooter(config, status, shareManager.current()));
   setRuleBadge(await renderInputBadge(status));
   setSessionSuggestions(sessions.sessions);
   if (options.skipEmptyTranscript && response.messages.length === 0) {
@@ -1801,23 +1801,6 @@ async function renderSwitchedSession(
   }
   renderSessionTranscript(response.messages);
   return status;
-}
-
-function renderFooter(
-  config: ChumpConfig,
-  health: { provider: string; model: string; reasoning: Record<string, unknown> | null; git_branch?: string },
-  share: ShareStatus | null,
-): string {
-  // Render each part in full; the input frame wraps the footer at the
-  // terminal's width, so a long footer flows onto multiple lines instead of
-  // being hard-truncated with an ellipsis.
-  return renderFooterStatus([
-    `${health.provider}/${health.model}`,
-    renderReasoning(health.reasoning),
-    share ? "shared" : "",
-    config.serverSource,
-    health.git_branch ? `* ${health.git_branch}` : "",
-  ]);
 }
 
 async function renderInputBadge(
@@ -1944,17 +1927,6 @@ function steeringQueueSubmissions(payload: Record<string, unknown>): PromptSubmi
     });
   }
   return submissions;
-}
-
-function renderReasoning(reasoning: Record<string, unknown> | null): string {
-  if (!reasoning) {
-    return "";
-  }
-  const parts = [
-    typeof reasoning.effort === "string" ? reasoning.effort : null,
-    typeof reasoning.budget === "number" ? `${reasoning.budget} tok` : null,
-  ].filter(Boolean);
-  return parts.length > 0 ? `thinking ${parts.join(" ")}` : "thinking";
 }
 
 function formatResumeCommand(sessionId: string): string {
