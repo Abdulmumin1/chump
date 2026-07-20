@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.1
+
+- Add GPT-5.6, GPT-5.6 Sol, GPT-5.6 Terra, and GPT-5.6 Luna model support for the Codex and OpenAI providers.
+
 ## 0.0.45
 
 - Add a workspace-scoped `view_image` tool for PNG, JPEG, GIF, and WebP files using `ai-query` 1.7.55 multimodal tool outputs.

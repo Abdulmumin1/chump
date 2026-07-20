@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.1.16
+
+### Patch Changes
+
+- Add GPT-5.6 model family support across Codex and OpenAI, show all providers in /model suggestions, and keep CLI tool activity compact without crowding adjacent assistant text.
+
 ## 0.1.15
 
 ### Patch Changes

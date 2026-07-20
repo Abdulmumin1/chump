@@ -35,6 +35,10 @@ export class ToolActivityRenderer {
   consumeActivity(): boolean {
     const hadActivity = this.activity;
     this.activity = false;
+    // Consumers call this when non-tool content is about to render. That
+    // content ends the compact run, so a later tool starts a new spaced block
+    // instead of being visually grouped across the intervening text.
+    this.compactToolRunActive = false;
     return hadActivity;
   }
 

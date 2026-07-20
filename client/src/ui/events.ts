@@ -9,6 +9,7 @@ const DEBUG_EVENT_STREAM =
   process.env.CHUMP_DEBUG_EVENTS === "true";
 
 let toolActivityHook: ((preview: string) => void) | null = null;
+let beforeToolActivityHook: (() => void) | null = null;
 let toolCallStreamHook: ((preview: string | null) => void) | null = null;
 let toolResultHook: (() => void) | null = null;
 let reasoningActivityHook: ((payload: Record<string, unknown>) => void) | null = null;
@@ -20,6 +21,7 @@ let turnStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 let compactionStatusHook: ((payload: Record<string, unknown>) => void) | null = null;
 const transcriptRenderer = new TranscriptRenderer({
   hooks: {
+    onBeforeToolActivity: () => beforeToolActivityHook?.(),
     onToolActivity: (preview) => toolActivityHook?.(preview),
     onToolCallStream: (preview) => toolCallStreamHook?.(preview),
     onToolResult: () => toolResultHook?.(),
@@ -32,6 +34,10 @@ const transcriptRenderer = new TranscriptRenderer({
     onCompactionStatus: (payload) => compactionStatusHook?.(payload),
   },
 });
+
+export function setBeforeToolActivityHook(hook: (() => void) | null): void {
+  beforeToolActivityHook = hook;
+}
 
 export function setToolActivityHook(
   hook: ((preview: string) => void) | null,

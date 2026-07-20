@@ -42,6 +42,7 @@ import {
 } from "./config.ts";
 import {
   consumeToolActivity,
+  setBeforeToolActivityHook,
   setAgentStatusHook,
   setAssistantTextHook,
   setCompactionStatusHook,
@@ -1102,9 +1103,13 @@ async function runChatTurn(
   const turnStartedAt = Date.now();
   let toolCallCount = 0;
   activityStatus.start();
+  setBeforeToolActivityHook(() => {
+    // Assistant chunks can still be buffered while waiting for a newline.
+    // Flush them before the event stream prints the following tool row.
+    localTranscript.finish();
+  });
   setToolActivityHook((preview) => {
     toolCallCount += 1;
-    localTranscript.finish();
     activityStatus.noteToolActivity(preview);
   });
   setToolCallStreamHook((preview) => {
@@ -1193,6 +1198,7 @@ async function runChatTurn(
         requeueSteeredSubmission(pending);
       }
     }
+    setBeforeToolActivityHook(null);
     setToolActivityHook(null);
     setToolCallStreamHook(null);
     setToolResultHook(null);
