@@ -24,6 +24,7 @@ import {
   renderTuiMuted,
 } from "../render.ts";
 import { setTerminalOutputSink } from "../terminal.ts";
+import type { StatusDisplay } from "../status.ts";
 import {
   ChumpAutocompleteProvider,
   ExtensibleAutocompleteProvider,
@@ -55,7 +56,7 @@ export type PiPromptReader = {
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
-  setStatus: (status: string | null) => void;
+  setStatus: (status: StatusDisplay) => void;
   setFooter: (footer: string | null) => void;
   setRuleBadge: (badge: string | null) => void;
   setFileSearch: (
@@ -104,7 +105,7 @@ class PiTuiShell implements PiPromptReader {
   private pendingResolve: ((submission: PromptSubmission | null) => void) | null = null;
   private popQueuedLine: (() => void) | null = null;
   private abortHandler: (() => void) | null = null;
-  private statusLine: string | null = null;
+  private statusLines: readonly string[] = [];
   private escapeHint = false;
   private slashContext: SlashCommandMenuContext = {
     sessions: [],
@@ -266,8 +267,12 @@ class PiTuiShell implements PiPromptReader {
     this.syncAutocompleteContext();
   }
 
-  setStatus(status: string | null): void {
-    this.statusLine = status;
+  setStatus(status: StatusDisplay): void {
+    this.statusLines = status === null
+      ? []
+      : typeof status === "string"
+        ? [status]
+        : [...status];
     this.syncStatus();
   }
 
@@ -324,11 +329,15 @@ class PiTuiShell implements PiPromptReader {
   }
 
   private syncStatus(): void {
-    const line = [
-      this.statusLine,
-      this.escapeHint ? renderEscHint() : null,
-    ].filter(Boolean).join("  ");
-    this.status.set(line ? [line] : []);
+    const lines = [...this.statusLines];
+    if (this.escapeHint) {
+      if (lines.length === 0) {
+        lines.push(renderEscHint());
+      } else {
+        lines[0] = `${lines[0]}  ${renderEscHint()}`;
+      }
+    }
+    this.status.set(lines);
     this.tui.requestRender();
   }
 

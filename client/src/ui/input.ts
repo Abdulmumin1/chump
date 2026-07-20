@@ -9,6 +9,7 @@ import type {
   SlashCommandMenuContext,
 } from "../core/types.ts";
 import { normalizePastedText } from "./attachments.ts";
+import type { StatusDisplay } from "./status.ts";
 import { createPiPromptReader } from "./tui/shell.ts";
 
 export { attachmentsForDraft } from "./tui/editor.ts";
@@ -24,7 +25,7 @@ export type PromptReader = {
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
-  setStatus: (status: string | null) => void;
+  setStatus: (status: StatusDisplay) => void;
   setFooter: (footer: string | null) => void;
   setRuleBadge: (badge: string | null) => void;
   setFileSearch: (

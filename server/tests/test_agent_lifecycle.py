@@ -36,6 +36,14 @@ def step_event(step_number: int, usage: Usage):
     return SimpleNamespace(step_number=step_number, step=step, usage=usage)
 
 
+def test_codex_provider_options_do_not_duplicate_system_prompt():
+    agent = object.__new__(ChumpAgent)
+    agent.provider_options = {}
+    agent.system = "System instructions"
+
+    assert agent._turn_provider_options() is None
+
+
 def test_step_usage_accumulates_new_ai_query_per_step_usage():
     agent = make_agent()
 

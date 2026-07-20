@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.1
+
+### Patch Changes
+
+- Show parallel tool activity as stable correlated status rows, retain invocation order when results complete out of order, and keep each command output attached to its originating call.
+
 ## 0.2.0
 
 ### Minor Changes

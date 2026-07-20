@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.1.2
+
+- Stop forwarding the built-in system prompt twice to Codex Responses, reducing duplicated instructions and inflated context usage.
+- Streamline the built-in coding-agent instructions while preserving terminal workflow, verification, type-safety, and maintainability guidance.
+
 ## 0.1.1
 
 - Add GPT-5.6, GPT-5.6 Sol, GPT-5.6 Terra, and GPT-5.6 Luna model support for the Codex and OpenAI providers.
