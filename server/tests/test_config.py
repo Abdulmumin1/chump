@@ -51,6 +51,23 @@ def test_normalize_model_name_accepts_github_copilot_provider_model_pair():
     assert normalize_model_name("github_copilot", "gpt-5.4") == "gpt-5.4"
 
 
+@pytest.mark.parametrize(
+    "provider, model",
+    [
+        ("openai", "gpt-5.6"),
+        ("openai", "gpt-5.6-sol"),
+        ("openai", "gpt-5.6-terra"),
+        ("openai", "gpt-5.6-luna"),
+        ("codex", "gpt-5.6"),
+        ("codex", "gpt-5.6-sol"),
+        ("codex", "gpt-5.6-terra"),
+        ("codex", "gpt-5.6-luna"),
+    ],
+)
+def test_normalize_model_name_accepts_gpt_5_6_family(provider, model):
+    assert normalize_model_name(provider, model) == model
+
+
 def test_normalize_provider_name_accepts_x_ai_alias():
     assert normalize_provider_name("x-ai") == "xai"
 

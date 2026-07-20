@@ -140,7 +140,6 @@
     let isDraggingSidebar = $state(false);
     let sidebarDragOffset = $state(0);
 
-    const currentProvider = $derived(status ? status.provider : "");
     const transcript = $derived(buildTranscript(messages));
     const canConnect = $derived(serverUrl.trim().length > 0);
     const apiTarget = $derived.by((): ChumpApiTarget | null => {
@@ -1239,7 +1238,6 @@
                 models={availableModels}
                 {isLoadingSession}
                 {currentModel}
-                {currentProvider}
                 workspaceRoot={displayWorkspace}
                 gitBranch={currentGitBranch}
                 {reasoningInfo}

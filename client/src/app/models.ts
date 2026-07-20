@@ -8,6 +8,10 @@ import { globalDataDir } from "./auth.ts";
 const MODELS_TTL_MS = 5 * 60 * 1000;
 let modelCatalogPromise: Promise<Record<string, ModelProvider>> | null = null;
 const CODEX_MODELS = new Set([
+  "gpt-5.6",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
   "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
@@ -19,6 +23,10 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5.4",
   ]),
   openai: new Set([
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4-pro",
     "gpt-5.4",
@@ -98,6 +106,30 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "codex",
     name: "Codex",
     models: {
+      "gpt-5.6": {
+        id: "gpt-5.6",
+        name: "GPT-5.6",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.6-sol": {
+        id: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.6-terra": {
+        id: "gpt-5.6-terra",
+        name: "GPT-5.6 Terra",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.6-luna": {
+        id: "gpt-5.6-luna",
+        name: "GPT-5.6 Luna",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
       "gpt-5.5": { id: "gpt-5.5", name: "GPT-5.5", reasoning: true },
       "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", reasoning: true },
       "gpt-5.4-mini": {
@@ -122,6 +154,30 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "openai",
     name: "OpenAI",
     models: {
+      "gpt-5.6": {
+        id: "gpt-5.6",
+        name: "GPT-5.6",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.6-sol": {
+        id: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.6-terra": {
+        id: "gpt-5.6-terra",
+        name: "GPT-5.6 Terra",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
+      "gpt-5.6-luna": {
+        id: "gpt-5.6-luna",
+        name: "GPT-5.6 Luna",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
       "gpt-5.5": { id: "gpt-5.5", name: "GPT-5.5", reasoning: true },
       "gpt-5.4-pro": {
         id: "gpt-5.4-pro",
@@ -765,6 +821,10 @@ function isUsableChatModel(provider: string, model: ModelInfo): boolean {
 function modelRank(provider: string, model: string): number {
   const priorities: Record<string, string[]> = {
     openai: [
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
@@ -803,6 +863,10 @@ function modelRank(provider: string, model: string): number {
       "qwen/qwen3.6-plus",
     ],
     codex: [
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
