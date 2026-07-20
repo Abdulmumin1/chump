@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { ToolActivityRenderer } from "./tool-activity.ts";
 import {
+  TranscriptRenderer,
   transcriptEventFromSse,
   transcriptEventsFromStoredMessages,
 } from "./transcript.ts";
@@ -21,6 +22,43 @@ test("renders consecutive searches as a compact run without blank lines", () => 
   assert.match(output[1] ?? "", /fff\|FFF.*\.\/client.*no matches/s);
   assert.equal(output[1]?.startsWith("\n"), false);
   assert.equal(output.includes(""), false);
+});
+
+test("starts a new compact tool run after intervening text", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "read_file",
+    args: { path: "first.ts" },
+  });
+
+  // The transcript consumes activity before rendering assistant text and uses
+  // the return value to insert the blank line above that text.
+  assert.equal(renderer.consumeActivity(), true);
+
+  renderer.renderToolCall(searchCall("second"));
+  renderer.renderToolResult(searchResult("second", 1));
+
+  assert.equal(output.length, 2);
+  assert.match(output[0] ?? "", /\n.*Read.*first\.ts/s);
+  assert.match(output[1] ?? "", /\n.*search.*second/s);
+});
+
+test("flushes buffered assistant text before rendering the next tool", () => {
+  const order: string[] = [];
+  const renderer = new TranscriptRenderer({
+    hooks: {
+      onBeforeToolActivity: () => order.push("flush-text"),
+      onToolActivity: () => order.push("rendered-tool"),
+    },
+  });
+
+  // Search calls do not write their permanent line until the result, which
+  // keeps this ordering test independent from process stdout.
+  renderer.render({ type: "tool_call", payload: searchCall("scripts") });
+
+  assert.deepEqual(order, ["flush-text", "rendered-tool"]);
 });
 
 test("previews partial bash and write arguments as their JSON streams", () => {

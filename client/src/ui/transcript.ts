@@ -11,6 +11,7 @@ import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import type { StoredMessage, SseEvent, TranscriptEvent } from "../core/types.ts";
 
 export type TranscriptRendererHooks = {
+  onBeforeToolActivity?: (() => void) | null;
   onToolActivity?: ((preview: string) => void) | null;
   onToolCallStream?: ((preview: string | null) => void) | null;
   onToolResult?: (() => void) | null;
@@ -54,6 +55,7 @@ export class TranscriptRenderer {
         return;
       case "tool_call":
         this.finishReasoning();
+        this.hooks.onBeforeToolActivity?.();
         this.hooks.onToolActivity?.(
           this.toolActivityRenderer.renderToolCall(event.payload),
         );
