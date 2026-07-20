@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.0
+
+### Minor Changes
+
+- Rebuild the interactive client on Pi TUI with Chump-native editor styling, a clear three-row footer with explicit thinking state, consistent transcript spacing, reliable slash-command pickers, stable single-row live activity, bounded command output, smooth delta-by-delta Markdown streaming, correlated one-row tool outcomes, and an extensible shell with component slots, key handlers, autocomplete providers, and output transforms.
+
 ## 0.1.16
 
 ### Patch Changes
