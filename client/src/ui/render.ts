@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import {
   type MarkdownTheme,
+  visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { writeOutput } from "./terminal.ts";
@@ -29,6 +30,7 @@ const darkPalette = {
   codeVariable: "#d4c26a",
   codeProperty: "#94c7b8",
   codeDiffMeta: "#8a8a8a",
+  userMessageBg: "#252a1c",
 };
 
 const lightPalette = {
@@ -52,6 +54,7 @@ const lightPalette = {
   codeVariable: "#7c6310",
   codeProperty: "#2b6d63",
   codeDiffMeta: "#787878",
+  userMessageBg: "#f2f6df",
 };
 
 // Use Chump's established lime/neutral palette through Pi's theme hooks.
@@ -1099,6 +1102,20 @@ export function renderTuiBorder(message: string): string {
   return fg(tuiPalette.border, message);
 }
 
+function renderUserMessageSurface(message: string): string {
+  if (process.env.NO_COLOR) {
+    return message;
+  }
+  const hex = palette.userMessageBg;
+  const [red, green, blue] = [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ];
+  const background = `\x1b[48;2;${red};${green};${blue}m`;
+  return `${background}${message.replaceAll(STYLE_RESET, `${STYLE_RESET}${background}`)}${STYLE_RESET}`;
+}
+
 export function renderTuiMuted(message: string): string {
   return fg(tuiPalette.muted, message);
 }
@@ -1359,14 +1376,28 @@ function clipPlain(value: string, width: number): string {
   return `${value.slice(0, width - 3).trimEnd()}...`;
 }
 
-export function renderUserMessage(message: string): string {
-  const lines = message.split("\n");
-  const [firstLine = "", ...rest] = lines;
-  const head = `${accent("※")} ${renderInlineAttachments(firstLine)}`;
-  const tail = rest.map(
-    (line) => `${muted("╎")} ${renderInlineAttachments(line)}`,
-  );
-  return ["", head, ...tail].join("\n");
+export function renderUserMessage(
+  message: string,
+  columns = process.stdout.columns ?? 80,
+): string {
+  const width = Math.max(3, columns);
+  const prefixWidth = 2;
+  const rows = message.split("\n").flatMap((line, lineIndex) => {
+    const rendered = renderInlineAttachments(line);
+    const wrapped = line
+      ? wrapTextWithAnsi(rendered, width - prefixWidth)
+      : [""];
+    return wrapped.map((segment, segmentIndex) => {
+      const firstRow = lineIndex === 0 && segmentIndex === 0;
+      const prefix = firstRow ? `${accent("›")} ` : "  ";
+      const content = `${prefix}${segment}`;
+      const padding = process.env.NO_COLOR
+        ? ""
+        : " ".repeat(Math.max(0, width - visibleWidth(content)));
+      return renderUserMessageSurface(`${content}${padding}`);
+    });
+  });
+  return ["", ...rows].join("\n");
 }
 
 export function renderSteeringMessage(message: string): string {
