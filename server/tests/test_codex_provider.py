@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chump_server.providers.codex import CODEX_API_BASE_URL, CodexProvider
 
 
-def test_codex_generate_uses_responses_api_without_tools(tmp_path):
+def test_codex_generate_uses_required_streaming_responses_api_for_compaction(tmp_path):
     provider = CodexProvider(
         auth_path=tmp_path / "auth.json",
         auth_config={
@@ -26,26 +26,32 @@ def test_codex_generate_uses_responses_api_without_tools(tmp_path):
 
     calls: list[tuple[str, dict]] = []
 
-    class DummyTransport:
-        async def post(self, url, json, headers=None):
-            calls.append((url, json))
-            return {
+    events = [
+        {"type": "response.output_text.delta", "delta": "summary text"},
+        {
+            "type": "response.completed",
+            "response": {
                 "id": "resp_123",
                 "model": "gpt-5.5",
                 "status": "completed",
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [{"type": "output_text", "text": "summary text"}],
-                    }
-                ],
+                "output": [],
                 "usage": {
                     "input_tokens": 10,
                     "output_tokens": 5,
                     "total_tokens": 15,
                     "input_tokens_details": {"cached_tokens": 0},
                 },
-            }
+            },
+        },
+    ]
+    stream_bytes = "".join(
+        f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events
+    ).encode()
+
+    class DummyTransport:
+        async def stream(self, url, json, headers=None):
+            calls.append((url, json))
+            yield stream_bytes
 
     provider._transport = DummyTransport()
 
@@ -65,6 +71,7 @@ def test_codex_generate_uses_responses_api_without_tools(tmp_path):
                 "input": [{"role": "user", "content": "summarize this transcript"}],
                 "include": ["reasoning.encrypted_content"],
                 "store": False,
+                "stream": True,
             },
         )
     ]
