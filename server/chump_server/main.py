@@ -120,10 +120,16 @@ class ChumpServer(AgentServer):
     async def sessions(self, request: web.Request) -> web.Response:
         page = parse_positive_int(request.query.get("page", "1"), "page")
         page_size = min(
-            parse_positive_int(request.query.get("limit", "15"), "limit"),
-            100,
+            parse_positive_int(request.query.get("limit", "6"), "limit"),
+            6,
         )
-        sessions, total = self._stored_sessions(page=page, page_size=page_size)
+        active_agents = dict(self._agents)
+        sessions, total = await asyncio.to_thread(
+            self._stored_sessions,
+            page=page,
+            page_size=page_size,
+            active_agents=active_agents,
+        )
         return web.json_response(
             {
                 "sessions": sessions,
@@ -149,11 +155,12 @@ class ChumpServer(AgentServer):
         *,
         page: int = 1,
         page_size: int = 15,
+        active_agents: dict[str, Any] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         db_path = self.chump_config.data_dir / "chump.sqlite3"
         return stored_sessions(
             db_path,
-            self._agents,
+            active_agents if active_agents is not None else self._agents,
             page=page,
             page_size=page_size,
         )

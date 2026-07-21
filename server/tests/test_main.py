@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 import sys
@@ -59,6 +60,32 @@ class SessionPaginationParsingTests(unittest.TestCase):
             parse_positive_int("zero", "page")
         with self.assertRaises(web.HTTPBadRequest):
             parse_positive_int("0", "page")
+
+
+class SessionEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_limits_interactive_session_pages_to_six(self) -> None:
+        server = object.__new__(ChumpServer)
+        server._agents = {}
+        captured: dict[str, object] = {}
+
+        def stored_sessions(**kwargs):
+            captured.update(kwargs)
+            return [], 10
+
+        server._stored_sessions = stored_sessions
+        request = type(
+            "Request",
+            (),
+            {"query": {"page": "2", "limit": "100"}},
+        )()
+
+        response = await server.sessions(request)
+        payload = json.loads(response.text)
+
+        self.assertEqual(captured["page"], 2)
+        self.assertEqual(captured["page_size"], 6)
+        self.assertEqual(payload["page_size"], 6)
+        self.assertEqual(payload["total_pages"], 2)
 
 
 if __name__ == "__main__":

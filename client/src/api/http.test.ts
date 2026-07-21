@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { streamChat } from "./http.ts";
+import { getSessions, streamChat } from "./http.ts";
 import { ServerStreamInterruptedError } from "./errors.ts";
 import type { ChumpConfig } from "../core/types.ts";
 import { ManagedServerRequestCoordinator } from "../app/managed-recovery.ts";
@@ -12,6 +12,29 @@ const config: ChumpConfig = {
   serverSource: "managed",
   workspaceRoot: "/workspace",
 };
+
+test("requests six sessions by default", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestUrl = String(input);
+    return new Response(JSON.stringify({
+      sessions: [],
+      page: 1,
+      page_size: 6,
+      total: 0,
+      total_pages: 1,
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await getSessions(config);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(new URL(requestUrl).searchParams.get("limit"), "6");
+});
 
 test("treats a chat response that closes without end as a transport interruption", async () => {
   const originalFetch = globalThis.fetch;
