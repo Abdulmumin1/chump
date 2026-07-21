@@ -12,6 +12,7 @@ import type {
   SessionsResponse,
 } from "../core/types.ts";
 import { consumeSse } from "./sse.ts";
+import { ServerHttpError, ServerStreamInterruptedError } from "./errors.ts";
 
 export async function streamChat(
   config: ChumpConfig,
@@ -24,6 +25,7 @@ export async function streamChat(
     onError?: (message: string) => void;
   } = {},
   signal?: AbortSignal,
+  displayMessage?: string,
 ): Promise<void> {
   const response = await fetch(
     `${buildAgentUrl(config)}/chat?stream=true`,
@@ -33,15 +35,20 @@ export async function streamChat(
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ message, attachments: serializeAttachments(attachments) }),
+      body: JSON.stringify({
+        message,
+        attachments: serializeAttachments(attachments),
+        ...(displayMessage ? { display_message: displayMessage } : {}),
+      }),
     },
   );
 
   if (!response.ok) {
-    throw new Error(await readErrorResponse(response));
+    throw await serverHttpError(response);
   }
 
   let fullText = "";
+  let terminalEventReceived = false;
   await consumeSse(response, (event) => {
     switch (event.event) {
       case "start":
@@ -54,15 +61,22 @@ export async function streamChat(
         break;
       }
       case "end": {
+        terminalEventReceived = true;
         const finalText = JSON.parse(event.data) as string;
         callbacks.onEnd?.(finalText || fullText);
         break;
       }
       case "error":
+        terminalEventReceived = true;
         callbacks.onError?.(safeParseError(event.data));
         break;
     }
   });
+  if (!terminalEventReceived) {
+    throw new ServerStreamInterruptedError(
+      "chat stream ended before the server sent an end event",
+    );
+  }
 }
 
 export async function getStatus(config: ChumpConfig): Promise<ChumpStatus> {
@@ -72,7 +86,7 @@ export async function getStatus(config: ChumpConfig): Promise<ChumpStatus> {
 export async function getHealth(config: ChumpConfig): Promise<ChumpHealth> {
   const response = await fetch(`${config.serverUrl}/health`);
   if (!response.ok) {
-    throw new Error(await readErrorResponse(response));
+    throw await serverHttpError(response);
   }
   return (await response.json()) as ChumpHealth;
 }
@@ -86,7 +100,7 @@ export async function getSessions(
   url.searchParams.set("limit", String(options.limit ?? 100));
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(await readErrorResponse(response));
+    throw await serverHttpError(response);
   }
   return (await response.json()) as SessionsResponse;
 }
@@ -101,7 +115,7 @@ export async function searchFiles(
   url.searchParams.set("limit", String(limit));
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(await readErrorResponse(response));
+    throw await serverHttpError(response);
   }
   const result = (await response.json()) as { files?: FileSearchResult[] };
   return result.files ?? [];
@@ -124,7 +138,7 @@ export async function getState(
 ): Promise<ChumpState> {
   const response = await fetch(`${buildAgentUrl(config)}/state`);
   if (!response.ok) {
-    throw new Error(await readErrorResponse(response));
+    throw await serverHttpError(response);
   }
   return normalizeStateResponse((await response.json()) as AgentStateResponse);
 }
@@ -134,7 +148,7 @@ export async function getMessages(
 ): Promise<AgentMessagesResponse> {
   const response = await fetch(`${buildAgentUrl(config)}/messages`);
   if (!response.ok) {
-    throw new Error(await readErrorResponse(response));
+    throw await serverHttpError(response);
   }
   return (await response.json()) as AgentMessagesResponse;
 }
@@ -155,10 +169,12 @@ export async function steerCurrentTurn(
   config: ChumpConfig,
   message: string,
   attachments: ChatAttachment[] = [],
+  displayMessage?: string,
 ): Promise<{ status: string }> {
   return await invokeAction<{ status: string }>(config, "steer_current_turn", {
     message,
     attachments,
+    ...(displayMessage ? { display_message: displayMessage } : {}),
   });
 }
 
@@ -219,12 +235,18 @@ async function invokeAction<T>(
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
-    throw new Error(await readErrorResponse(response));
+    throw await serverHttpError(response);
   }
 
   const data = (await response.json()) as { result?: T; error?: string };
   if (!response.ok || data.error) {
-    throw new Error(data.error ?? `action failed with ${response.status}`);
+    if (!response.ok) {
+      throw new ServerHttpError(
+        data.error ?? `action failed with ${response.status}`,
+        response.status,
+      );
+    }
+    throw new Error(data.error);
   }
 
   if (data.result === undefined) {
@@ -275,6 +297,10 @@ async function readErrorResponse(response: Response): Promise<string> {
     return body;
   }
   return `request failed with ${response.status}`;
+}
+
+async function serverHttpError(response: Response): Promise<ServerHttpError> {
+  return new ServerHttpError(await readErrorResponse(response), response.status);
 }
 
 function serializeActionBody(body: object): object {

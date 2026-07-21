@@ -38,4 +38,32 @@ describe("buildComposerSuggestions", () => {
             expect.objectContaining({ label: "openai/gpt-5.6" }),
         ]);
     });
+
+    it("lists and filters discovered skills as Pi-style commands", () => {
+        const skills = [
+            { name: "release", description: "Publish the project." },
+            { name: "review", description: "Review the changes." },
+            { name: "animate-text", description: "Animate interface text." },
+        ];
+
+        expect(buildComposerSuggestions("/", models, skills)).toContainEqual(
+            expect.objectContaining({ command: "/skill:release" }),
+        );
+        expect(
+            buildComposerSuggestions("/skill:rel", models, skills),
+        ).toEqual([
+            expect.objectContaining({
+                command: "/skill:release",
+                kind: "skill",
+            }),
+        ]);
+        expect(
+            buildComposerSuggestions("/animate text", models, skills),
+        ).toEqual([
+            expect.objectContaining({
+                command: "/skill:animate-text",
+                kind: "skill",
+            }),
+        ]);
+    });
 });

@@ -175,6 +175,36 @@ class ResourceCatalogTests(unittest.TestCase):
             self.assertEqual(skill.description, "Global override.")
             self.assertEqual(skill.base_dir, override_dir.resolve())
 
+    def test_manual_only_skill_is_discoverable_but_hidden_from_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "workspace"
+            agent_dir = root / "agent-home"
+            skill_dir = workspace / ".agents" / "skills" / "release"
+            skill_dir.mkdir(parents=True)
+            agent_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: release\n"
+                "description: Publish the current project.\n"
+                "disable-model-invocation: true\n"
+                "---\n\n"
+                "# Release\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"CHUMP_AGENT_DIR": str(agent_dir)}):
+                catalog = ResourceCatalog(workspace)
+
+            self.assertIsNotNone(catalog.get_skill("release"))
+            self.assertIsNone(catalog.get_model_skill("release"))
+            self.assertIn("release", catalog.skill_names())
+            self.assertNotIn("<name>release</name>", catalog.build_skill_prompt())
+            self.assertNotIn(
+                "release",
+                [skill.name for skill in catalog.model_skills],
+            )
+
     def test_instruction_files_for_path_finds_nearest_nested_instruction(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

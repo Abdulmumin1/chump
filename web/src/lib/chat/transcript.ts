@@ -257,11 +257,31 @@ function stripWord(value: string): string {
 
 function formatMessageBlocks(content: StoredMessage["content"]): TranscriptBlock[] {
     if (typeof content === "string") {
-        return [{ kind: "text", text: content }];
+        return [
+            {
+                kind: "text",
+                text: skillCommandDisplayFromPrompt(content) ?? content,
+            },
+        ];
     }
 
     const blocks = (content as MessagePart[]).map(formatPartBlock);
     return blocks.length > 0 ? blocks : [{ kind: "text", text: "" }];
+}
+
+export function skillCommandDisplayFromPrompt(value: string): string | null {
+    const match = /^<skill_content name="([a-z0-9-]+)">\n/.exec(value);
+    if (!match) return null;
+
+    const closing = "\n</skill_content>";
+    const closingIndex = value.lastIndexOf(closing);
+    if (closingIndex < match[0].length) return null;
+
+    const suffix = value.slice(closingIndex + closing.length).trim();
+    if (suffix && !suffix.startsWith("User:")) return null;
+
+    const args = suffix.slice("User:".length).trim();
+    return `/skill:${match[1]}${args ? ` ${args}` : ""}`;
 }
 
 function formatPartBlock(part: MessagePart): TranscriptBlock {

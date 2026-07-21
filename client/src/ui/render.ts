@@ -1,5 +1,8 @@
 import fs from "node:fs";
-import type { MarkdownTheme } from "@earendil-works/pi-tui";
+import {
+  type MarkdownTheme,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { writeOutput } from "./terminal.ts";
 import { armOsc11ResponseFilter } from "./terminal-query.ts";
 
@@ -847,14 +850,14 @@ export function renderToolResult(
   preview: string,
 ): string {
   if (status === "ok") {
-    return `${success("·")} ${accent(name)} ${muted(preview)}`;
+    return `${success("◐")} ${accent(name)} ${muted(preview)}`;
   }
   return `${danger("×")} ${accent(name)} ${preview}`;
 }
 
 export function renderToolDone(name: string, args: string): string {
   const suffix = args ? ` ${foreground(args)}` : "";
-  return `${success("·")} ${accent(name)}${suffix}`;
+  return `${success("◐")} ${accent(name)}${suffix}`;
 }
 
 export function renderFileChangeSummary(
@@ -1011,15 +1014,45 @@ function renderDiffLinesWithNumbers(lines: string[]): string[] {
   return out;
 }
 
-export function renderCommand(command: string): string {
-  return `${accent("$")} ${foreground(command)}`;
+export function renderCommand(
+  command: string,
+  columns = process.stdout.columns ?? 80,
+): string {
+  const prefixWidth = 4;
+  const commandLines = wrapTextWithAnsi(
+    renderScriptCodeLine(command, "bash"),
+    Math.max(1, columns - prefixWidth),
+  );
+  return commandLines
+    .map((line, index) =>
+      index === 0
+        ? `${accent("◐")} ${accent("$")} ${line}`
+        : `${muted("  │ ")}${line}`
+    )
+    .join("\n");
 }
 
-export function renderCommandOutput(status: string, preview: string): string {
-  if (status === "ok") {
-    return muted(preview);
-  }
-  return danger(preview);
+export function renderCommandOutput(
+  status: string,
+  preview: string,
+  columns = process.stdout.columns ?? 80,
+): string {
+  const lines = preview.split("\n");
+  const prefixWidth = 5;
+  const formattedLines = lines.flatMap((line, index) => {
+    const lineContent = status === "ok" ? muted(line) : danger(line);
+    const wrapped = line
+      ? wrapTextWithAnsi(
+        lineContent,
+        Math.max(1, columns - prefixWidth),
+      )
+      : [""];
+    return wrapped.map((segment, segmentIndex) => {
+      const firstOutputLine = index === 0 && segmentIndex === 0;
+      return `${muted(firstOutputLine ? "  └─ " : "     ")}${segment}`;
+    });
+  });
+  return formattedLines.join("\n");
 }
 
 export function renderPrompt(): string {

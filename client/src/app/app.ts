@@ -12,6 +12,7 @@ import {
   getSessions,
   getState,
   getStatus,
+  loadSkill,
   setModel,
   setReasoning,
   searchFiles,
@@ -81,7 +82,11 @@ import {
   startServerCommand,
   stopManagedServer,
 } from "./runtime.ts";
-import { recoverManagedServerUrl } from "./managed-recovery.ts";
+import {
+  ManagedServerRequestCoordinator,
+  recoverManagedServerUrl,
+  type ServerRequestRunner,
+} from "./managed-recovery.ts";
 import {
   currentClientVersion,
   maybeRenderUpdateNotice,
@@ -249,19 +254,22 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     serverUrl: target.serverUrl,
     serverSource: target.serverSource,
   });
+  const standaloneRequest = createStandaloneServerRequestRunner(config);
 
   if (options.mode === "status") {
-    const [health, status] = await Promise.all([
-      getHealth(config),
-      getStatus(config),
-    ]);
+    const [health, status] = await standaloneRequest(
+      config,
+      (requestConfig) => Promise.all([
+        getHealth(requestConfig),
+        getStatus(requestConfig),
+      ]),
+    );
     renderServerStatus(health, status, target.metadata);
     return;
   }
 
   const fallbackRl = input.isTTY ? null : createInterface({ input, output });
   const promptReader = createPromptReader(fallbackRl);
-  promptReader.setFileSearch((query) => searchFiles(config, query, 20));
   const lineQueue = new AsyncLineQueue();
   const liveSync = new LiveSyncTracker();
   const shareManager = new ShareManager();
@@ -269,8 +277,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
   let resumeSessionId: string | null = null;
   let connectionCountAtQuit: number | null = null;
-  let recoveryPromise: Promise<void> | null = null;
   let localCompactionActive = false;
+  let lastServerEventId = 0;
 
   const statusValues = new Map<string, StatusDisplay>();
   const setCoordinatedStatus = (source: string, statusText: StatusDisplay) => {
@@ -288,11 +296,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader.setStatus(null);
   };
 
-  const [health, status, sessions] = await Promise.all([
-    getHealth(config),
-    getStatus(config),
-    getSessions(config),
-  ]);
+  const [health, status, sessions] = await standaloneRequest(
+    config,
+    (requestConfig) => Promise.all([
+      getHealth(requestConfig),
+      getStatus(requestConfig),
+      getSessions(requestConfig),
+    ]),
+  );
   promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
   promptReader.setRuleBadge(await renderInputBadge(status));
   promptReader.setSessionSuggestions(sessions.sessions);
@@ -336,23 +347,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     }
     compactionStatus.stop();
   });
-  const sharedTurnSync = createSharedTurnSync({
-    config: () => config,
-    promptReader,
-    setStatus: (status) => setCoordinatedStatus("turn", status),
-    withManagedServerRecovery: <T>(
-      task: () => Promise<T>,
-      options?: { canRetry?: (error: unknown) => boolean },
-    ) => withManagedServerRecovery(task, options),
-    getLocalTurnActive: () => liveSync.hasLocalTurn(),
-    getActiveSteerHandler: () => activeSteerHandler,
-    setActiveSteerHandler: (handler) => {
-      activeSteerHandler = handler;
-    },
-    popQueuedLine: () => lineQueue.popLast(),
-    removeQueuedDisplay: (content) => promptReader.removeQueuedDisplay(content),
-  });
-
   const refreshCliHydration = async (): Promise<void> => {
     const [health, status, sessions] = await Promise.all([
       getHealth(config),
@@ -374,45 +368,59 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     if (config.serverSource !== "managed") {
       throw new Error("managed server recovery is unavailable for direct connections");
     }
-    if (recoveryPromise) {
-      return await recoveryPromise;
-    }
-    recoveryPromise = (async () => {
-      const recoveredUrl = await recoverManagedServerUrl(
-        config.workspaceRoot,
-        config.serverUrl,
-      );
-      config = loadConfig({
-        agentId: config.agentId,
-        serverUrl: recoveredUrl,
-        serverSource: "managed",
-      });
-      closeEventStream?.();
-      closeEventStream = await startEventStream(config);
-      await refreshCliHydration();
-    })().finally(() => {
-      recoveryPromise = null;
-    });
-    return await recoveryPromise;
+    const recoveredUrl = await recoverManagedServerUrl(
+      config.workspaceRoot,
+      config.serverUrl,
+    );
+    config.serverUrl = recoveredUrl;
+    config.serverSource = "managed";
+    closeEventStream?.();
+    closeEventStream = await startRecoverableEventStream(config);
+    await refreshCliHydration();
   };
 
-  const withManagedServerRecovery = async <T>(
-    task: () => Promise<T>,
-    options: { canRetry?: (error: unknown) => boolean } = {},
-  ): Promise<T> => {
-    try {
-      return await task();
-    } catch (error) {
-      if (
-        !shouldRecoverManagedServerError(config, error) ||
-        options.canRetry?.(error) === false
-      ) {
-        throw error;
-      }
-      await recoverManagedServerSession();
-      return await task();
-    }
+  const requestCoordinator = new ManagedServerRequestCoordinator(
+    () => config,
+    recoverManagedServerSession,
+  );
+  const runServerRequest: ServerRequestRunner = (requestConfig, request, requestOptions) =>
+    requestCoordinator.run(requestConfig, request, requestOptions);
+
+  const startRecoverableEventStream = async (
+    streamConfig: ChumpConfig,
+  ): Promise<(() => void) | null> => {
+    const currentStreamConfig = {
+      ...streamConfig,
+      serverUrl: config.serverUrl,
+      serverSource: config.serverSource,
+    };
+    return await startEventStream(currentStreamConfig, {
+      lastEventId: lastServerEventId,
+      onLastEventId: (eventId) => {
+        lastServerEventId = eventId;
+      },
+      onConnectionError: async (error) => {
+        await requestCoordinator.recoverFromDisconnect(error);
+      },
+    });
   };
+  promptReader.setFileSearch((query) =>
+    runServerRequest(config, (requestConfig) => searchFiles(requestConfig, query, 20))
+  );
+
+  const sharedTurnSync = createSharedTurnSync({
+    config: () => config,
+    promptReader,
+    setStatus: (status) => setCoordinatedStatus("turn", status),
+    runServerRequest,
+    getLocalTurnActive: () => liveSync.hasLocalTurn(),
+    getActiveSteerHandler: () => activeSteerHandler,
+    setActiveSteerHandler: (handler) => {
+      activeSteerHandler = handler;
+    },
+    popQueuedLine: () => lineQueue.popLast(),
+    removeQueuedDisplay: (content) => promptReader.removeQueuedDisplay(content),
+  });
   sharedTurnSync.install();
   setAssistantTextHook(() => {
     sharedTurnSync.beforeAssistantText();
@@ -438,7 +446,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     writeOutput(`${renderMuted(updateNotice)}\n`);
   }
   renderLoadedResources(health, config.workspaceRoot);
-  closeEventStream = await startEventStream(config);
+  closeEventStream = await startRecoverableEventStream(config);
   if (options.sessionId) {
     const switchedStatus = await renderSwitchedSession(
       config,
@@ -448,6 +456,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       (sessionsList) => {
       promptReader.setSessionSuggestions(sessionsList);
       },
+      runServerRequest,
       {
         skipEmptyTranscript: true,
       },
@@ -456,7 +465,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       running: switchedStatus.turn_running === true,
       steering_queue: switchedStatus.steering_queue ?? [],
     });
-    promptReader.setSkillSuggestions((await getHealth(config)).skills);
+    promptReader.setSkillSuggestions((await runServerRequest(
+      config,
+      getHealth,
+    )).skills);
   }
 
   void readInputLoop(
@@ -467,7 +479,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       if (!isImmediateActiveSlashCommand(line.text)) {
         return false;
       }
-      await handleSlashCommand(line.text, {
+      const commandResult = await handleSlashCommand(line.text, {
         config,
         closeEventStream,
         shareManager,
@@ -482,12 +494,23 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
         setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
+        runServerRequest,
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
-          closeEventStream = await startEventStream(nextConfig);
+          if (nextConfig.agentId !== config.agentId) {
+            lastServerEventId = 0;
+          }
+          closeEventStream = await startRecoverableEventStream(nextConfig);
           return closeEventStream;
         },
       });
+      if (
+        commandResult &&
+        commandResult !== "quit" &&
+        commandResult.submission
+      ) {
+        return await (activeSteerHandler?.(commandResult.submission) ?? false);
+      }
       return true;
     },
   );
@@ -504,7 +527,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       if (!line.trim() && nextLine.attachments.length === 0) {
         continue;
       }
-      if (parseSlashCommand(line)) {
+      const parsedSlashCommand = parseSlashCommand(line);
+      if (parsedSlashCommand && parsedSlashCommand.command !== "skill") {
         writeOutput(`${renderUserMessage(line)}\n`);
       }
 
@@ -523,9 +547,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
         setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
+        runServerRequest,
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
-          closeEventStream = await startEventStream(nextConfig);
+          if (nextConfig.agentId !== config.agentId) {
+            lastServerEventId = 0;
+          }
+          closeEventStream = await startRecoverableEventStream(nextConfig);
           return closeEventStream;
         },
       });
@@ -543,7 +571,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
             config,
             commandResult.submission,
             liveSync,
-            withManagedServerRecovery,
+            runServerRequest,
             (status) => setCoordinatedStatus("turn", status),
             (handler) => promptReader.setAbortHandler(handler),
             (handler) => {
@@ -575,7 +603,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         config,
         nextLine,
         liveSync,
-        withManagedServerRecovery,
+        runServerRequest,
         (status) => setCoordinatedStatus("turn", status),
         (handler) => promptReader.setAbortHandler(handler),
         (handler) => {
@@ -657,6 +685,7 @@ async function runPrintPrompt(
     serverUrl: target.serverUrl,
     serverSource: target.serverSource,
   });
+  const runServerRequest = createStandaloneServerRequestRunner(config);
 
   const startedAt = Date.now();
   if (options.verbose) {
@@ -679,14 +708,18 @@ async function runPrintPrompt(
     if (options.verbose) {
       writeVerbosePrintLine(`setting model to ${provider}/${modelName}...`);
     }
-    await setModel(config, provider, modelName);
+    await runServerRequest(config, (requestConfig) =>
+      setModel(requestConfig, provider, modelName)
+    );
   }
 
   if (options.thinking) {
     if (options.verbose) {
       writeVerbosePrintLine(`setting thinking to ${options.thinking}...`);
     }
-    await setReasoning(config, options.thinking);
+    await runServerRequest(config, (requestConfig) =>
+      setReasoning(requestConfig, options.thinking!)
+    );
   }
 
   let receivedChunk = false;
@@ -697,7 +730,7 @@ async function runPrintPrompt(
   const responseRenderer = createPrintResponseRenderer();
 
   try {
-    await streamChat(config, message, [], {
+    await runServerRequest(config, (requestConfig) => streamChat(requestConfig, message, [], {
       onChunk: (chunk) => {
         receivedChunk = true;
         if (chunk) {
@@ -716,10 +749,12 @@ async function runPrintPrompt(
         receivedEnd = true;
         streamError = messageText;
       },
+    }), {
+      canReplay: () => !receivedChunk && !receivedEnd,
     });
   } catch (error) {
     if (!receivedEnd) {
-      await abortCurrentTurn(config).catch(() => {});
+      await runServerRequest(config, abortCurrentTurn).catch(() => {});
     }
     throw error;
   } finally {
@@ -732,7 +767,7 @@ async function runPrintPrompt(
     throw new Error(streamError);
   }
   if (!receivedEnd) {
-    await abortCurrentTurn(config).catch(() => {});
+    await runServerRequest(config, abortCurrentTurn).catch(() => {});
     throw new Error("chat stream ended before the server sent an end event");
   }
   if (!responseRenderer.handlesTrailingNewline && lastOutputChar && lastOutputChar !== "\n") {
@@ -742,6 +777,20 @@ async function runPrintPrompt(
   if (options.verbose) {
     writeVerbosePrintLine(`done: ${Date.now() - startedAt}ms`);
   }
+}
+
+function createStandaloneServerRequestRunner(config: ChumpConfig): ServerRequestRunner {
+  const coordinator = new ManagedServerRequestCoordinator(
+    () => config,
+    async () => {
+      config.serverUrl = await recoverManagedServerUrl(
+        config.workspaceRoot,
+        config.serverUrl,
+      );
+    },
+  );
+  return (requestConfig, request, options) =>
+    coordinator.run(requestConfig, request, options);
 }
 
 async function readPipedStdin(): Promise<string | null> {
@@ -947,10 +996,7 @@ async function runChatTurn(
   config: ChumpConfig,
   submission: PromptSubmission,
   liveSync: LiveSyncTracker,
-  withManagedServerRecovery: <T>(
-    task: () => Promise<T>,
-    options?: { canRetry?: (error: unknown) => boolean },
-  ) => Promise<T>,
+  runServerRequest: ServerRequestRunner,
   setStatus: (status: StatusDisplay) => void,
   setAbortHandler: (handler: (() => void) | null) => void,
   setSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void,
@@ -967,7 +1013,7 @@ async function runChatTurn(
       return;
     }
     aborting = true;
-    void abortCurrentTurn(config).catch(() => {});
+    void runServerRequest(config, abortCurrentTurn).catch(() => {});
     activityStatus.showAborting();
   };
   const localTranscript = new TranscriptRenderer();
@@ -977,7 +1023,7 @@ async function runChatTurn(
     if (!pending) {
       return;
     }
-    void cancelLastSteering(config).catch(() => {});
+    void runServerRequest(config, cancelLastSteering).catch(() => {});
   };
   setAbortHandler(abortTurn);
   setQueuedLinePopHandler(popPendingSteeringSubmission);
@@ -986,11 +1032,14 @@ async function runChatTurn(
     popSteeredDisplay(content);
   });
   setSteerHandler(async (nextSubmission) => {
-    const result = await withManagedServerRecovery(() => steerCurrentTurn(
-      config,
-      nextSubmission.text,
-      nextSubmission.attachments,
-    ));
+    const result = await runServerRequest(config, (requestConfig) =>
+      steerCurrentTurn(
+        requestConfig,
+        nextSubmission.text,
+        nextSubmission.attachments,
+        nextSubmission.displayText,
+      )
+    );
     if (result.status !== "steered") {
       return false;
     }
@@ -1026,8 +1075,9 @@ async function runChatTurn(
       "chatSubmit",
       `chars=${submission.text.length} attachments=${submission.attachments.length}`,
     );
-    await withManagedServerRecovery(
-      () => streamChat(config, submission.text, submission.attachments, {
+    await runServerRequest(
+      config,
+      (requestConfig) => streamChat(requestConfig, submission.text, submission.attachments, {
         onChunk: (chunk) => {
           localTranscript.beginAssistantText();
           activityStatus.beginTextStreaming();
@@ -1057,19 +1107,20 @@ async function runChatTurn(
           }
           localTranscript.render({ type: "stream_error", message });
         },
-      }, streamAbortController.signal),
+      }, streamAbortController.signal, submission.displayText),
       {
-        canRetry: () => !receivedChunk && !receivedEnd,
+        canReplay: () =>
+          !receivedChunk && !receivedEnd && toolCallCount === 0,
       },
     );
     if (!receivedEnd && !aborting) {
-      await abortCurrentTurn(config).catch(() => {});
+      await runServerRequest(config, abortCurrentTurn).catch(() => {});
       throw new Error("chat stream ended before the server sent an end event");
     }
   } catch (error) {
     localTranscript.finish();
     if (!receivedEnd && !aborting) {
-      await abortCurrentTurn(config).catch(() => {});
+      await runServerRequest(config, abortCurrentTurn).catch(() => {});
     }
     const message = errorMessage(error);
     if (aborting || /aborted/i.test(message)) {
@@ -1103,7 +1154,9 @@ async function runChatTurn(
   }
 
   function removePendingSteeringSubmission(content: string): void {
-    const index = pendingSteeringSubmissions.findIndex((item) => item.text === content);
+    const index = pendingSteeringSubmissions.findIndex(
+      (item) => (item.displayText ?? item.text) === content,
+    );
     if (index === -1) {
       return;
     }
@@ -1116,47 +1169,6 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
-}
-
-function shouldRecoverManagedServerError(config: ChumpConfig, error: unknown): boolean {
-  if (config.serverSource !== "managed") {
-    return false;
-  }
-  return collectErrorMessages(error).some((message) => {
-    const normalized = message.toLowerCase();
-    return normalized.includes("fetch failed") ||
-      normalized.includes("failed to fetch") ||
-      normalized.includes("econnrefused") ||
-      normalized.includes("econnreset") ||
-      normalized.includes("socket hang up") ||
-      normalized.includes("other side closed") ||
-      normalized.includes("connection refused") ||
-      normalized.includes("networkerror");
-  });
-}
-
-function collectErrorMessages(error: unknown): string[] {
-  const messages: string[] = [];
-  let current: unknown = error;
-  const seen = new Set<unknown>();
-
-  while (current && typeof current === "object" && !seen.has(current)) {
-    seen.add(current);
-    if ("message" in current && typeof current.message === "string") {
-      messages.push(current.message);
-    }
-    if ("cause" in current) {
-      current = current.cause;
-      continue;
-    }
-    break;
-  }
-
-  if (messages.length === 0) {
-    messages.push(errorMessage(error));
-  }
-
-  return messages;
 }
 
 class LiveSyncTracker {
@@ -1183,10 +1195,7 @@ function createSharedTurnSync(options: {
   config: () => ChumpConfig;
   promptReader: ReturnType<typeof createPromptReader>;
   setStatus: (status: StatusDisplay) => void;
-  withManagedServerRecovery: <T>(
-    task: () => Promise<T>,
-    options?: { canRetry?: (error: unknown) => boolean },
-  ) => Promise<T>;
+  runServerRequest: ServerRequestRunner;
   getLocalTurnActive: () => boolean;
   getActiveSteerHandler: () => ((submission: PromptSubmission) => Promise<boolean>) | null;
   setActiveSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void;
@@ -1209,11 +1218,15 @@ function createSharedTurnSync(options: {
     options.setStatus(status);
   });
   const remoteSteerHandler = async (submission: PromptSubmission): Promise<boolean> => {
-    const result = await options.withManagedServerRecovery(() => steerCurrentTurn(
-      options.config(),
-      submission.text,
-      submission.attachments,
-    ));
+    const baseConfig = options.config();
+    const result = await options.runServerRequest(baseConfig, (requestConfig) =>
+      steerCurrentTurn(
+        requestConfig,
+        submission.text,
+        submission.attachments,
+        submission.displayText,
+      )
+    );
     if (result.status !== "steered") {
       return false;
     }
@@ -1371,7 +1384,8 @@ function isBlockedActiveSlashCommand(value: string): boolean {
 }
 
 function isImmediateActiveSlashCommand(value: string): boolean {
-  return new Set(["/share", "/status"]).has(value.trimStart().split(/\s+/, 1)[0] ?? "");
+  const command = value.trimStart().split(/\s+/, 1)[0] ?? "";
+  return command.startsWith("/skill:") || new Set(["/share", "/status"]).has(command);
 }
 
 class AsyncLineQueue {
@@ -1456,6 +1470,7 @@ async function handleSlashCommand(
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
     setSkillSuggestions: (skills: Awaited<ReturnType<typeof getHealth>>["skills"]) => void;
     setRemoteTurnStatus: (payload: Record<string, unknown>) => void;
+    runServerRequest: ServerRequestRunner;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
@@ -1470,21 +1485,23 @@ async function handleSlashCommand(
 
   let config = context.config;
   let closeEventStream = context.closeEventStream;
+  const request = <T>(task: (requestConfig: ChumpConfig) => Promise<T>) =>
+    context.runServerRequest(config, task);
 
   switch (parsed.command) {
     case "help":
       printHelp();
       break;
     case "status": {
-      const [status, state] = await Promise.all([
-        getStatus(config),
-        getState(config),
-      ]);
+      const [status, state] = await request((requestConfig) => Promise.all([
+        getStatus(requestConfig),
+        getState(requestConfig),
+      ]));
       writeOutput(`${renderSessionStatusSummary(config, status, state)}\n`);
       break;
     }
     case "sessions": {
-      const response = await getSessions(config);
+      const response = await request(getSessions);
       context.setSessionSuggestions(response.sessions);
       renderSessions(response.sessions);
       break;
@@ -1496,7 +1513,9 @@ async function handleSlashCommand(
         writeOutput(`${renderMuted("usage: /model <provider>/<model>")}\n`);
         break;
       }
-      const status = await setModel(config, provider, model);
+      const status = await request((requestConfig) =>
+        setModel(requestConfig, provider, model)
+      );
       await updateGlobalAuth({ provider: status.provider, model: status.model });
       context.setFooter(renderSessionFooter(config, status, context.shareManager.current()));
       context.setRuleBadge(await renderInputBadge(status));
@@ -1510,7 +1529,7 @@ async function handleSlashCommand(
         const result = await context.shareManager.start(config);
         renderShareStatus(result.share, result.reused ? "share already active" : "share started");
         writeOutput(`${renderMuted("note: transport is live; Chump share auth is the next step")}\n`);
-        context.setFooter(renderSessionFooter(config, await getStatus(config), context.shareManager.current()));
+        context.setFooter(renderSessionFooter(config, await request(getStatus), context.shareManager.current()));
         break;
       }
       if (mode === "status") {
@@ -1529,7 +1548,7 @@ async function handleSlashCommand(
           break;
         }
         writeOutput(`${renderMuted(`share stopped: ${share.publicUrl}`)}\n`);
-        context.setFooter(renderSessionFooter(config, await getStatus(config), context.shareManager.current()));
+        context.setFooter(renderSessionFooter(config, await request(getStatus), context.shareManager.current()));
         break;
       }
       writeOutput(`${renderMuted("usage: /share [status|stop]")}\n`);
@@ -1541,7 +1560,9 @@ async function handleSlashCommand(
         writeOutput(`${renderMuted("usage: /thinking <none|low|high|xhigh>")}\n`);
         break;
       }
-      const status = await setReasoning(config, mode);
+      const status = await request((requestConfig) =>
+        setReasoning(requestConfig, mode)
+      );
       await updateGlobalAuth({ reasoning: { mode } });
       context.setFooter(renderSessionFooter(config, status, context.shareManager.current()));
       context.setRuleBadge(await renderInputBadge(status));
@@ -1549,7 +1570,7 @@ async function handleSlashCommand(
       break;
     }
     case "clear": {
-      const result = await clearMessages(config);
+      const result = await request(clearMessages);
       writeOutput(`${JSON.stringify(result, null, 2)}\n`);
       break;
     }
@@ -1558,7 +1579,7 @@ async function handleSlashCommand(
       context.setLocalCompactionActive(true);
       activityStatus.start();
       try {
-        const result = await compactMessages(config);
+        const result = await request(compactMessages);
         if (result.status === "ok") {
           writeOutput(
             `${renderMuted(
@@ -1572,8 +1593,29 @@ async function handleSlashCommand(
         activityStatus.stop();
         context.setLocalCompactionActive(false);
       }
-      context.setFooter(renderSessionFooter(config, await getStatus(config), context.shareManager.current()));
+      context.setFooter(renderSessionFooter(config, await request(getStatus), context.shareManager.current()));
       break;
+    }
+    case "skill": {
+      const name = parsed.args[0];
+      if (!name) {
+        writeOutput(`${renderMuted("usage: /skill:<name> [args]")}\n`);
+        break;
+      }
+      const args = parsed.args.slice(1).join(" ").trim();
+      const loaded = await request((requestConfig) =>
+        loadSkill(requestConfig, name, args)
+      );
+      const displayText = `/skill:${loaded.name}${args ? ` ${args}` : ""}`;
+      return {
+        config,
+        closeEventStream,
+        submission: {
+          text: loaded.prompt,
+          displayText,
+          attachments: [],
+        },
+      };
     }
     case "session": {
       const mode = parsed.args[0];
@@ -1585,7 +1627,7 @@ async function handleSlashCommand(
       if (mode === "new") {
         config = switchAgent(config, createSessionId(config.workspaceRoot));
         closeEventStream = await context.restartEventStream(config);
-        const currentStatus = await getStatus(config);
+        const currentStatus = await request(getStatus);
         clearTerminal();
         writeOutput(`${renderBanner(config, { workspaceRoot: currentStatus.workspace_root })}\n`);
         const switchedStatus = await renderSwitchedSession(
@@ -1594,6 +1636,7 @@ async function handleSlashCommand(
           context.setFooter,
           context.setRuleBadge,
           context.setSessionSuggestions,
+          context.runServerRequest,
           {
             skipEmptyTranscript: true,
           },
@@ -1602,7 +1645,7 @@ async function handleSlashCommand(
           running: switchedStatus.turn_running === true,
           steering_queue: switchedStatus.steering_queue ?? [],
         });
-        context.setSkillSuggestions((await getHealth(config)).skills);
+        context.setSkillSuggestions((await request(getHealth)).skills);
         break;
       }
 
@@ -1616,12 +1659,13 @@ async function handleSlashCommand(
         context.setFooter,
         context.setRuleBadge,
         context.setSessionSuggestions,
+        context.runServerRequest,
       );
       context.setRemoteTurnStatus({
         running: switchedStatus.turn_running === true,
         steering_queue: switchedStatus.steering_queue ?? [],
       });
-      context.setSkillSuggestions((await getHealth(config)).skills);
+      context.setSkillSuggestions((await request(getHealth)).skills);
       break;
     }
     case "agent": {
@@ -1640,12 +1684,13 @@ async function handleSlashCommand(
         context.setFooter,
         context.setRuleBadge,
         context.setSessionSuggestions,
+        context.runServerRequest,
       );
       context.setRemoteTurnStatus({
         running: switchedStatus.turn_running === true,
         steering_queue: switchedStatus.steering_queue ?? [],
       });
-      context.setSkillSuggestions((await getHealth(config)).skills);
+      context.setSkillSuggestions((await request(getHealth)).skills);
       break;
     }
     case "quit":
@@ -1682,14 +1727,18 @@ async function renderSwitchedSession(
   setFooter: (footer: string | null) => void,
   setRuleBadge: (badge: string | null) => void,
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
+  runServerRequest: ServerRequestRunner,
   options: { skipEmptyTranscript?: boolean } = {},
 ): Promise<Awaited<ReturnType<typeof getStatus>>> {
-  const [health, status, response, sessions] = await Promise.all([
-    getHealth(config),
-    getStatus(config),
-    getMessages(config),
-    getSessions(config),
-  ]);
+  const [health, status, response, sessions] = await runServerRequest(
+    config,
+    (requestConfig) => Promise.all([
+      getHealth(requestConfig),
+      getStatus(requestConfig),
+      getMessages(requestConfig),
+      getSessions(requestConfig),
+    ]),
+  );
   setFooter(renderSessionFooter(config, status, shareManager.current()));
   setRuleBadge(await renderInputBadge(status));
   setSessionSuggestions(sessions.sessions);

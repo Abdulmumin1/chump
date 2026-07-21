@@ -413,6 +413,22 @@ describe("live tool lifecycle events", () => {
         expect(JSON.stringify(block)).not.toContain("<skill_content");
     });
 
+    it("replays manual skill prompts as compact slash commands", () => {
+        const transcript = buildTranscript([
+            {
+                role: "user",
+                content:
+                    '<skill_content name="release">\n# Release\n</skill_content>' +
+                    "\n\nUser: publish patch",
+            },
+        ]);
+
+        expect(transcript[0]?.blocks[0]).toEqual({
+            kind: "text",
+            text: "/skill:release publish patch",
+        });
+    });
+
     it("removes a queued steering item when its user message is accepted", () => {
         const queue = [
             { content: "first", display_content: "first" },

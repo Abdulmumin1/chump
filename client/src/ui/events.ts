@@ -107,15 +107,26 @@ export function setCompactionStatusHook(
   compactionStatusHook = hook;
 }
 
-export async function startEventStream(config: ChumpConfig): Promise<(() => void) | null> {
+export async function startEventStream(
+  config: ChumpConfig,
+  options: {
+    lastEventId?: number;
+    onLastEventId?: (eventId: number) => void;
+    onConnectionError?: (error: Error) => void | Promise<void>;
+  } = {},
+): Promise<(() => void) | null> {
   try {
     return await openEventStream(config, {
       onEvent: (event) => logEvent(event),
-      onError: (error) => {
+      onError: async (error) => {
         if (DEBUG_EVENT_STREAM) {
           console.error(`[events] ${error.message}; retrying`);
         }
+        await options.onConnectionError?.(error);
       },
+    }, {
+      lastEventId: options.lastEventId,
+      onLastEventId: options.onLastEventId,
     });
   } catch (error) {
     if (DEBUG_EVENT_STREAM) {

@@ -17,9 +17,10 @@ test("event replay resumes after the last applied ID without duplicates", async 
     return new Response(bodies[responseIndex++], {
       headers: { "content-type": "text/event-stream" },
     });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 
   const applied: number[] = [];
+  let lastEventId = 0;
   let failSecondEvent = true;
   let errors = 0;
   let close = () => {};
@@ -54,7 +55,13 @@ test("event replay resumes after the last applied ID without duplicates", async 
           errors += 1;
         },
       },
-      { reconnectDelayMs: 0, maxReconnectDelayMs: 0 },
+      {
+        reconnectDelayMs: 0,
+        maxReconnectDelayMs: 0,
+        onLastEventId: (eventId) => {
+          lastEventId = eventId;
+        },
+      },
     );
 
     await Promise.race([
@@ -70,6 +77,59 @@ test("event replay resumes after the last applied ID without duplicates", async 
     assert.equal(requests[0].searchParams.get("last_event_id"), null);
     assert.equal(requests[1].searchParams.get("last_event_id"), "1");
     assert.equal(requests[2].searchParams.get("last_event_id"), "2");
+    assert.equal(lastEventId, 4);
+  } finally {
+    close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps reconnecting when an async recovery hook fails", async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    if (requests === 1) {
+      throw new TypeError("fetch failed");
+    }
+    return new Response(sseEvents(1), {
+      headers: { "content-type": "text/event-stream" },
+    });
+  }) as unknown as typeof fetch;
+
+  let close = () => {};
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+
+  try {
+    close = await openEventStream(
+      {
+        agentId: "recovery-test",
+        serverUrl: "http://127.0.0.1:8000",
+        serverSource: "managed",
+        workspaceRoot: "/tmp/recovery-test",
+      },
+      {
+        onEvent: () => {
+          close();
+          finish();
+        },
+        onError: async () => {
+          throw new Error("restart failed once");
+        },
+      },
+      { reconnectDelayMs: 0, maxReconnectDelayMs: 0 },
+    );
+
+    await Promise.race([
+      finished,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("reconnect timed out")), 1_000),
+      ),
+    ]);
+    assert.equal(requests, 2);
   } finally {
     close();
     globalThis.fetch = originalFetch;

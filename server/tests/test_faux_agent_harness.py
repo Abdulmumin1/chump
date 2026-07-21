@@ -552,3 +552,63 @@ async def test_abort_waits_for_all_parallel_tools_before_terminating(
     assert len(terminal_events) == 1
     assert durable_events[-1] == terminal_events[0]
     assert status["turn_running"] is False
+
+
+@pytest.mark.asyncio
+async def test_manual_skill_command_uses_bundle_but_emits_short_display(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skill_dir = tmp_path / ".agents" / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: release\n"
+        "description: Publish the current project.\n"
+        "disable-model-invocation: true\n"
+        "---\n\n"
+        "# Release\n\nRun the release checklist.\n",
+        encoding="utf-8",
+    )
+    resources = ResourceCatalog(tmp_path)
+    config = _test_config(tmp_path)
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
+
+    def response(call):
+        user_message = call.messages[-1]
+        assert user_message.role == "user"
+        assert isinstance(user_message.content, str)
+        assert user_message.content.startswith(
+            '<skill_content name="release">\n# Release'
+        )
+        assert "disable-model-invocation" not in user_message.content
+        assert user_message.content.endswith("User: publish patch")
+        return FauxResponse(text="Release ready.", chunks=["Release ready."])
+
+    model = faux(responses=[response])
+    provider = model.provider
+    assert isinstance(provider, FauxProvider)
+    agent = ChumpAgent("faux-manual-skill")
+    agent.model = model
+
+    async with agent:
+        loaded = await agent.load_skill("release", "publish patch")
+        chunks = [
+            chunk
+            async for chunk in agent.stream(
+                loaded["prompt"],
+                display_message="/skill:release publish patch",
+            )
+        ]
+        events = (await agent.event_log())["events"]
+
+    assert chunks == ["Release ready."]
+    assert loaded["name"] == "release"
+    assert provider.call_count == 1
+    provider.assert_exhausted()
+    user_event = next(event for event in events if event["type"] == "user_message")
+    assert user_event["data"]["content"] == "/skill:release publish patch"
+    assert user_event["data"]["display_content"] == (
+        "/skill:release publish patch"
+    )

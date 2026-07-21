@@ -161,6 +161,18 @@ class ResourceCatalog:
     def get_skill(self, name: str) -> SkillInfo | None:
         return self._skills_by_name.get(name)
 
+    def get_model_skill(self, name: str) -> SkillInfo | None:
+        skill = self.get_skill(name)
+        if skill is None or skill.disable_model_invocation:
+            return None
+        return skill
+
+    @property
+    def model_skills(self) -> list[SkillInfo]:
+        return [
+            skill for skill in self._skills if not skill.disable_model_invocation
+        ]
+
     def build_prompt_sections(self) -> str:
         sections: list[str] = []
         instruction_section = self.build_instruction_prompt()
@@ -175,9 +187,7 @@ class ResourceCatalog:
         return self._format_instruction_section(self._system_instructions)
 
     def build_skill_prompt(self) -> str:
-        visible_skills = [
-            skill for skill in self._skills if not skill.disable_model_invocation
-        ]
+        visible_skills = self.model_skills
         if not visible_skills:
             return ""
 

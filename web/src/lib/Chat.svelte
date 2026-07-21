@@ -33,6 +33,7 @@
         cancelSteering,
         clearMessages,
         compactMessages,
+        loadSkill,
         setModel,
         setReasoning,
         sessionTitle,
@@ -504,11 +505,34 @@
             const [command, ...parts] = trimmedText.slice(1).split(/\s+/);
             if (command) {
                 composerText = "";
-                await runCommand(command, parts.join(" "));
+                if (command.startsWith("skill:")) {
+                    await runCommand(
+                        "skill",
+                        [command.slice("skill:".length), ...parts].join(" "),
+                    );
+                } else {
+                    await runCommand(command, parts.join(" "));
+                }
                 return;
             }
         }
 
+        await submitResolvedPrompt(
+            target,
+            message,
+            attachments,
+            undefined,
+            trimmedText,
+        );
+    }
+
+    async function submitResolvedPrompt(
+        target: ChumpApiTarget,
+        message: string,
+        attachments: ChatAttachment[],
+        displayMessage?: string,
+        restoreText = displayMessage ?? message,
+    ): Promise<void> {
         const sessionId = await sessionController.ensureActiveSession();
         if (!sessionId) {
             return;
@@ -524,9 +548,10 @@
                     sessionId,
                     message,
                     attachments,
+                    displayMessage,
                 );
             } catch (error) {
-                composerText = trimmedText;
+                composerText = restoreText;
                 composerAttachments = attachments;
                 connectionError = toErrorMessage(error);
             }
@@ -543,6 +568,7 @@
                 message,
                 attachments,
                 activeRequestController.signal,
+                displayMessage,
             );
         } catch (error) {
             if (!activeRequestController.signal.aborted) {
@@ -677,7 +703,7 @@
 
     async function runCommand(command: string, args: string): Promise<void> {
         const target = apiTarget;
-        if (!target || !activeSessionId) {
+        if (!target || (!activeSessionId && command !== "skill")) {
             pushToast("Not connected", "error");
             return;
         }
@@ -739,6 +765,38 @@
                     } finally {
                         isCompacting = false;
                     }
+                    break;
+                }
+                case "skill": {
+                    const [name, ...argumentParts] = args
+                        .trim()
+                        .split(/\s+/);
+                    if (!name) {
+                        pushToast("Usage: /skill:name [args]", "error");
+                        return;
+                    }
+                    const sessionId =
+                        activeSessionId ||
+                        (await sessionController.ensureActiveSession());
+                    if (!sessionId) return;
+
+                    const skillArgs = argumentParts.join(" ");
+                    const loaded = await loadSkill(
+                        target,
+                        sessionId,
+                        name,
+                        skillArgs,
+                    );
+                    const displayMessage = `/skill:${loaded.name}${
+                        skillArgs ? ` ${skillArgs}` : ""
+                    }`;
+                    await submitResolvedPrompt(
+                        target,
+                        loaded.prompt,
+                        [],
+                        displayMessage,
+                        displayMessage,
+                    );
                     break;
                 }
                 case "new": {
@@ -1236,6 +1294,7 @@
                 {isSending}
                 {isCompacting}
                 models={availableModels}
+                skills={health.skills}
                 {isLoadingSession}
                 {currentModel}
                 workspaceRoot={displayWorkspace}

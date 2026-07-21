@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ToolActivityRenderer } from "./tool-activity.ts";
+import { renderCommandOutput } from "./render.ts";
 import {
   TranscriptRenderer,
   transcriptEventFromSse,
@@ -18,6 +19,7 @@ test("renders consecutive searches as a compact run without blank lines", () => 
   renderer.renderToolResult(searchResult("fff|FFF", 0));
 
   assert.equal(output.length, 2);
+  assert.match(stripTestAnsi(output[0] ?? ""), /\n◐ search/u);
   assert.match(output[0] ?? "", /\n.*CHUMP_FFF_COMMAND.*4 matches/s);
   assert.match(output[1] ?? "", /fff\|FFF.*\.\/client.*no matches/s);
   assert.equal(output[1]?.startsWith("\n"), false);
@@ -389,9 +391,9 @@ test("keeps each concurrent bash result with its originating command", () => {
   });
 
   assert.equal(output.length, 6);
-  assert.match(output[0] ?? "", /printf first/);
+  assert.match(stripTestAnsi(output[0] ?? ""), /printf first/);
   assert.match(output[1] ?? "", /first output/);
-  assert.match(output[3] ?? "", /printf second/);
+  assert.match(stripTestAnsi(output[3] ?? ""), /printf second/);
   assert.match(output[4] ?? "", /second output/);
 });
 
@@ -414,6 +416,56 @@ test("caps long single-line command output to roughly five terminal rows", () =>
   const renderedOutput = stripTestAnsi(output[1] ?? "");
   assert.match(renderedOutput, /\.\.\.\[truncated\]$/u);
   assert.ok(renderedOutput.length <= 420);
+});
+
+test("cleans, formats, and indents multiline command output with tree markers", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "bash",
+    args: {
+      command:
+        `python3 -c "print('<span class='line'>def delete_quote(id_):</span>')"`,
+    },
+    call_id: "call_sync",
+  });
+  renderer.renderToolResult({
+    name: "bash",
+    status: "ok",
+    preview: `...[command output truncated: showing last 5 of 3445 lines; showing last 1000 of 700530 bytes]
+
+324: <span class="line"></span>
+325: <span class="line"><span style="color: var(--shiki-token-keyword)">def</span> delete_quote(id_):</span>
+326: <span class="line">    print(f"Deleting quote: {id_}")</span>`,
+    call_id: "call_sync",
+  });
+
+  const commandLine = stripTestAnsi(output[0] ?? "");
+  const outputLine = stripTestAnsi(output[1] ?? "");
+
+  assert.match(commandLine, /^◐\s+\$\s+python3 -c/mu);
+  assert.match(output[0] ?? "", /\x1b\[38;2;/u);
+  assert.doesNotMatch(commandLine, /<\/?span/iu);
+  assert.match(outputLine, /^\s+└─\s+324/mu);
+  assert.match(outputLine, /^\s+325\s+def delete_quote\(id_\):/mu);
+  assert.match(outputLine, /^\s+326\s+print\(f"Deleting quote: \{id_\}"\)/mu);
+  assert.match(outputLine, /^\s+\.\.\.\s+\+3,440\s+lines truncated/mu);
+});
+
+test("keeps wrapped command errors indented beneath their tree branch", () => {
+  const rendered = stripTestAnsi(renderCommandOutput(
+    "error",
+    "python3: can't open file '/a/very/long/path/to/scripts/sync_data.py': No such file or directory",
+    44,
+  ));
+  const lines = rendered.split("\n");
+
+  assert.match(lines[0] ?? "", /^  └─ python3:/u);
+  assert.ok(lines.length > 1);
+  for (const line of lines.slice(1)) {
+    assert.match(line, /^ {5}\S/u);
+  }
 });
 
 test("renders execution completion immediately and ignores the durable duplicate", () => {
@@ -486,6 +538,27 @@ test("maps provider tool argument deltas onto streaming previews", () => {
       lifecycle_type: "tool_call.delta",
     },
   });
+});
+
+test("replays manual skill prompts as compact slash commands", () => {
+  const events = transcriptEventsFromStoredMessages([
+    {
+      role: "user",
+      content:
+        '<skill_content name="release">\n# Release\n</skill_content>' +
+        "\n\nUser: publish patch",
+    },
+  ]);
+
+  assert.deepEqual(events, [
+    {
+      type: "user_message",
+      payload: {
+        schema_version: 1,
+        content: "/skill:release publish patch",
+      },
+    },
+  ]);
 });
 
 function searchCall(query: string, path = ""): Record<string, unknown> {

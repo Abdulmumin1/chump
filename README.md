@@ -86,6 +86,7 @@ cd ~/other-project && chump
 - `/sessions` — saved sessions
 - `/session <id>` — resume
 - `/model` — change provider or model
+- `/skill:<name> [args]` — load and run a discovered skill
 - `/new` — new session
 - `/share` - create a shareable session link
 - `/quit`

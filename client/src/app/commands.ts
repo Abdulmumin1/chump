@@ -116,16 +116,71 @@ export function completeSlashCommand(
     ];
   }
 
-  const hits = ROOT_COMMANDS.filter((command) =>
-    command.label.startsWith(line),
-  ).map(toSuggestion);
+  const skillSuggestions = completeSkillCommand(line, context.skills);
+  if (skillSuggestions.length > 0) {
+    return [
+      skillSuggestions.map(toSuggestionView),
+      line,
+      skillSuggestions,
+    ];
+  }
+
+  const skillCommands = context.skills.map((skill) => ({
+    label: `/skill:${skill.name}`,
+    command: `/skill:${skill.name}`,
+    description: skill.description,
+    kind: "skill" as const,
+    action: "submit" as const,
+  }));
+  const rootCommands = ROOT_COMMANDS.map(toSuggestion).filter((command) =>
+    command.label.startsWith(line)
+  );
+  const skillQuery = line.slice(1);
+  const matchingSkills = skillCommands.filter((command) =>
+    matchesSkillQuery(command, skillQuery)
+  );
+  const hits = [...rootCommands, ...matchingSkills];
   const suggestions =
     hits.length > 0
       ? hits
       : line === "/"
-        ? ROOT_COMMANDS.map(toSuggestion)
+        ? [...ROOT_COMMANDS.map(toSuggestion), ...skillCommands]
         : [];
   return [suggestions.map(toSuggestionView), line, suggestions];
+}
+
+function matchesSkillQuery(
+  skill: Pick<SlashCommandSuggestion, "label" | "description">,
+  query: string,
+): boolean {
+  const terms = query.toLowerCase().split(/[\s:_-]+/).filter(Boolean);
+  if (terms.length === 0) {
+    return true;
+  }
+  const searchable = `${skill.label.slice("/skill:".length)} ${skill.description}`
+    .toLowerCase()
+    .replace(/[\s:_-]+/g, " ");
+  return terms.every((term) => searchable.includes(term));
+}
+
+function completeSkillCommand(
+  line: string,
+  skills: SlashCommandMenuContext["skills"],
+): SlashCommandSuggestion[] {
+  const match = /^\/skill:([^\s]*)$/.exec(line);
+  if (!match) {
+    return [];
+  }
+  const query = (match[1] ?? "").toLowerCase();
+  return skills
+    .filter((skill) => !query || skill.name.toLowerCase().startsWith(query))
+    .map((skill) => ({
+      label: `/skill:${skill.name}`,
+      command: `/skill:${skill.name}`,
+      description: skill.description,
+      kind: "skill" as const,
+      action: "submit" as const,
+    }));
 }
 
 function completeThinkingCommand(line: string): SlashCommandSuggestion[] {
@@ -314,6 +369,18 @@ export function parseSlashCommand(input: string): {
     return { command: "session", args: ["new"] };
   }
 
+  const skillMatch = /^\/skill:([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(
+    input.trim(),
+  );
+  if (skillMatch) {
+    const name = skillMatch[1] ?? "";
+    const args = skillMatch[2]?.trim();
+    return {
+      command: "skill",
+      args: args ? [name, args] : [name],
+    };
+  }
+
   if (!input.startsWith("/")) {
     return null;
   }
@@ -350,6 +417,7 @@ export function printHelp(): void {
     writeOutputLine("/agent <id>");
     writeOutputLine("/share [status|stop]");
     writeOutputLine("/thinking <none|low|high|xhigh>");
+    writeOutputLine("/skill:<name> [args]");
     writeOutputLine("/compact");
   });
 }
