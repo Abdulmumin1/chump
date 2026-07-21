@@ -7,7 +7,7 @@ import pytest
 
 from ai_query import Field, tool
 from ai_query.providers import FauxProvider, FauxResponse, faux
-from ai_query.types import ImagePart, TextPart, ToolCall
+from ai_query.types import ImagePart, TextPart, ToolCall, ToolResultPart
 
 from chump_server.agent import ChumpAgent
 from chump_server.config import ChumpConfig
@@ -271,3 +271,160 @@ async def test_abort_hands_pending_steering_to_one_follow_up_turn(
     assert terminal_events[0]["data"]["steering_queue"] == []
     assert status["turn_running"] is False
     assert status["steering_queue"] == []
+
+
+@pytest.mark.asyncio
+async def test_parallel_same_name_tools_keep_reverse_completions_correlated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _test_config(tmp_path)
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(
+        ChumpAgent,
+        "_server_resources",
+        ResourceCatalog(tmp_path),
+    )
+
+    agent = ChumpAgent("faux-parallel-tools")
+    second_finished = asyncio.Event()
+    completion_order: list[str] = []
+    emitted_events: list[tuple[str, dict, int]] = []
+
+    @tool(description="Read a deterministic item")
+    async def read_item(
+        item: str = Field(description="Item name"),
+    ) -> str:
+        if item == "first":
+            await second_finished.wait()
+        result = f"result:{item}"
+        completion_order.append(item)
+        agent.capture_tool_result_detail(
+            "read_item",
+            ok=True,
+            preview=f"preview:{item}",
+            metadata={"item": item},
+            result=result,
+        )
+        if item == "second":
+            second_finished.set()
+        return result
+
+    def final_response(call):
+        tool_message = call.messages[-1]
+        assert tool_message.role == "tool"
+        assert isinstance(tool_message.content, list)
+        assert all(
+            isinstance(part, ToolResultPart) for part in tool_message.content
+        )
+        results = [part.tool_result for part in tool_message.content]
+        assert [result.tool_call_id for result in results if result] == [
+            "call_first",
+            "call_second",
+        ]
+        assert [result.result for result in results if result] == [
+            "result:first",
+            "result:second",
+        ]
+        return FauxResponse(
+            text="Both items are ready.",
+            chunks=["Both items ", "are ready."],
+        )
+
+    model = faux(
+        responses=[
+            FauxResponse(
+                tool_calls=[
+                    ToolCall(
+                        id="call_first",
+                        name="read_item",
+                        arguments={"item": "first"},
+                    ),
+                    ToolCall(
+                        id="call_second",
+                        name="read_item",
+                        arguments={"item": "second"},
+                    ),
+                ],
+                finish_reason="tool_calls",
+            ),
+            final_response,
+        ]
+    )
+    provider = model.provider
+    assert isinstance(provider, FauxProvider)
+    agent.model = model
+    agent.tools = {"read_item": read_item}
+
+    async def capture_event(event: str, data: dict, event_id: int) -> None:
+        emitted_events.append((event, data, event_id))
+
+    agent._emit_handler = capture_event
+
+    async with agent:
+        chunks = [
+            chunk
+            async for chunk in agent.stream("Read the first and second items")
+        ]
+        durable_events = (await agent.event_log())["events"]
+
+    assert chunks == ["Both items ", "are ready."]
+    assert provider.call_count == 2
+    provider.assert_exhausted()
+    assert completion_order == ["second", "first"]
+
+    execution_started = [
+        data
+        for event, data, _event_id in emitted_events
+        if event == "tool_execution.started"
+    ]
+    assert [event["call_id"] for event in execution_started] == [
+        "call_first",
+        "call_second",
+    ]
+
+    execution_finished = [
+        data
+        for event, data, _event_id in emitted_events
+        if event == "tool_execution.finished"
+    ]
+    assert [event["call_id"] for event in execution_finished] == [
+        "call_second",
+        "call_first",
+    ]
+    assert [event["preview"] for event in execution_finished] == [
+        "preview:second",
+        "preview:first",
+    ]
+    assert [event["metadata"] for event in execution_finished] == [
+        {"item": "second"},
+        {"item": "first"},
+    ]
+
+    tool_calls = [
+        event["data"]
+        for event in durable_events
+        if event["type"] == "tool_call"
+    ]
+    assert [event["call_id"] for event in tool_calls] == [
+        "call_first",
+        "call_second",
+    ]
+
+    tool_results = [
+        event["data"]
+        for event in durable_events
+        if event["type"] == "tool_result"
+    ]
+    assert [event["call_id"] for event in tool_results] == [
+        "call_first",
+        "call_second",
+    ]
+    assert [event["preview"] for event in tool_results] == [
+        "preview:first",
+        "preview:second",
+    ]
+    assert [event["metadata"] for event in tool_results] == [
+        {"item": "first"},
+        {"item": "second"},
+    ]
