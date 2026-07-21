@@ -139,6 +139,18 @@ async def test_faux_provider_drives_and_reloads_a_complete_chump_turn(
         if event["type"] in chump_event_types
     )
 
+    replay_cursor = original_events[len(original_events) // 2]["id"]
+    replayed_events = [
+        {"id": event.id, "type": event.type, "data": event.data}
+        async for event in agent.replay_events(after_id=replay_cursor)
+    ]
+    assert replayed_events == [
+        event for event in original_events if event["id"] > replay_cursor
+    ]
+    assert [event["id"] for event in replayed_events] == sorted(
+        {event["id"] for event in replayed_events}
+    )
+
     reloaded = ChumpAgent("faux-harness")
     async with reloaded:
         reloaded_events = (await reloaded.event_log())["events"]

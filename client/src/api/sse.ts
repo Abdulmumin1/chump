@@ -6,10 +6,11 @@ const EVENT_STREAM_CLIENT_ID = `cli-${randomUUID()}`;
 export async function openEventStream(
   config: ChumpConfig,
   handlers: {
-    onEvent: (event: SseEvent) => void;
+    onEvent: (event: SseEvent) => void | Promise<void>;
     onError?: (error: Error) => void;
   },
   options: {
+    lastEventId?: number;
     reconnectDelayMs?: number;
     maxReconnectDelayMs?: number;
     idleTimeoutMs?: number;
@@ -21,7 +22,7 @@ export async function openEventStream(
   // bytes, tear the connection down and reconnect.
   const idleTimeoutMs = options.idleTimeoutMs ?? 60000;
   let closed = false;
-  let lastEventId = 0;
+  let lastEventId = normalizeEventId(options.lastEventId) ?? 0;
   let controller: AbortController | null = null;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectFailures = 0;
@@ -69,15 +70,16 @@ export async function openEventStream(
 
         await consumeSse(
           response,
-          (event) => {
+          async (event) => {
             reconnectFailures = 0;
-            if (event.id) {
-              const parsed = Number(event.id);
-              if (Number.isFinite(parsed)) {
-                lastEventId = parsed;
-              }
+            const eventId = normalizeEventId(event.id);
+            if (eventId !== null && eventId <= lastEventId) {
+              return;
             }
-            handlers.onEvent(event);
+            await handlers.onEvent(event);
+            if (eventId !== null) {
+              lastEventId = eventId;
+            }
           },
           armIdleTimer,
         );
@@ -119,7 +121,7 @@ export async function openEventStream(
 
 export async function consumeSse(
   response: Response,
-  onEvent: (event: SseEvent) => void,
+  onEvent: (event: SseEvent) => void | Promise<void>,
   onActivity?: () => void,
 ): Promise<void> {
   if (!response.body) {
@@ -147,12 +149,17 @@ export async function consumeSse(
 
       const parsed = parseSseEvent(rawEvent);
       if (parsed) {
-        onEvent(parsed);
+        await onEvent(parsed);
       }
 
       boundary = buffer.indexOf("\n\n");
     }
   }
+}
+
+function normalizeEventId(value: string | number | undefined): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function parseSseEvent(rawEvent: string): SseEvent | null {

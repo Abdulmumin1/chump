@@ -378,8 +378,15 @@ export function createSessionController(
             apiTarget,
             sessionId,
             {
-                onEvent: (event) => {
-                    void handleAgentEvent(sessionId, currentStreamToken, event);
+                onEvent: async (event) => {
+                    await handleAgentEvent(sessionId, currentStreamToken, event);
+                    if (!isCurrentStream(sessionId, currentStreamToken)) {
+                        return;
+                    }
+                    const eventId = Number(event.id);
+                    if (Number.isSafeInteger(eventId) && eventId >= 0) {
+                        state.lastEventId = eventId;
+                    }
                 },
                 onError: (error) => {
                     if (!isCurrentStream(sessionId, currentStreamToken)) {
@@ -399,13 +406,6 @@ export function createSessionController(
     ): Promise<void> {
         if (!isCurrentStream(sessionId, currentStreamToken)) {
             return;
-        }
-
-        if (event.id) {
-            const parsed = Number(event.id);
-            if (Number.isFinite(parsed)) {
-                state.lastEventId = parsed;
-            }
         }
 
         const rawPayload = parseJson(event.data);
