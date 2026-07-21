@@ -64,6 +64,8 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "qwen/qwen3.6-plus",
   ]),
   google: new Set([
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
@@ -386,6 +388,18 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "google",
     name: "Google",
     models: {
+      "gemini-3.6-flash": {
+        id: "gemini-3.6-flash",
+        name: "Gemini 3.6 Flash",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
+      "gemini-3.5-flash-lite": {
+        id: "gemini-3.5-flash-lite",
+        name: "Gemini 3.5 Flash Lite",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
       "gemini-3.5-flash": {
         id: "gemini-3.5-flash",
         name: "Gemini 3.5 Flash",
@@ -875,6 +889,8 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.4",
     ],
     google: [
+      "gemini-3.6-flash",
+      "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3-pro-preview",

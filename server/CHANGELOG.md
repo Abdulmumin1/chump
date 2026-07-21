@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.1.4
+
+- Add public Gemini API support for `gemini-3.6-flash` and `gemini-3.5-flash-lite`, both with 1,048,576-token context windows and 65,536-token output limits.
+- Make Gemini 3.6 Flash the default Google model for new and unconfigured sessions.
+- Keep the limited-access Gemini 3.5 Flash Cyber model out of the public selector until Google exposes it through the Gemini API.
+
 ## 0.1.3
 
 - Add the versioned Chump v1 event contract for durable collaboration events while remaining compatible with legacy stored sessions.

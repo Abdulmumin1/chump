@@ -59,7 +59,7 @@ export const PROVIDERS = {
   },
   google: {
     label: "Google",
-    defaultModel: "gemini-3.5-flash",
+    defaultModel: "gemini-3.6-flash",
     fields: [{ key: "GOOGLE_API_KEY", label: "Google API key", secret: true }],
   },
   groq: {

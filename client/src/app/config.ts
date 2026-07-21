@@ -80,7 +80,7 @@ export function getResolvedConfig(workspaceRoot: string): ResolvedConfig {
     opencode: "gpt-5.4",
     opencode_go: "deepseek-v4-flash",
     openrouter: "anthropic/claude-sonnet-4.5",
-    google: "gemini-3.5-flash",
+    google: "gemini-3.6-flash",
     anthropic: "claude-sonnet-4-20250514",
     groq: "openai/gpt-oss-120b",
     xai: "grok-code-fast-1",

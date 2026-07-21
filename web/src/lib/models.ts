@@ -59,6 +59,18 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "google",
     name: "Google",
     models: {
+      "gemini-3.6-flash": {
+        id: "gemini-3.6-flash",
+        name: "Gemini 3.6 Flash",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
+      "gemini-3.5-flash-lite": {
+        id: "gemini-3.5-flash-lite",
+        name: "Gemini 3.5 Flash Lite",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
       "gemini-3.5-flash": {
         id: "gemini-3.5-flash",
         name: "Gemini 3.5 Flash",
@@ -183,6 +195,8 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
   ]),
   chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
   google: new Set([
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
@@ -283,6 +297,8 @@ function modelRank(provider: string, model: string): number {
       "gpt-5-codex",
     ],
     google: [
+      "gemini-3.6-flash",
+      "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3-pro-preview",
