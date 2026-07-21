@@ -852,7 +852,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
                         "aborted": event.aborted,
                         "ok": event.error is None and not event.aborted,
                         "status": (
-                            "error" if event.error else "aborted" if event.aborted else "ok"
+                            "aborted" if event.aborted else "error" if event.error else "ok"
                         ),
                         "preview": detail.get("preview", ""),
                         "metadata": detail.get("metadata", {}),
