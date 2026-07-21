@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ai_query import Field, tool
+from ai_query import AbortError, Field, tool
 from ai_query.providers import FauxProvider, FauxResponse, faux
 from ai_query.types import ImagePart, TextPart, ToolCall, ToolResultPart
 
@@ -428,3 +428,127 @@ async def test_parallel_same_name_tools_keep_reverse_completions_correlated(
         {"item": "first"},
         {"item": "second"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_abort_waits_for_all_parallel_tools_before_terminating(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _test_config(tmp_path)
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(
+        ChumpAgent,
+        "_server_resources",
+        ResourceCatalog(tmp_path),
+    )
+
+    agent = ChumpAgent("faux-parallel-tool-abort")
+    all_started = asyncio.Event()
+    slow_cleanup_started = asyncio.Event()
+    fast_cancelled = asyncio.Event()
+    release_slow_cleanup = asyncio.Event()
+    cancelled_tools: list[str] = []
+    started_tools: set[str] = set()
+    emitted_events: list[tuple[str, dict, int]] = []
+
+    @tool(description="Block until the current turn is cancelled")
+    async def wait_for_item(
+        item: str = Field(description="Item name"),
+    ) -> str:
+        started_tools.add(item)
+        if len(started_tools) == 2:
+            all_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            if item == "slow":
+                slow_cleanup_started.set()
+                await release_slow_cleanup.wait()
+            cancelled_tools.append(item)
+            if item == "fast":
+                fast_cancelled.set()
+
+    model = faux(
+        responses=[
+            FauxResponse(
+                tool_calls=[
+                    ToolCall(
+                        id="call_slow",
+                        name="wait_for_item",
+                        arguments={"item": "slow"},
+                    ),
+                    ToolCall(
+                        id="call_fast",
+                        name="wait_for_item",
+                        arguments={"item": "fast"},
+                    ),
+                ],
+                finish_reason="tool_calls",
+            )
+        ]
+    )
+    provider = model.provider
+    assert isinstance(provider, FauxProvider)
+    agent.model = model
+    agent.tools = {"wait_for_item": wait_for_item}
+
+    async def capture_event(event: str, data: dict, event_id: int) -> None:
+        emitted_events.append((event, data, event_id))
+
+    agent._emit_handler = capture_event
+
+    async def collect_chunks() -> list[str]:
+        return [
+            chunk
+            async for chunk in agent.stream(
+                "Wait for the slow and fast items"
+            )
+        ]
+
+    async with agent:
+        stream_task = asyncio.create_task(collect_chunks())
+        await asyncio.wait_for(all_started.wait(), timeout=1)
+
+        assert await agent.abort_current_turn() == {"status": "aborting"}
+        await asyncio.wait_for(fast_cancelled.wait(), timeout=1)
+        await asyncio.wait_for(slow_cleanup_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+        terminated_before_slow_cleanup = stream_task.done()
+
+        release_slow_cleanup.set()
+        with pytest.raises(AbortError, match="aborted by user"):
+            await asyncio.wait_for(stream_task, timeout=1)
+
+        durable_events = (await agent.event_log())["events"]
+        status = await agent.status()
+
+    assert terminated_before_slow_cleanup is False
+    assert cancelled_tools == ["fast", "slow"]
+    assert provider.call_count == 1
+    provider.assert_exhausted()
+
+    execution_finished = [
+        data
+        for event, data, _event_id in emitted_events
+        if event == "tool_execution.finished"
+    ]
+    assert {event["call_id"] for event in execution_finished} == {
+        "call_slow",
+        "call_fast",
+    }
+    assert all(event["aborted"] is True for event in execution_finished)
+    assert all(event["ok"] is False for event in execution_finished)
+    assert all(event["status"] == "aborted" for event in execution_finished)
+
+    assert not any(
+        event["type"] == "tool_result" for event in durable_events
+    )
+    terminal_events = [
+        event
+        for event in durable_events
+        if event["type"] == "turn_status" and event["data"]["running"] is False
+    ]
+    assert len(terminal_events) == 1
+    assert durable_events[-1] == terminal_events[0]
+    assert status["turn_running"] is False
