@@ -845,6 +845,7 @@ async function createPrintVerboseEventLogger(config: ChumpConfig): Promise<{
       },
     },
     {
+      lastEventId: baselineEventId,
       reconnectDelayMs: 250,
       maxReconnectDelayMs: 2_000,
     },

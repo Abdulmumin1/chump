@@ -23,3 +23,15 @@ When changing the contract, update these together:
 
 The root `pnpm check` command runs compatibility tests against the same fixture
 in Python, CLI TypeScript, and web TypeScript.
+
+## Replay cursor
+
+SSE event IDs are session-local and monotonically increasing. A consumer's
+cursor is the ID of the last event it successfully applied, not merely the last
+event received. On reconnect, clients send that cursor as `last_event_id`.
+
+The server sends replayed events before newer live events. Consumers still
+discard IDs less than or equal to their cursor, making reconnect delivery
+idempotent if a proxy or transport repeats the boundary event. Non-replayable
+events may create numeric gaps, so consumers require increasing IDs rather than
+consecutive IDs.
