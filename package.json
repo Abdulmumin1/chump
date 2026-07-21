@@ -4,6 +4,10 @@
   "packageManager": "pnpm@11.1.1",
   "license": "Apache-2.0",
   "scripts": {
+    "check": "pnpm run check:client && pnpm run check:server && pnpm run check:web",
+    "check:client": "pnpm --filter chump-agent run typecheck && pnpm --filter chump-agent run test && pnpm --filter chump-agent run build",
+    "check:server": "uv run --project server pytest server/tests && uv run --project server python -m compileall -q server/chump_server && uv build server",
+    "check:web": "pnpm --filter web run check && pnpm --filter web run test && pnpm --filter web run build",
     "typecheck": "pnpm --filter chump-agent run typecheck",
     "smoke": "pnpm --filter chump-agent run smoke",
     "changeset": "changeset",
