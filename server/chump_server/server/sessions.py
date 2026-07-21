@@ -16,67 +16,176 @@ def stored_sessions(
     if not db_path.exists():
         return [], 0
 
-    session_ids: set[str] = set()
-    values: dict[str, Any] = {}
     with sqlite3.connect(str(db_path)) as conn:
-        cursor = conn.execute("SELECT key, value FROM kv_store")
-        for key, raw_value in cursor.fetchall():
-            if ":" not in key:
-                continue
-            session_id, suffix = key.rsplit(":", 1)
-            if suffix not in {"state", "messages", "event_log"}:
-                continue
-            session_ids.add(session_id)
-            values[key] = decode_json(raw_value)
+        if not table_exists(conn, "kv_store"):
+            return [], 0
+        has_incremental_events = table_exists(conn, "event_log")
+        session_ids_sql = build_session_ids_sql(has_incremental_events)
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM ({session_ids_sql})",
+        ).fetchone()[0]
+        rows = conn.execute(
+            build_session_page_sql(session_ids_sql, has_incremental_events),
+            (page_size, (page - 1) * page_size),
+        ).fetchall()
 
-    sessions = []
+    sessions: list[dict[str, Any]] = []
     active_ids = set(active_agents.keys())
-    for session_id in sorted(session_ids):
-        state = values.get(f"{session_id}:state") or {}
-        messages = values.get(f"{session_id}:messages") or []
-        event_log = values.get(f"{session_id}:event_log") or []
+    for row in rows:
+        (
+            session_id,
+            title,
+            created_at,
+            updated_at,
+            last_user_goal,
+            message_count,
+            event_count,
+            total_added,
+            total_removed,
+        ) = row
         active_meta = active_agents.get(session_id)
         active_last_activity = active_agent_last_activity(active_meta)
         active_connection_count = active_agent_connection_count(active_meta)
-        file_diffs = state.get("file_diffs") if isinstance(state, dict) else None
-        total_added, total_removed = diff_totals(file_diffs)
-        created_at = state.get("created_at") if isinstance(state, dict) else None
-        updated_at = state.get("updated_at") if isinstance(state, dict) else None
+        message_count = active_agent_collection_count(
+            active_meta,
+            "messages",
+            message_count,
+        )
+        event_count = active_agent_collection_count(
+            active_meta,
+            "_event_log",
+            event_count,
+        )
         sessions.append(
             {
                 "id": session_id,
                 "active": session_id in active_ids,
-                "message_count": len(messages) if isinstance(messages, list) else 0,
-                "event_count": len(event_log) if isinstance(event_log, list) else 0,
-                "title": state.get("title") if isinstance(state, dict) else None,
-                "created_at": created_at
-                if isinstance(created_at, (int, float))
-                else None,
-                "updated_at": updated_at
-                if isinstance(updated_at, (int, float))
-                else None,
-                "last_user_goal": (
-                    state.get("last_user_goal") if isinstance(state, dict) else None
-                ),
+                "message_count": message_count,
+                "event_count": event_count,
+                "title": title,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "last_user_goal": last_user_goal,
                 "last_activity": active_last_activity,
                 "connections": active_connection_count,
                 "total_added": total_added,
                 "total_removed": total_removed,
             }
         )
-    sessions.sort(
-        key=lambda session: (
-            session.get("updated_at")
-            or session.get("created_at")
-            or session.get("last_activity")
-            or 0,
-            session["id"],
-        ),
-        reverse=True,
+    return sessions, int(total)
+
+
+def table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table,),
+        ).fetchone()
+        is not None
     )
-    total = len(sessions)
-    start = (page - 1) * page_size
-    return sessions[start : start + page_size], total
+
+
+def build_session_ids_sql(has_incremental_events: bool) -> str:
+    sources = [
+        "SELECT substr(key, 1, length(key) - 6) AS session_id "
+        "FROM kv_store WHERE substr(key, -6) = ':state'",
+        "SELECT substr(key, 1, length(key) - 9) AS session_id "
+        "FROM kv_store WHERE substr(key, -9) = ':messages'",
+        "SELECT substr(key, 1, length(key) - 10) AS session_id "
+        "FROM kv_store WHERE substr(key, -10) = ':event_log'",
+    ]
+    if has_incremental_events:
+        sources.append(
+            "SELECT substr(key, 1, length(key) - 10) AS session_id FROM event_log"
+        )
+    return " UNION ".join(sources)
+
+
+def build_session_page_sql(
+    session_ids_sql: str,
+    has_incremental_events: bool,
+) -> str:
+    # Session lists are startup metadata, so never deserialize unbounded
+    # message or legacy replay blobs here. Exact transcript details remain
+    # available through inspect_session_payload; live agents and incremental
+    # event rows can provide counts without touching those blobs.
+    incremental_event_count = (
+        "(SELECT COUNT(*) FROM event_log AS events "
+        "WHERE events.key = page.session_id || ':event_log')"
+        if has_incremental_events
+        else "0"
+    )
+    return f"""
+        WITH session_ids AS (
+            {session_ids_sql}
+        ),
+        state_values AS (
+            SELECT
+                ids.session_id,
+                CASE
+                    WHEN json_valid(state.value) THEN state.value
+                    ELSE '{{}}'
+                END AS state_json
+            FROM session_ids AS ids
+            LEFT JOIN kv_store AS state
+                ON state.key = ids.session_id || ':state'
+        ),
+        ranked AS (
+            SELECT
+                session_id,
+                state_json,
+                json_extract(state_json, '$.title') AS title,
+                CASE
+                    WHEN json_type(state_json, '$.created_at') IN ('integer', 'real')
+                    THEN json_extract(state_json, '$.created_at')
+                END AS created_at,
+                CASE
+                    WHEN json_type(state_json, '$.updated_at') IN ('integer', 'real')
+                    THEN json_extract(state_json, '$.updated_at')
+                END AS updated_at,
+                json_extract(state_json, '$.last_user_goal') AS last_user_goal
+            FROM state_values
+        ),
+        page AS (
+            SELECT * FROM ranked
+            ORDER BY
+                COALESCE(updated_at, created_at, 0) DESC,
+                session_id DESC
+            LIMIT ? OFFSET ?
+        )
+        SELECT
+            page.session_id,
+            page.title,
+            page.created_at,
+            page.updated_at,
+            page.last_user_goal,
+            0 AS message_count,
+            {incremental_event_count} AS event_count,
+            COALESCE((
+                SELECT SUM(
+                    CASE
+                        WHEN json_type(diff.value, '$.added') = 'integer'
+                        THEN json_extract(diff.value, '$.added')
+                        ELSE 0
+                    END
+                )
+                FROM json_each(page.state_json, '$.file_diffs') AS diff
+            ), 0) AS total_added,
+            COALESCE((
+                SELECT SUM(
+                    CASE
+                        WHEN json_type(diff.value, '$.removed') = 'integer'
+                        THEN json_extract(diff.value, '$.removed')
+                        ELSE 0
+                    END
+                )
+                FROM json_each(page.state_json, '$.file_diffs') AS diff
+            ), 0) AS total_removed
+        FROM page
+        ORDER BY
+            COALESCE(page.updated_at, page.created_at, 0) DESC,
+            page.session_id DESC
+    """
 
 
 def active_agent_last_activity(active_meta: Any) -> float | None:
@@ -98,6 +207,16 @@ def active_agent_connection_count(active_meta: Any) -> int:
         return 0
     connection_count = getattr(active_meta, "connection_count", None)
     return connection_count if isinstance(connection_count, int) else 0
+
+
+def active_agent_collection_count(
+    active_meta: Any,
+    attribute: str,
+    fallback: int,
+) -> int:
+    agent = getattr(active_meta, "agent", None)
+    collection = getattr(agent, attribute, None)
+    return len(collection) if isinstance(collection, list) else fallback
 
 
 def diff_totals(file_diffs: Any) -> tuple[int, int]:
