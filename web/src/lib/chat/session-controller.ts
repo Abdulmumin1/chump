@@ -18,6 +18,10 @@ import type {
     StoredMessage,
     SseEvent,
 } from "$lib/chump/types";
+import {
+    isChumpEventType,
+    parseChumpEvent,
+} from "$lib/chump/events";
 import { listModelChoices, type ModelChoice } from "$lib/models";
 import {
     applyLiveEventToMessages,
@@ -404,14 +408,20 @@ export function createSessionController(
             }
         }
 
-        const payload = parseJson(event.data);
+        const rawPayload = parseJson(event.data);
 
         if (event.event === "error") {
             state.connectionError = toErrorMessage(
-                payload ?? (event.data || "An event stream error occurred"),
+                rawPayload ?? (event.data || "An event stream error occurred"),
             );
             return;
         }
+
+        const chumpEvent = parseChumpEvent(event.event, rawPayload);
+        if (isChumpEventType(event.event) && !chumpEvent) {
+            return;
+        }
+        const payload = chumpEvent?.data ?? rawPayload;
 
         if (event.event === "assistant_text" || event.event === "reasoning") {
             state.messages = applyLiveEventToMessages(

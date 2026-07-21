@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chump.dev/protocol/chump-events-v1.schema.json",
+  "title": "Chump collaboration event v1",
+  "description": "Durable Chump-owned collaboration events. Transient model and tool lifecycle events use ai-query's TurnEvent contract.",
+  "oneOf": [
+    { "$ref": "#/$defs/assistant_text_event" },
+    { "$ref": "#/$defs/user_message_event" },
+    { "$ref": "#/$defs/tool_call_event" },
+    { "$ref": "#/$defs/tool_result_event" },
+    { "$ref": "#/$defs/agent_status_event" },
+    { "$ref": "#/$defs/steering_queue_event" },
+    { "$ref": "#/$defs/turn_status_event" },
+    { "$ref": "#/$defs/compaction_status_event" },
+    { "$ref": "#/$defs/compaction_event" },
+    { "$ref": "#/$defs/status_event" }
+  ],
+  "$defs": {
+    "version": { "const": 1 },
+    "record": { "type": "object" },
+    "steering_item": {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "content": { "type": "string" },
+        "display_content": { "type": "string" },
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/record" } },
+        "steered": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "assistant_text_payload": {
+      "type": "object",
+      "required": ["schema_version", "content"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "content": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "user_message_payload": {
+      "allOf": [
+        { "$ref": "#/$defs/steering_item" },
+        {
+          "type": "object",
+          "required": ["schema_version"],
+          "properties": { "schema_version": { "$ref": "#/$defs/version" } }
+        }
+      ]
+    },
+    "tool_call_payload": {
+      "type": "object",
+      "required": ["schema_version", "name", "call_id", "args", "step", "index"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "name": { "type": "string" },
+        "call_id": { "type": "string" },
+        "args": { "$ref": "#/$defs/record" },
+        "step": { "type": "integer", "minimum": 1 },
+        "index": { "type": "integer", "minimum": 0 },
+        "status": { "const": "ready" }
+      },
+      "additionalProperties": true
+    },
+    "tool_result_payload": {
+      "type": "object",
+      "required": ["schema_version", "name", "call_id", "ok", "status", "preview", "step", "index"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "name": { "type": "string" },
+        "call_id": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "status": { "enum": ["ok", "error"] },
+        "preview": { "type": "string" },
+        "step": { "type": "integer", "minimum": 1 },
+        "index": { "type": "integer", "minimum": 0 },
+        "duration": { "type": ["number", "null"] },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "agent_status_payload": {
+      "type": "object",
+      "required": ["schema_version", "agent_id", "provider", "model"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "agent_id": { "type": "string" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "turn_running": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "steering_queue_payload": {
+      "type": "object",
+      "required": ["schema_version", "items"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/steering_item" } }
+      },
+      "additionalProperties": true
+    },
+    "turn_status_payload": {
+      "type": "object",
+      "required": ["schema_version", "running", "steering_queue"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "running": { "type": "boolean" },
+        "steering_queue": { "type": "array", "items": { "$ref": "#/$defs/steering_item" } }
+      },
+      "additionalProperties": true
+    },
+    "compaction_status_payload": {
+      "type": "object",
+      "required": ["schema_version", "running", "reason"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "running": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "tokens_before": { "type": "integer" },
+        "messages_before": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "compaction_payload": {
+      "type": "object",
+      "required": ["schema_version", "reason", "tokens_before", "tokens_after", "messages_before", "messages_after", "created_at"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "reason": { "type": "string" },
+        "tokens_before": { "type": "integer" },
+        "tokens_after": { "type": "integer" },
+        "messages_before": { "type": "integer" },
+        "messages_after": { "type": "integer" },
+        "compacted_messages": { "type": "integer" },
+        "kept_messages": { "type": "integer" },
+        "summary_chars": { "type": "integer" },
+        "created_at": { "type": "number" }
+      },
+      "additionalProperties": true
+    },
+    "status_payload": {
+      "type": "object",
+      "required": ["schema_version", "phase", "step"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "phase": { "enum": ["step_start", "step_finish"] },
+        "step": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "assistant_text_event": { "$ref": "#/$defs/event_assistant_text" },
+    "user_message_event": { "$ref": "#/$defs/event_user_message" },
+    "tool_call_event": { "$ref": "#/$defs/event_tool_call" },
+    "tool_result_event": { "$ref": "#/$defs/event_tool_result" },
+    "agent_status_event": { "$ref": "#/$defs/event_agent_status" },
+    "steering_queue_event": { "$ref": "#/$defs/event_steering_queue" },
+    "turn_status_event": { "$ref": "#/$defs/event_turn_status" },
+    "compaction_status_event": { "$ref": "#/$defs/event_compaction_status" },
+    "compaction_event": { "$ref": "#/$defs/event_compaction" },
+    "status_event": { "$ref": "#/$defs/event_status" },
+    "event_assistant_text": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "assistant_text" }, "data": { "$ref": "#/$defs/assistant_text_payload" } },
+      "additionalProperties": false
+    },
+    "event_user_message": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "user_message" }, "data": { "$ref": "#/$defs/user_message_payload" } },
+      "additionalProperties": false
+    },
+    "event_tool_call": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "tool_call" }, "data": { "$ref": "#/$defs/tool_call_payload" } },
+      "additionalProperties": false
+    },
+    "event_tool_result": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "tool_result" }, "data": { "$ref": "#/$defs/tool_result_payload" } },
+      "additionalProperties": false
+    },
+    "event_agent_status": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "agent_status" }, "data": { "$ref": "#/$defs/agent_status_payload" } },
+      "additionalProperties": false
+    },
+    "event_steering_queue": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "steering_queue" }, "data": { "$ref": "#/$defs/steering_queue_payload" } },
+      "additionalProperties": false
+    },
+    "event_turn_status": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "turn_status" }, "data": { "$ref": "#/$defs/turn_status_payload" } },
+      "additionalProperties": false
+    },
+    "event_compaction_status": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "compaction_status" }, "data": { "$ref": "#/$defs/compaction_status_payload" } },
+      "additionalProperties": false
+    },
+    "event_compaction": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "compaction" }, "data": { "$ref": "#/$defs/compaction_payload" } },
+      "additionalProperties": false
+    },
+    "event_status": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "status" }, "data": { "$ref": "#/$defs/status_payload" } },
+      "additionalProperties": false
+    }
+  }
+}

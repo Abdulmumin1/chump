@@ -12,6 +12,7 @@ import {
   writeOutputLine,
 } from "./terminal.ts";
 import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
+import { parseChumpEvent } from "../core/events.ts";
 import type { StoredMessage, SseEvent, TranscriptEvent } from "../core/types.ts";
 
 export type TranscriptRendererHooks = {
@@ -171,10 +172,12 @@ export class TranscriptRenderer {
 
 export function transcriptEventFromSse(event: SseEvent): TranscriptEvent | null {
   const payload = parseEventPayload(event.data);
+  const chumpEvent = parseChumpEvent(event.event, payload);
 
-  if (event.event === "assistant_text" && payload) {
-    const content = typeof payload.content === "string" ? payload.content : "";
-    return content ? { type: "assistant_text", content } : null;
+  if (chumpEvent?.type === "assistant_text") {
+    return chumpEvent.data.content
+      ? { type: "assistant_text", content: chumpEvent.data.content }
+      : null;
   }
 
   if (event.event === "tool_execution.finished" && payload) {
@@ -192,17 +195,25 @@ export function transcriptEventFromSse(event: SseEvent): TranscriptEvent | null 
     };
   }
 
-  if (
-    event.event === "tool_call" ||
-    event.event === "tool_result" ||
-    event.event === "reasoning" ||
-    event.event === "agent_status" ||
-    event.event === "steering_queue" ||
-    event.event === "turn_status" ||
-    event.event === "compaction_status" ||
-    event.event === "user_message"
-  ) {
-    return payload ? { type: event.event, payload } : null;
+  if (event.event === "reasoning") {
+    return payload ? { type: "reasoning", payload } : null;
+  }
+
+  switch (chumpEvent?.type) {
+    case "tool_call":
+      return { type: "tool_call", payload: chumpEvent.data };
+    case "tool_result":
+      return { type: "tool_result", payload: chumpEvent.data };
+    case "agent_status":
+      return { type: "agent_status", payload: chumpEvent.data };
+    case "steering_queue":
+      return { type: "steering_queue", payload: chumpEvent.data };
+    case "turn_status":
+      return { type: "turn_status", payload: chumpEvent.data };
+    case "compaction_status":
+      return { type: "compaction_status", payload: chumpEvent.data };
+    case "user_message":
+      return { type: "user_message", payload: chumpEvent.data };
   }
 
   return null;
@@ -214,7 +225,10 @@ export function transcriptEventsFromStoredMessages(messages: StoredMessage[]): T
     if (message.role === "user") {
       const content = userMessageDisplayFromContent(message.content).trim();
       if (content) {
-        events.push({ type: "user_message", payload: { content } });
+        events.push({
+          type: "user_message",
+          payload: { schema_version: 1, content },
+        });
       }
       continue;
     }

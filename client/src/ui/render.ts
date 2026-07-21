@@ -10,9 +10,7 @@ const darkPalette = {
   accentStrong: "#96bf00",
   foregroundStrong: "#d0d0d0",
   thinkingLabel: "#93a65a",
-  thinkingTitle: "#c79b67",
   muted: "#8a8a8a",
-  thinkingText: "#737373",
   danger: "#ff6b6b",
   dangerMuted: "#b56b63",
   successMuted: "#8fad33",
@@ -35,9 +33,7 @@ const lightPalette = {
   accentStrong: "#425900",
   foregroundStrong: "#343434",
   thinkingLabel: "#4f5f16",
-  thinkingTitle: "#7a5200",
   muted: "#545454",
-  thinkingText: "#4f4f4f",
   danger: "#b42318",
   dangerMuted: "#8f4a43",
   successMuted: "#627a18",
@@ -1119,10 +1115,6 @@ export function renderThinkingLabel(): string {
   return italic(fg(palette.thinkingLabel, "Thinking:"));
 }
 
-export function renderThinkingText(message: string): string {
-  return fg(palette.thinkingText, message);
-}
-
 function isLightTerminal(): boolean {
   const theme = process.env.CHUMP_THEME?.toLowerCase();
   if (theme === "light") return true;
@@ -1192,45 +1184,6 @@ function isLightTerminal(): boolean {
   }
 
   return false;
-}
-
-export function renderThinkingStatus(message: string): string {
-  return `${renderThinkingLabel()} ${renderThinkingText(message)}`;
-}
-
-export function renderThinkingBlock(
-  title: string | null,
-  message: string,
-): string[] {
-  const lines: string[] = [];
-  const heading = title?.trim();
-  if (heading) {
-    lines.push(
-      `${renderThinkingLabel()} ${bold(fg(palette.thinkingTitle, heading))}`,
-    );
-  } else {
-    lines.push(renderThinkingLabel());
-  }
-
-  const content = message.trim();
-  if (content) {
-    // Strip markdown to plain text, then word-wrap and apply uniform thinking colour.
-    const wrapWidth = Math.max(24, (process.stdout.columns ?? 80) - 4);
-    const plainLines = renderMarkdownBlock(content).split("\n").map(stripAnsi);
-    lines.push("");
-    for (const plainLine of plainLines) {
-      if (plainLine.length > wrapWidth) {
-        const subWrapped = wrapPlainText(plainLine, wrapWidth);
-        lines.push(
-          ...subWrapped.map((l) => `${muted("│")} ${renderThinkingText(l)}`),
-        );
-      } else {
-        lines.push(`${muted("│")} ${renderThinkingText(plainLine)}`);
-      }
-    }
-  }
-
-  return lines;
 }
 
 export function renderSlashCommandMenu(
@@ -1406,38 +1359,4 @@ function renderInlineAttachments(value: string): string {
 
   rendered += foreground(value.slice(index));
   return rendered;
-}
-
-function wrapPlainText(value: string, width: number): string[] {
-  if (!value) {
-    return [];
-  }
-
-  const result: string[] = [];
-  for (const sourceLine of value.split("\n")) {
-    const words = sourceLine.split(/\s+/u).filter(Boolean);
-    if (words.length === 0) {
-      result.push("");
-      continue;
-    }
-
-    let current = "";
-    for (const word of words) {
-      if (!current) {
-        current = word;
-        continue;
-      }
-      if (current.length + 1 + word.length <= width) {
-        current = `${current} ${word}`;
-        continue;
-      }
-      result.push(current);
-      current = word;
-    }
-    if (current) {
-      result.push(current);
-    }
-  }
-
-  return result;
 }

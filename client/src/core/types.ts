@@ -1,3 +1,11 @@
+import type {
+  AgentStatusPayload,
+  CompactionStatusPayload,
+  SteeringQueuePayload,
+  TurnStatusPayload,
+  UserMessagePayload,
+} from "./events.ts";
+
 export type ChumpConfig = {
   agentId: string;
   serverUrl: string;
@@ -239,15 +247,15 @@ export type SseEvent = {
 
 export type TranscriptEvent =
   | { type: "assistant_text"; content: string }
-  | { type: "user_message"; payload: Record<string, unknown> }
+  | { type: "user_message"; payload: UserMessagePayload }
   | { type: "tool_call_stream"; payload: Record<string, unknown> }
   | { type: "tool_call"; payload: Record<string, unknown> }
   | { type: "tool_result"; payload: Record<string, unknown> }
   | { type: "reasoning"; payload: Record<string, unknown> }
-  | { type: "agent_status"; payload: Record<string, unknown> }
-  | { type: "steering_queue"; payload: Record<string, unknown> }
-  | { type: "turn_status"; payload: Record<string, unknown> }
-  | { type: "compaction_status"; payload: Record<string, unknown> }
+  | { type: "agent_status"; payload: AgentStatusPayload }
+  | { type: "steering_queue"; payload: SteeringQueuePayload }
+  | { type: "turn_status"; payload: TurnStatusPayload }
+  | { type: "compaction_status"; payload: CompactionStatusPayload }
   | { type: "stream_end"; fallback?: string }
   | { type: "stream_error"; message: string; aborted?: boolean };
 

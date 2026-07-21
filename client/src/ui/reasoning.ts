@@ -1,5 +1,9 @@
-import { renderMuted, renderThinkingBlock, renderThinkingLabel } from "./render.ts";
-import { writeOutput } from "./terminal.ts";
+import {
+  createMarkdownStream,
+  renderMuted,
+  renderThinkingLabel,
+} from "./render.ts";
+import { createLiveMarkdownStream, writeOutput } from "./terminal.ts";
 
 export class LiveReasoningTokenCounter {
   private buffer = "";
@@ -46,8 +50,7 @@ export class ReasoningRenderer {
     if (!content) {
       return;
     }
-    const block = renderThinkingBlock(null, this.buffer);
-    writeOutput(`\n${block.join("\n")}\n\n`);
+    writeReasoningMarkdown(content);
     this.buffer = "";
   }
 
@@ -94,8 +97,7 @@ export class LiveReasoningStream {
 
     const content = this.buffer.trim();
     if (content) {
-      const block = renderThinkingBlock(null, this.buffer);
-      writeOutput(`\n${block.join("\n")}\n\n`);
+      writeReasoningMarkdown(content);
     }
 
     this.reset();
@@ -149,6 +151,21 @@ export class LiveReasoningStream {
     }
     this.lastUpdateTime = Date.now();
   }
+}
+
+function writeReasoningMarkdown(content: string): void {
+  writeOutput(`\n${renderThinkingLabel()}\n`);
+  const stream = createLiveMarkdownStream() ?? createMarkdownStream();
+  stream.write(asMarkdownQuote(content));
+  stream.end();
+  writeOutput("\n");
+}
+
+function asMarkdownQuote(content: string): string {
+  return content
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
 }
 
 function mergeReasoningText(existing: string, incoming: string): string {
