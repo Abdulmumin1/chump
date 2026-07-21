@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.3
+
+### Patch Changes
+
+- Add Gemini 3.6 Flash and Gemini 3.5 Flash-Lite to the Google model catalog, use Gemini 3.6 Flash as the default, and preserve accurate context/output limits when models.dev is unavailable.
+
 ## 0.2.2
 
 ### Patch Changes

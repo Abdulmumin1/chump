@@ -30,7 +30,7 @@ DEFAULT_MODELS = {
     "github_copilot": "gpt-5.4",
     "openai": "gpt-5.4",
     "chump_cloud": "deepseek-v4-flash",
-    "google": "gemini-3.5-flash",
+    "google": "gemini-3.6-flash",
     "anthropic": "claude-sonnet-4-20250514",
     "workers_ai": "@cf/zai-org/glm-5.2",
     "deepseek": "deepseek-v4-pro",
@@ -71,6 +71,8 @@ PROVIDER_MODELS = {
         "deepseek-v4-flash",
     },
     "google": {
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
         "gemini-3.5-flash",
         "gemini-3.1-pro-preview",
         "gemini-3-pro-preview",
