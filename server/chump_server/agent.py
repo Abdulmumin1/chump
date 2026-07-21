@@ -11,7 +11,13 @@ from typing import Any, AsyncIterator
 
 from ai_query import RetryPolicy, step_count_is
 from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
-from ai_query.types import AbortError, AbortSignal, Message, ProviderOptions
+from ai_query.types import (
+    AbortError,
+    AbortSignal,
+    Message,
+    ProviderOptions,
+    TextPart,
+)
 
 from .config import ChumpConfig, load_auth_config, load_config
 from .events import version_chump_event_payload
@@ -94,6 +100,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._last_step_records: list[dict[str, Any]] = []
         self._current_turn: AgentTurn | None = None
         self._pending_steering_events: list[dict[str, Any]] = []
+        self._pending_steering_contents: list[str | list[Any]] = []
         self._steering_lock = asyncio.Lock()
         self._turn_instruction_claims: set[str] = set()
         self._usage_summary: dict[str, Any] = default_usage_summary()
@@ -198,6 +205,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             if turn is not self._current_turn or turn.done:
                 return {"status": "idle"}
             await turn.steer(content)
+            self._pending_steering_contents.append(content)
             self._pending_steering_events.append(
                 {
                     "content": message,
@@ -231,6 +239,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 raise ValueError("queued steering index is out of range")
             removed = await remove_queued_message_at(turn._steering, target_index)
             if removed:
+                self._pending_steering_contents.pop(target_index)
                 self._pending_steering_events.pop(target_index)
             await self._emit_steering_queue()
         self._log(f"steer canceled: index={target_index} removed={removed}")
@@ -324,6 +333,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
     ) -> AsyncIterator[str]:
         next_message = message
         next_attachments = attachments
+        next_content: str | list[Any] | None = None
         emit_user_message = True
         announced_running = False
         try:
@@ -332,11 +342,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
                     next_message,
                     attachments=next_attachments,
                     signal=signal,
+                    content_override=next_content,
                     emit_user_message=emit_user_message,
                     **kwargs,
                 )
                 announced_running = True
-                drained: list[dict[str, Any]] = []
+                drained_events: list[dict[str, Any]] = []
+                drained_contents: list[str | list[Any]] = []
                 try:
                     full_response = ""
                     async for event in turn.events():
@@ -373,34 +385,45 @@ class ChumpAgent(Agent[dict[str, Any]]):
                             "assistant_text", {"content": final_response}
                         )
                         yield final_response
-                    drained = await self._drain_remaining_steering()
+                    (
+                        drained_events,
+                        drained_contents,
+                    ) = await self._drain_remaining_steering()
                 except AbortError:
                     # An HTTP/client abort must stop the whole stream. A direct
                     # turn abort may hand pending steering to a fresh turn.
                     if signal is not None and signal.aborted:
                         raise
-                    drained = await self._drain_remaining_steering()
-                    if not drained:
+                    (
+                        drained_events,
+                        drained_contents,
+                    ) = await self._drain_remaining_steering()
+                    if not drained_events:
                         raise
                 finally:
                     if self._current_turn is turn:
                         self._current_turn = None
 
-                if not drained:
+                if not drained_events:
                     break
 
-                next_message = "\n".join(item["content"] for item in drained)
+                next_message = "\n".join(
+                    item["content"] for item in drained_events
+                )
                 next_attachments = None
+                next_content = combine_steering_contents(drained_contents)
                 emit_user_message = False
                 self._log(
                     "auto-restarting turn for "
-                    f"{len(drained)} un-drained steering item(s)"
+                    f"{len(drained_events)} un-drained steering item(s)"
                 )
         finally:
             if announced_running:
                 await self._emit_turn_status(False)
 
-    async def _drain_remaining_steering(self) -> list[dict[str, Any]]:
+    async def _drain_remaining_steering(
+        self,
+    ) -> tuple[list[dict[str, Any]], list[str | list[Any]]]:
         """Pop and emit any steering that arrived after the last step boundary.
 
         Returns the drained items so the caller can decide whether to
@@ -408,15 +431,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
         """
         async with self._steering_lock:
             if not self._pending_steering_events:
-                return []
-            drained = list(self._pending_steering_events)
+                return [], []
+            drained_events = list(self._pending_steering_events)
+            drained_contents = list(self._pending_steering_contents)
             self._pending_steering_events.clear()
+            self._pending_steering_contents.clear()
             await self._emit_steering_queue()
 
-        for item in drained:
+        for item in drained_events:
             await self.emit("user_message", item)
 
-        return drained
+        return drained_events, drained_contents
 
     async def _start_turn(
         self,
@@ -424,6 +449,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         *,
         attachments: list[dict[str, Any]] | None = None,
         signal: AbortSignal | None = None,
+        content_override: str | list[Any] | None = None,
         emit_user_message: bool = True,
         **kwargs: Any,
     ) -> AgentTurn:
@@ -442,7 +468,11 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._log(
             f"chat start: {message} attachments={len(valid_attachments)}/{len(raw_attachments)}"
         )
-        content = build_user_content(message, attachments or [])
+        content = (
+            content_override
+            if content_override is not None
+            else build_user_content(message, attachments or [])
+        )
         if emit_user_message:
             await self.emit(
                 "user_message",
@@ -722,6 +752,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._log(f"step {event.step_number} start")
         async with self._steering_lock:
             while self._pending_steering_events:
+                self._pending_steering_contents.pop(0)
                 await self.emit("user_message", self._pending_steering_events.pop(0))
                 await self._emit_steering_queue()
         await self.emit("status", {"phase": "step_start", "step": event.step_number})
@@ -1059,3 +1090,20 @@ class ChumpAgent(Agent[dict[str, Any]]):
         last = self._messages[-1]
         if last.role == "user" and message_content_text(last.content) == message:
             self._messages.pop()
+
+
+def combine_steering_contents(
+    contents: list[str | list[Any]],
+) -> str | list[Any]:
+    if all(isinstance(content, str) for content in contents):
+        return "\n".join(contents)
+
+    combined: list[Any] = []
+    for index, content in enumerate(contents):
+        if index > 0:
+            combined.append(TextPart(text="\n"))
+        if isinstance(content, str):
+            combined.append(TextPart(text=content))
+        else:
+            combined.extend(content)
+    return combined
