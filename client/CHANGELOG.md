@@ -1,5 +1,15 @@
 # chump-agent
 
+## 0.2.2
+
+### Patch Changes
+
+- Add versioned Chump v1 events across the CLI and web client, render completed reasoning as structured Markdown, and resume reconnects from the last successfully applied event without duplicate output.
+- Recover dead managed servers across prompts, status/model/session actions, print mode, and file search; safely replay interrupted requests once when no tool side effect has begun so the original prompt is not lost.
+- Discover manually invokable skills in slash-command completion and run them as `/skill:name [arguments]` while keeping injected skill instructions out of the visible transcript.
+- Preserve queued steering text and images across turn aborts, and wait for parallel tool cancellation and cleanup before starting the follow-up turn.
+- Polish the Pi TUI with edge-aligned input and picker rows, title-cased tool labels, syntax-aware command rows, tree-linked and bounded output, and faithful tool/reasoning reconstruction when sessions resume.
+
 ## 0.2.1
 
 ### Patch Changes
