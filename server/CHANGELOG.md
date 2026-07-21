@@ -1,5 +1,13 @@
 # chump-server
 
+## 0.1.5
+
+- Keep managed servers alive for the full lifetime of prompt, event-stream, and action requests so a large session cannot be shut down while its first request is still hydrating.
+- Store replay events incrementally with a 2,048-event retention window instead of rewriting the complete session history for every event; migrate legacy event blobs automatically while preserving monotonic replay IDs.
+- Advertise the exact model IDs supported by the running server so newer clients do not offer models to an older or mismatched backend.
+- Return structured JSON validation errors for unsupported model changes instead of exposing an HTML `500 Internal Server Error` response.
+- Make verbose backend and tool tracing opt-in, and use SQLite WAL mode with reduced synchronization overhead to substantially lower routine log and database writes.
+
 ## 0.1.4
 
 - Add public Gemini API support for `gemini-3.6-flash` and `gemini-3.5-flash-lite`, both with 1,048,576-token context windows and 65,536-token output limits.

@@ -56,6 +56,9 @@ from .git_utils import get_git_branch
 
 class ChumpAgent(Agent[dict[str, Any]]):
     enable_event_log = True
+    # Reconnects only need a recent delivery window. Keeping this bounded is
+    # critical because tool and reasoning events can contain sizeable payloads.
+    event_log_limit = 2_048
     _server_config: ChumpConfig | None = None
     _server_resources: ResourceCatalog | None = None
     _server_search: Any = None

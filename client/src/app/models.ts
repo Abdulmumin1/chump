@@ -616,6 +616,7 @@ export type ModelChoice = {
 
 export async function listModelChoices(
   providers: string[],
+  availableModels?: Record<string, readonly string[]>,
 ): Promise<ModelChoice[]> {
   if (providers.length === 0) {
     return [];
@@ -627,7 +628,10 @@ export async function listModelChoices(
     if (!entry) {
       return [];
     }
+    const serverModels = availableModels?.[provider];
+    const serverModelSet = serverModels ? new Set(serverModels) : null;
     return Object.values(entry.models)
+      .filter((model) => serverModelSet === null || serverModelSet.has(model.id))
       .filter((model) => isUsableChatModel(provider, model))
       .map((model) => ({
         provider,

@@ -11,7 +11,7 @@ from aiohttp import web
 
 from .git_utils import get_git_branch
 from .agent import ChumpAgent
-from .config import ChumpConfig, load_config
+from .config import ChumpConfig, PROVIDER_MODELS, load_config
 from .managed_idle import is_resume_gap
 from .process_title import set_process_title
 from .resources import ResourceCatalog
@@ -46,9 +46,11 @@ class ChumpServer(AgentServer):
         self.started_at = time.time()
         self._managed_idle_task: asyncio.Task[None] | None = None
         self._managed_idle_resume_grace_until: float | None = None
+        self._active_requests = 0
 
     def on_app_setup(self, app: web.Application) -> None:
         app._client_max_size = 64 * 1024 * 1024
+        app.middlewares.append(self._track_active_requests)
         app.router.add_get("/health", self.health)
         app.router.add_get("/version", self.version)
         app.router.add_get("/sessions", self.sessions)
@@ -56,6 +58,18 @@ class ChumpServer(AgentServer):
         app.on_startup.append(self._start_managed_idle_shutdown)
         app.on_cleanup.append(self._stop_managed_idle_shutdown)
         app.on_cleanup.append(self._close_search)
+
+    @web.middleware
+    async def _track_active_requests(
+        self,
+        request: web.Request,
+        handler,
+    ) -> web.StreamResponse:
+        self._active_requests += 1
+        try:
+            return await handler(request)
+        finally:
+            self._active_requests = max(0, self._active_requests - 1)
 
     async def _close_search(self, app: web.Application) -> None:
         await self.search.close()
@@ -88,6 +102,10 @@ class ChumpServer(AgentServer):
                     for item in self.resources.skills
                 ],
                 "available_providers": list(self.chump_config.available_providers),
+                "available_models": {
+                    provider: sorted(PROVIDER_MODELS.get(provider, ()))
+                    for provider in self.chump_config.available_providers
+                },
             }
         )
 
@@ -172,7 +190,7 @@ class ChumpServer(AgentServer):
             if is_resume_gap(loop_gap, interval, timeout):
                 self._managed_idle_resume_grace_until = now + timeout
                 continue
-            if self._active_connection_count() > 0:
+            if self._active_connection_count() > 0 or self._active_requests > 0:
                 self._managed_idle_resume_grace_until = None
                 continue
             if (
@@ -188,10 +206,11 @@ class ChumpServer(AgentServer):
                 ]
             )
             if now - last_activity >= timeout:
-                print(
-                    f"[chump] no active clients for {timeout}s; shutting down managed server",
-                    flush=True,
-                )
+                if self.chump_config.verbose:
+                    print(
+                        f"[chump] no active clients for {timeout}s; shutting down managed server",
+                        flush=True,
+                    )
                 await self.shutdown()
                 return
 
