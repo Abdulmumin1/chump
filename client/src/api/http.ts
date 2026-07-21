@@ -105,6 +105,33 @@ export async function getSessions(
   return (await response.json()) as SessionsResponse;
 }
 
+export async function getAllSessions(
+  config: ChumpConfig,
+): Promise<SessionsResponse["sessions"]> {
+  const first = await getSessions(config);
+  if (first.total_pages <= 1) {
+    return first.sessions;
+  }
+
+  const sessions = [...first.sessions];
+  const remainingPages = Array.from(
+    { length: first.total_pages - 1 },
+    (_, index) => index + 2,
+  );
+  const concurrency = 4;
+  for (let index = 0; index < remainingPages.length; index += concurrency) {
+    const responses = await Promise.all(
+      remainingPages.slice(index, index + concurrency).map((page) =>
+        getSessions(config, { page })
+      ),
+    );
+    sessions.push(...responses.flatMap((response) => response.sessions));
+  }
+
+  const unique = new Map(sessions.map((session) => [session.id, session]));
+  return [...unique.values()];
+}
+
 export async function searchFiles(
   config: ChumpConfig,
   query: string,

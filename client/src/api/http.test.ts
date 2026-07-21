@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getSessions, streamChat } from "./http.ts";
+import { getAllSessions, getSessions, streamChat } from "./http.ts";
 import { ServerStreamInterruptedError } from "./errors.ts";
 import type { ChumpConfig } from "../core/types.ts";
 import { ManagedServerRequestCoordinator } from "../app/managed-recovery.ts";
@@ -34,6 +34,47 @@ test("requests six sessions by default", async () => {
   }
 
   assert.equal(new URL(requestUrl).searchParams.get("limit"), "6");
+});
+
+test("loads every six-item session page only when requested", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedPages: number[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    const page = Number(url.searchParams.get("page"));
+    requestedPages.push(page);
+    return Response.json({
+      sessions: [{
+        id: `session-${page}`,
+        active: false,
+        message_count: 0,
+        event_count: 0,
+        title: `Session ${page}`,
+        created_at: page,
+        updated_at: page,
+        last_user_goal: null,
+        last_activity: null,
+        connections: 0,
+      }],
+      page,
+      page_size: 6,
+      total: 18,
+      total_pages: 3,
+    });
+  }) as typeof fetch;
+
+  try {
+    const sessions = await getAllSessions(config);
+    assert.deepEqual(sessions.map((session) => session.id), [
+      "session-1",
+      "session-2",
+      "session-3",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requestedPages, [1, 2, 3]);
 });
 
 test("treats a chat response that closes without end as a transport interruption", async () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
+import type { SessionSummary } from "../core/types.ts";
 import { ChumpAutocompleteProvider } from "./tui/autocomplete.ts";
 import {
   MutableLines,
@@ -243,6 +244,42 @@ test("exact picker commands expand before their option suggestions", async () =>
   );
 });
 
+test("session picker lazily loads and searches every session page", async () => {
+  const provider = new ChumpAutocompleteProvider();
+  const recent = sessionSummary("recent", "Recent conversation", 20);
+  const older = sessionSummary("older", "Archived deployment notes", 10);
+  let loads = 0;
+  provider.setContext({ sessions: [recent], models: [], skills: [] });
+  provider.setSessionSuggestionLoader(async () => {
+    loads += 1;
+    return [recent, older];
+  });
+
+  const all = await provider.getSuggestions(
+    ["/session "],
+    0,
+    9,
+    { signal: new AbortController().signal, force: true },
+  );
+  assert.deepEqual(
+    all?.items.map((item) => item.value),
+    ["/session recent", "/session older"],
+  );
+
+  provider.setCommandContext({ models: [], skills: [] });
+  const filtered = await provider.getSuggestions(
+    ["/session archived"],
+    0,
+    17,
+    { signal: new AbortController().signal },
+  );
+  assert.deepEqual(
+    filtered?.items.map((item) => item.value),
+    ["/session older"],
+  );
+  assert.equal(loads, 1);
+});
+
 test("in-process Pi TUI extensions can be registered and removed", async () => {
   const extension = () => {};
   const unregister = registerTuiExtension("test-extension", extension);
@@ -264,4 +301,23 @@ test("in-process Pi TUI extensions can be registered and removed", async () => {
 
 function stripTestAnsi(value: string): string {
   return value.replace(/\x1b\[[0-9;]*m/gu, "");
+}
+
+function sessionSummary(
+  id: string,
+  title: string,
+  updatedAt: number,
+): SessionSummary {
+  return {
+    id,
+    active: false,
+    message_count: 0,
+    event_count: 0,
+    title,
+    created_at: updatedAt,
+    updated_at: updatedAt,
+    last_user_goal: null,
+    last_activity: null,
+    connections: 0,
+  };
 }

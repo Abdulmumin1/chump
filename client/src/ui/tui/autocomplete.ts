@@ -7,6 +7,7 @@ import type {
 import { completeSlashCommand } from "../../app/commands.ts";
 import type {
   FileSearchResult,
+  SessionSummary,
   SlashCommandMenuContext,
 } from "../../core/types.ts";
 
@@ -31,6 +32,10 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
     skills: [],
   };
   private fileSearch: ((query: string) => Promise<FileSearchResult[]>) | null = null;
+  private sessionSuggestionLoader: (() => Promise<SessionSummary[]>) | null = null;
+  private sessionSuggestionsComplete = false;
+  private sessionSuggestionLoad: Promise<SessionSummary[]> | null = null;
+  private sessionSuggestionGeneration = 0;
   private readonly completionActions = new WeakMap<
     AutocompleteItem,
     "submit" | "fill"
@@ -39,6 +44,28 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
 
   setContext(context: SlashCommandMenuContext): void {
     this.context = context;
+  }
+
+  setCommandContext(
+    context: Pick<SlashCommandMenuContext, "models" | "skills">,
+  ): void {
+    this.context = { ...this.context, ...context };
+  }
+
+  setSessionSuggestions(sessions: SessionSummary[]): void {
+    this.context = { ...this.context, sessions };
+    this.sessionSuggestionsComplete = false;
+    this.sessionSuggestionLoad = null;
+    this.sessionSuggestionGeneration += 1;
+  }
+
+  setSessionSuggestionLoader(
+    loader: (() => Promise<SessionSummary[]>) | null,
+  ): void {
+    this.sessionSuggestionLoader = loader;
+    this.sessionSuggestionsComplete = loader === null;
+    this.sessionSuggestionLoad = null;
+    this.sessionSuggestionGeneration += 1;
   }
 
   setFileSearch(
@@ -57,6 +84,12 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
     const beforeCursor = currentLine.slice(0, cursorCol);
 
     if (cursorLine === 0 && beforeCursor.startsWith("/")) {
+      if (/^\/session\s/u.test(beforeCursor)) {
+        await this.loadSessionSuggestions();
+        if (options.signal.aborted) {
+          return null;
+        }
+      }
       const [, prefix, suggestions] = completeSlashCommand(
         beforeCursor,
         this.context,
@@ -146,6 +179,26 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
     const beforeCursor = (lines[cursorLine] ?? "").slice(0, cursorCol);
     return /^\/(?:model|session|share|thinking)\s/u.test(beforeCursor) ||
       findFileMention(beforeCursor) !== null;
+  }
+
+  private async loadSessionSuggestions(): Promise<void> {
+    if (this.sessionSuggestionsComplete || !this.sessionSuggestionLoader) {
+      return;
+    }
+    const generation = this.sessionSuggestionGeneration;
+    this.sessionSuggestionLoad ??= this.sessionSuggestionLoader();
+    try {
+      const sessions = await this.sessionSuggestionLoad;
+      if (generation !== this.sessionSuggestionGeneration) {
+        return;
+      }
+      this.context = { ...this.context, sessions };
+      this.sessionSuggestionsComplete = true;
+    } catch {
+      if (generation === this.sessionSuggestionGeneration) {
+        this.sessionSuggestionLoad = null;
+      }
+    }
   }
 }
 

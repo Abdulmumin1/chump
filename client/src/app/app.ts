@@ -6,6 +6,7 @@ import {
   cancelLastSteering,
   clearMessages,
   getEventLog,
+  getAllSessions,
   compactMessages,
   getHealth,
   getMessages,
@@ -415,6 +416,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   };
   promptReader.setFileSearch((query) =>
     runServerRequest(config, (requestConfig) => searchFiles(requestConfig, query, 20))
+  );
+  promptReader.setSessionSuggestionLoader(() =>
+    runServerRequest(config, getAllSessions)
   );
 
   const sharedTurnSync = createSharedTurnSync({
