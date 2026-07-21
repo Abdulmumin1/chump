@@ -25,6 +25,9 @@ export type PromptReader = {
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
+  setSessionSuggestionLoader: (
+    loader: (() => Promise<SessionSummary[]>) | null,
+  ) => void;
   setStatus: (status: StatusDisplay) => void;
   setFooter: (footer: string | null) => void;
   setRuleBadge: (badge: string | null) => void;
@@ -78,6 +81,7 @@ function createFallbackPromptReader(fallbackRl: Interface | null): PromptReader 
     setSkillSuggestions: () => {},
     setAbortHandler: () => {},
     setSessionSuggestions: () => {},
+    setSessionSuggestionLoader: () => {},
     setStatus: () => {},
     setFooter: () => {},
     setRuleBadge: () => {},

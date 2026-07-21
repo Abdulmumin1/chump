@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.1.6
+
+- Page session summaries directly in SQLite instead of reading and decoding every stored transcript and legacy replay log before slicing the result.
+- Keep session-list queries off the async request loop and cap interactive pages at six entries, preserving fast CLI startup and web connection even when a workspace contains very large or numerous sessions.
+- Preserve exact transcript inspection and live-session counts while avoiding unbounded stored-message work during routine session discovery.
+
 ## 0.1.5
 
 - Keep managed servers alive for the full lifetime of prompt, event-stream, and action requests so a large session cannot be shut down while its first request is still hydrating.

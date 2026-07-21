@@ -56,6 +56,9 @@ export type PiPromptReader = {
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
+  setSessionSuggestionLoader: (
+    loader: (() => Promise<SessionSummary[]>) | null,
+  ) => void;
   setStatus: (status: StatusDisplay) => void;
   setFooter: (footer: string | null) => void;
   setRuleBadge: (badge: string | null) => void;
@@ -264,7 +267,15 @@ class PiTuiShell implements PiPromptReader {
 
   setSessionSuggestions(sessions: SessionSummary[]): void {
     this.slashContext = { ...this.slashContext, sessions };
-    this.syncAutocompleteContext();
+    this.autocomplete.setSessionSuggestions(sessions);
+    this.refreshAutocomplete();
+  }
+
+  setSessionSuggestionLoader(
+    loader: (() => Promise<SessionSummary[]>) | null,
+  ): void {
+    this.autocomplete.setSessionSuggestionLoader(loader);
+    this.refreshAutocomplete();
   }
 
   setStatus(status: StatusDisplay): void {
@@ -342,7 +353,10 @@ class PiTuiShell implements PiPromptReader {
   }
 
   private syncAutocompleteContext(): void {
-    this.autocomplete.setContext(this.slashContext);
+    this.autocomplete.setCommandContext({
+      models: this.slashContext.models,
+      skills: this.slashContext.skills,
+    });
     this.refreshAutocomplete();
   }
 
