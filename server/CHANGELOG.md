@@ -1,5 +1,13 @@
 # chump-server
 
+## 0.1.3
+
+- Add the versioned Chump v1 event contract for durable collaboration events while remaining compatible with legacy stored sessions.
+- Make event replay deterministic across disconnects by resuming from the last successfully applied event, suppressing replay-boundary duplicates, and closing snapshot-to-stream gaps.
+- Preserve queued steering text and image content when an active turn is aborted and restarted, without exposing private image bytes in public events.
+- Await cancellation of every parallel tool, retain call/result correlation and invocation order, and upgrade the runtime to `ai-query==1.9.2`.
+- Keep skills marked `disable-model-invocation` out of model-visible prompts and tool catalogs while allowing explicit manual invocation through the clients.
+
 ## 0.1.2
 
 - Stop forwarding the built-in system prompt twice to Codex Responses, reducing duplicated instructions and inflated context usage.
