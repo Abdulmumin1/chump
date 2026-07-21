@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator
 
 from ai_query import RetryPolicy, step_count_is
 from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
-from ai_query.types import AbortSignal, Message, ProviderOptions
+from ai_query.types import AbortError, AbortSignal, Message, ProviderOptions
 
 from .config import ChumpConfig, load_auth_config, load_config
 from .events import version_chump_event_payload
@@ -322,57 +322,83 @@ class ChumpAgent(Agent[dict[str, Any]]):
         signal: AbortSignal | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        turn = await self._start_turn(
-            message, attachments=attachments, signal=signal, **kwargs
-        )
+        next_message = message
+        next_attachments = attachments
+        emit_user_message = True
+        announced_running = False
         try:
-            full_response = ""
-            async for event in turn.events():
-                if event.type == "text.delta":
-                    full_response += event.text
-                    await self.emit("assistant_text", {"content": event.text})
-                    yield event.text
-                    continue
-                if event.type == "step.started":
-                    await self._on_step_start(event)
-                    continue
-                if event.type == "step.finished":
-                    await self._on_step_finish(event)
-                    continue
-                if (
-                    event.type.startswith("tool_call.")
-                    or event.type.startswith("tool_execution.")
-                    or event.type == "tool_result"
-                ):
-                    await self._on_tool_lifecycle(event)
-                    continue
-
-            result = await turn.result()
-            final_response = await self._finalize_turn(result, full_response)
-            await self._ensure_final_assistant_persisted(result, final_response)
-            if not full_response.strip():
-                await self.emit("assistant_text", {"content": final_response})
-                yield final_response
-
-            # Steering may have arrived after the last step.started boundary
-            # (e.g. while the model was streaming its final text).  Drain any
-            # remaining items and auto-restart them as a new turn so the user's
-            # message is not silently dropped.
-            drained = await self._drain_remaining_steering()
-            if drained:
-                combined = "\n".join(item["content"] for item in drained)
-                self._log(f"auto-restarting turn for {len(drained)} un-drained steering item(s)")
-                async for chunk in self.stream(
-                    combined,
-                    attachments=None,
+            while True:
+                turn = await self._start_turn(
+                    next_message,
+                    attachments=next_attachments,
                     signal=signal,
+                    emit_user_message=emit_user_message,
                     **kwargs,
-                ):
-                    yield chunk
+                )
+                announced_running = True
+                drained: list[dict[str, Any]] = []
+                try:
+                    full_response = ""
+                    async for event in turn.events():
+                        if event.type == "text.delta":
+                            full_response += event.text
+                            await self.emit(
+                                "assistant_text", {"content": event.text}
+                            )
+                            yield event.text
+                            continue
+                        if event.type == "step.started":
+                            await self._on_step_start(event)
+                            continue
+                        if event.type == "step.finished":
+                            await self._on_step_finish(event)
+                            continue
+                        if (
+                            event.type.startswith("tool_call.")
+                            or event.type.startswith("tool_execution.")
+                            or event.type == "tool_result"
+                        ):
+                            await self._on_tool_lifecycle(event)
+                            continue
+
+                    result = await turn.result()
+                    final_response = await self._finalize_turn(
+                        result, full_response
+                    )
+                    await self._ensure_final_assistant_persisted(
+                        result, final_response
+                    )
+                    if not full_response.strip():
+                        await self.emit(
+                            "assistant_text", {"content": final_response}
+                        )
+                        yield final_response
+                    drained = await self._drain_remaining_steering()
+                except AbortError:
+                    # An HTTP/client abort must stop the whole stream. A direct
+                    # turn abort may hand pending steering to a fresh turn.
+                    if signal is not None and signal.aborted:
+                        raise
+                    drained = await self._drain_remaining_steering()
+                    if not drained:
+                        raise
+                finally:
+                    if self._current_turn is turn:
+                        self._current_turn = None
+
+                if not drained:
+                    break
+
+                next_message = "\n".join(item["content"] for item in drained)
+                next_attachments = None
+                emit_user_message = False
+                self._log(
+                    "auto-restarting turn for "
+                    f"{len(drained)} un-drained steering item(s)"
+                )
         finally:
-            if self._current_turn is turn:
-                self._current_turn = None
-            await self._emit_turn_status(False)
+            if announced_running:
+                await self._emit_turn_status(False)
 
     async def _drain_remaining_steering(self) -> list[dict[str, Any]]:
         """Pop and emit any steering that arrived after the last step boundary.
@@ -398,6 +424,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         *,
         attachments: list[dict[str, Any]] | None = None,
         signal: AbortSignal | None = None,
+        emit_user_message: bool = True,
         **kwargs: Any,
     ) -> AgentTurn:
         self._ensure_model()
@@ -416,16 +443,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
             f"chat start: {message} attachments={len(valid_attachments)}/{len(raw_attachments)}"
         )
         content = build_user_content(message, attachments or [])
-        await self.emit(
-            "user_message",
-            {
-                "content": message,
-                "display_content": build_user_display_content(
-                    message, attachments or []
-                ),
-                "attachments": summarize_attachments(attachments or []),
-            },
-        )
+        if emit_user_message:
+            await self.emit(
+                "user_message",
+                {
+                    "content": message,
+                    "display_content": build_user_display_content(
+                        message, attachments or []
+                    ),
+                    "attachments": summarize_attachments(attachments or []),
+                },
+            )
         now = time.time()
         created_at = self.state.get("created_at")
         title = self.state.get("title")
