@@ -11,12 +11,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  client:
-    name: Client
+  quality:
+    name: Quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout ai-query
+        uses: actions/checkout@v4
+        with:
+          repository: Abdulmumin1/ai-query
+          path: ai-query
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -28,31 +34,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install client deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck client
-        run: pnpm --filter chump-agent run typecheck
-
-      - name: Build client package
-        run: pnpm --filter chump-agent run build
-
-  server:
-    name: Server
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Checkout ai-query
-        uses: actions/checkout@v4
-        with:
-          repository: Abdulmumin1/ai-query
-          path: ai-query
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -61,14 +42,11 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Sync server deps
-        run: uv lock && uv sync
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Import smoke check
-        run: uv run python -c "import chump_server"
+      - name: Install server dependencies
+        run: uv sync --project server --frozen
 
-      - name: Compile Python package
-        run: uv run python -m compileall chump_server
-
-      - name: Build Python package
-        run: uv build
+      - name: Check all projects
+        run: pnpm check

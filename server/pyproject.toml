@@ -37,7 +37,11 @@ git_describe_command = [
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=8.0.0",
+    "pytest-aiohttp>=1.1.0",
+    "pytest-asyncio>=0.23.0",
+]
 
 [tool.uv.sources]
 ai-query = { path = "../ai-query", editable = true }
