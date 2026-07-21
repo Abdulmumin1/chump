@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -160,3 +161,88 @@ async def test_faux_provider_drives_and_reloads_a_complete_chump_turn(
     assert reloaded_events == original_events
     assert reloaded_roles == ["user", "assistant", "tool", "assistant"]
     assert reloaded_final_text == "Profile ready."
+
+
+@pytest.mark.asyncio
+async def test_abort_hands_pending_steering_to_one_follow_up_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider_started = asyncio.Event()
+    provider_cancelled = asyncio.Event()
+
+    async def blocked_response(_call):
+        provider_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            provider_cancelled.set()
+
+    def follow_up_response(call):
+        user_messages = [
+            message.content for message in call.messages if message.role == "user"
+        ]
+        assert user_messages == [
+            "Start the long task",
+            "Skip it and give me the short answer",
+        ]
+        return FauxResponse(
+            text="Short answer ready.",
+            chunks=["Short answer ", "ready."],
+        )
+
+    model = faux(responses=[blocked_response, follow_up_response])
+    provider = model.provider
+    assert isinstance(provider, FauxProvider)
+
+    config = _test_config(tmp_path)
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(
+        ChumpAgent,
+        "_server_resources",
+        ResourceCatalog(tmp_path),
+    )
+
+    agent = ChumpAgent("faux-interrupt-steering")
+    agent.model = model
+
+    async def collect_chunks() -> list[str]:
+        return [chunk async for chunk in agent.stream("Start the long task")]
+
+    async with agent:
+        stream_task = asyncio.create_task(collect_chunks())
+        await asyncio.wait_for(provider_started.wait(), timeout=1)
+
+        assert await agent.steer_current_turn(
+            "Skip it and give me the short answer"
+        ) == {"status": "steered"}
+        assert await agent.abort_current_turn() == {"status": "aborting"}
+
+        chunks = await asyncio.wait_for(stream_task, timeout=1)
+        await asyncio.wait_for(provider_cancelled.wait(), timeout=1)
+        events = (await agent.event_log())["events"]
+        status = await agent.status()
+
+    assert chunks == ["Short answer ", "ready."]
+    assert provider.call_count == 2
+    provider.assert_exhausted()
+
+    user_events = [
+        event for event in events if event["type"] == "user_message"
+    ]
+    assert [event["data"]["content"] for event in user_events] == [
+        "Start the long task",
+        "Skip it and give me the short answer",
+    ]
+    assert user_events[-1]["data"]["steered"] is True
+
+    terminal_events = [
+        event
+        for event in events
+        if event["type"] == "turn_status" and event["data"]["running"] is False
+    ]
+    assert len(terminal_events) == 1
+    assert events[-1] == terminal_events[0]
+    assert terminal_events[0]["data"]["steering_queue"] == []
+    assert status["turn_running"] is False
+    assert status["steering_queue"] == []
