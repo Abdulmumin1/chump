@@ -79,45 +79,49 @@ class CodexProvider(OpenAIProvider):
         provider_options: ProviderOptions | None = None,
         **kwargs: Any,
     ) -> GenerateTextResult:
-        response = await self.transport.post(
-            f"{self.base_url}/responses",
-            await self._build_responses_body(
-                model=model,
-                messages=messages,
-                tools=tools,
-                provider_options=provider_options,
-                kwargs=kwargs,
-                stream=False,
-            ),
-            headers=self._get_headers(),
-        )
+        # ChatGPT's Codex Responses endpoint rejects non-streaming requests.
+        # ``generate_text`` still calls the provider's non-streaming contract,
+        # so adapt that contract here by consuming our streaming implementation.
+        text: list[str] = []
+        reasoning_parts: list[ReasoningPart] = []
+        usage: Usage | None = None
+        finish_reason: str | None = None
+        tool_calls: list[ToolCall] = []
 
-        usage = parse_responses_usage(response.get("usage"))
-        output_items = [item for item in response.get("output") or [] if isinstance(item, dict)]
-        tool_calls = extract_tool_calls(output_items)
-        response_with_tools = dict(response)
-        response_with_tools["tool_calls"] = tool_calls
+        async for chunk in self.stream(
+            model=model,
+            messages=messages,
+            tools=tools,
+            provider_options=provider_options,
+            **kwargs,
+        ):
+            if chunk.text:
+                text.append(chunk.text)
+            for event in chunk.reasoning_events or []:
+                reasoning_parts.append(
+                    ReasoningPart(
+                        text=event.text or "",
+                        data={
+                            "provider": event.provider,
+                            "kind": event.kind,
+                            **event.data,
+                        },
+                    )
+                )
+            if chunk.usage is not None:
+                usage = chunk.usage
+            if chunk.finish_reason is not None:
+                finish_reason = chunk.finish_reason
+            if chunk.tool_calls is not None:
+                tool_calls = chunk.tool_calls
 
         return GenerateTextResult(
-            text=self._extract_text_from_responses_output(response),
-            reasoning_parts=[
-                ReasoningPart(
-                    text=summary,
-                    data={
-                        "provider": self.name,
-                        "field": "reasoning.summary",
-                        "kind": "summary",
-                    },
-                )
-                for summary in self._extract_reasoning_summaries_from_responses_output(response)
-            ],
-            finish_reason="tool_use" if tool_calls else response.get("status"),
+            text="".join(text),
+            reasoning_parts=reasoning_parts,
+            finish_reason="tool_use" if tool_calls else finish_reason,
             usage=usage,
-            response=response_with_tools,
-            provider_metadata={
-                "model": response.get("model"),
-                "id": response.get("id"),
-            },
+            response={"tool_calls": tool_calls},
+            provider_metadata={"model": model},
         )
 
     def _refresh_if_needed(self) -> None:

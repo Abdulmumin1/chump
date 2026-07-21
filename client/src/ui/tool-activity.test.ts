@@ -8,6 +8,7 @@ import {
   transcriptEventFromSse,
   transcriptEventsFromStoredMessages,
 } from "./transcript.ts";
+import { setTerminalOutputSink } from "./terminal.ts";
 
 test("renders consecutive searches as a compact run without blank lines", () => {
   const output: string[] = [];
@@ -19,7 +20,7 @@ test("renders consecutive searches as a compact run without blank lines", () => 
   renderer.renderToolResult(searchResult("fff|FFF", 0));
 
   assert.equal(output.length, 2);
-  assert.match(stripTestAnsi(output[0] ?? ""), /\n◐ search/u);
+  assert.match(stripTestAnsi(output[0] ?? ""), /\n◐ Search/u);
   assert.match(output[0] ?? "", /\n.*CHUMP_FFF_COMMAND.*4 matches/s);
   assert.match(output[1] ?? "", /fff\|FFF.*\.\/client.*no matches/s);
   assert.equal(output[1]?.startsWith("\n"), false);
@@ -48,7 +49,27 @@ test("starts a new compact tool run after intervening text", () => {
 
   assert.equal(output.length, 2);
   assert.match(output[0] ?? "", /\n.*Read.*first\.ts/s);
-  assert.match(output[1] ?? "", /\n.*search.*second/s);
+  assert.match(output[1] ?? "", /\n.*Search.*second/s);
+});
+
+test("title-cases built-in and fallback tool labels", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "custom_tool",
+    args: { value: true },
+    call_id: "call_custom",
+  });
+  renderer.renderToolResult({
+    name: "custom_tool",
+    status: "ok",
+    call_id: "call_custom",
+  });
+
+  const rendered = stripTestAnsi(output.join("\n"));
+  assert.match(rendered, /Custom tool/u);
+  assert.doesNotMatch(rendered, /custom_tool/u);
 });
 
 test("renders each failed read once on its correlated compact row", () => {
@@ -104,6 +125,146 @@ test("flushes buffered assistant text before rendering the next tool", () => {
   renderer.render({ type: "tool_call", payload: searchCall("scripts") });
 
   assert.deepEqual(order, ["flush-text", "rendered-tool"]);
+});
+
+test("replays stored tool calls even when no live-preview hooks are installed", () => {
+  const output: string[] = [];
+  setTerminalOutputSink({
+    write: (value) => output.push(value),
+    clear: () => {},
+  });
+
+  try {
+    const events = transcriptEventsFromStoredMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            tool_call: {
+              id: "call_command",
+              name: "bash",
+              arguments: { command: "pnpm typecheck", cwd: "/workspace" },
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            tool_result: {
+              tool_call_id: "call_command",
+              tool_name: "bash",
+              result: "Done in 1.2s",
+              is_error: false,
+            },
+          },
+        ],
+      },
+    ]);
+    const renderer = new TranscriptRenderer({ liveReasoning: false });
+    for (const event of events) {
+      renderer.render(event);
+    }
+    renderer.finish();
+
+    const rendered = stripTestAnsi(output.join(""));
+    assert.match(rendered, /\$ pnpm typecheck/u);
+    assert.match(rendered, /Done in 1\.2s/u);
+    assert.doesNotMatch(rendered, /\$ command/u);
+  } finally {
+    setTerminalOutputSink(null);
+  }
+});
+
+test("replays stored edit calls from their original patch arguments", () => {
+  const output: string[] = [];
+  setTerminalOutputSink({
+    write: (value) => output.push(value),
+    clear: () => {},
+  });
+
+  try {
+    const events = transcriptEventsFromStoredMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            tool_call: {
+              id: "call_patch",
+              name: "apply_patch",
+              arguments: {
+                patch_text:
+                  "*** Update File: src/demo.ts\n@@\n-old value\n+new value",
+              },
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            tool_result: {
+              tool_call_id: "call_patch",
+              tool_name: "apply_patch",
+              result: "Applied patch to 1 file",
+              is_error: false,
+            },
+          },
+        ],
+      },
+    ]);
+    const renderer = new TranscriptRenderer({ liveReasoning: false });
+    for (const event of events) {
+      renderer.render(event);
+    }
+    renderer.finish();
+
+    const rendered = stripTestAnsi(output.join(""));
+    assert.match(rendered, /src\/demo\.ts/u);
+    assert.match(rendered, /old value/u);
+    assert.match(rendered, /new value/u);
+    assert.doesNotMatch(rendered, /apply_patch Applied patch/u);
+  } finally {
+    setTerminalOutputSink(null);
+  }
+});
+
+test("restores boundaries between persisted reasoning summaries", () => {
+  const events = transcriptEventsFromStoredMessages([
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "reasoning",
+          text: "**Planning output wrapping tests****Designing wrapped command tests**",
+        },
+        {
+          type: "reasoning",
+          text: "**Adding terminal width coverage**",
+        },
+      ],
+    },
+  ]);
+
+  assert.deepEqual(events, [
+    {
+      type: "reasoning",
+      payload: {
+        text:
+          "**Planning output wrapping tests**\n\n" +
+          "**Designing wrapped command tests**\n\n" +
+          "**Adding terminal width coverage**",
+        kind: "summary",
+        provider: "",
+      },
+    },
+  ]);
 });
 
 test("previews partial bash and write arguments as their JSON streams", () => {
@@ -445,7 +606,9 @@ test("cleans, formats, and indents multiline command output with tree markers", 
   const outputLine = stripTestAnsi(output[1] ?? "");
 
   assert.match(commandLine, /^◐\s+\$\s+python3 -c/mu);
-  assert.match(output[0] ?? "", /\x1b\[38;2;/u);
+  if (!process.env.NO_COLOR) {
+    assert.match(output[0] ?? "", /\x1b\[38;2;/u);
+  }
   assert.doesNotMatch(commandLine, /<\/?span/iu);
   assert.match(outputLine, /^\s+└─\s+324/mu);
   assert.match(outputLine, /^\s+325\s+def delete_quote\(id_\):/mu);

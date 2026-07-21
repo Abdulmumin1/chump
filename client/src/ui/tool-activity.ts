@@ -640,26 +640,33 @@ function skipWhitespaceAndCommas(source: string, start: number): number {
 }
 
 function displayToolName(name: string): string {
-  if (name === "web_fetch") {
-    return "fetch";
-  } else if (name === "website") {
-    return "web search";
-  } else if (name === "read_file") {
-    return "Read";
-  } else if (name === "view_image") {
-    return "View image";
-  } else if (name === "skill") {
-    return "Skill";
-  } else if (name === "load_skill") {
-    return "Skill";
-  } else if (name === "list_sessions") {
-    return "List sessions";
-  } else if (name === "inspect_session") {
-    return "Inspect session";
-  } else if (name === "start_session") {
-    return "Start session";
+  const knownNames: Record<string, string> = {
+    apply_patch: "Apply patch",
+    bash: "Command",
+    create_file: "Create file",
+    edit_file: "Edit file",
+    inspect_session: "Inspect session",
+    list_sessions: "List sessions",
+    load_skill: "Skill",
+    read_file: "Read",
+    replace_in_file: "Edit file",
+    search: "Search",
+    skill: "Skill",
+    start_session: "Start session",
+    view_image: "View image",
+    web_fetch: "Fetch",
+    website: "Web search",
+    write_file: "Write file",
+  };
+  const knownName = knownNames[name];
+  if (knownName) {
+    return knownName;
   }
-  return name;
+
+  const readable = name.replace(/[_-]+/gu, " ").trim();
+  return readable
+    ? `${readable[0]?.toUpperCase() ?? ""}${readable.slice(1)}`
+    : "Tool";
 }
 
 export function formatToolArgs(toolName: string, value: unknown): string {

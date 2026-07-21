@@ -64,21 +64,25 @@ export class TranscriptRenderer {
       case "user_message":
         this.renderUserMessage(event.payload);
         return;
-      case "tool_call":
+      case "tool_call": {
         this.finishReasoning();
         this.hooks.onBeforeToolActivity?.();
+        const preview = this.toolActivityRenderer.renderToolCall(event.payload);
         this.hooks.onToolActivity?.(
-          this.toolActivityRenderer.renderToolCall(event.payload),
+          preview,
           event.payload,
         );
         return;
-      case "tool_call_stream":
+      }
+      case "tool_call_stream": {
         this.finishReasoning();
+        const preview = this.toolActivityRenderer.renderToolCallStream(event.payload);
         this.hooks.onToolCallStream?.(
-          this.toolActivityRenderer.renderToolCallStream(event.payload),
+          preview,
           event.payload,
         );
         return;
+      }
       case "tool_result":
         if (this.toolActivityRenderer.renderToolResult(event.payload)) {
           this.hooks.onToolResult?.(event.payload);
@@ -286,12 +290,30 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
   }
 
   const events: TranscriptEvent[] = [];
+  let reasoningParts: string[] = [];
+  const flushReasoning = (): void => {
+    if (reasoningParts.length === 0) {
+      return;
+    }
+    events.push({
+      type: "reasoning",
+      payload: {
+        text: reasoningParts.join("\n\n"),
+        kind: "summary",
+        provider: "",
+      },
+    });
+    reasoningParts = [];
+  };
+
   for (const part of content) {
     const reasoning = readReasoningPart(part);
     if (reasoning !== null) {
-      events.push({ type: "reasoning", payload: { text: reasoning, kind: "delta", provider: "" } });
+      reasoningParts.push(restoreStoredReasoningBreaks(reasoning));
       continue;
     }
+
+    flushReasoning();
 
     const text = readTextPart(part);
     if (text !== null) {
@@ -334,7 +356,16 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
       });
     }
   }
+  flushReasoning();
   return events;
+}
+
+function restoreStoredReasoningBreaks(value: string): string {
+  // Providers can persist adjacent bold reasoning summaries as one string:
+  // `**First****Second**`. The live event log has a boundary between them,
+  // but the stored assistant message does not, so restore that Markdown
+  // boundary before replaying the transcript.
+  return value.replace(/(?<!\*)\*{4}(?=[^\s*])/gu, "**\n\n**");
 }
 
 function normalizeToolCallArgs(

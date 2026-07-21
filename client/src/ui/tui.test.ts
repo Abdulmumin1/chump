@@ -13,6 +13,7 @@ import {
 import {
   createTuiMarkdownTheme,
   renderTuiMuted,
+  renderUserMessage,
 } from "./render.ts";
 import {
   registerTuiExtension,
@@ -105,6 +106,30 @@ test("Pi TUI input gap does not stack with a transcript blank", () => {
 
 test("Pi TUI muted colors do not use terminal-dependent SGR dim", () => {
   assert.doesNotMatch(renderTuiMuted("legible"), /\x1b\[2m/);
+});
+
+test("user messages render as compact Chump-colored surfaces", () => {
+  const rendered = renderUserMessage("hye", 24).split("\n");
+
+  assert.equal(rendered.length, 2);
+  assert.equal(rendered[0], "");
+  assert.equal(visibleWidth(rendered[1] ?? ""), 24);
+  assert.match(rendered[1] ?? "", /^\x1b\[48;2;/u);
+  assert.match(stripTestAnsi(rendered[1] ?? ""), /^› hye\s+$/u);
+});
+
+test("wrapped user messages keep the compact surface and alignment", () => {
+  const rendered = renderUserMessage(
+    "a user message that wraps cleanly",
+    18,
+  ).split("\n").slice(1);
+
+  assert.ok(rendered.length > 1);
+  assert.equal(rendered.every((line) => visibleWidth(line) === 18), true);
+  assert.match(stripTestAnsi(rendered[0] ?? ""), /^› /u);
+  for (const line of rendered.slice(1)) {
+    assert.match(stripTestAnsi(line), /^ {2}\S/u);
+  }
 });
 
 test("built-in Pi autocomplete serves slash commands and file mentions", async () => {
@@ -236,3 +261,7 @@ test("in-process Pi TUI extensions can be registered and removed", async () => {
     false,
   );
 });
+
+function stripTestAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*m/gu, "");
+}
