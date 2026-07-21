@@ -20,7 +20,7 @@ test("renders consecutive searches as a compact run without blank lines", () => 
   renderer.renderToolResult(searchResult("fff|FFF", 0));
 
   assert.equal(output.length, 2);
-  assert.match(stripTestAnsi(output[0] ?? ""), /\n◐ search/u);
+  assert.match(stripTestAnsi(output[0] ?? ""), /\n◐ Search/u);
   assert.match(output[0] ?? "", /\n.*CHUMP_FFF_COMMAND.*4 matches/s);
   assert.match(output[1] ?? "", /fff\|FFF.*\.\/client.*no matches/s);
   assert.equal(output[1]?.startsWith("\n"), false);
@@ -49,7 +49,27 @@ test("starts a new compact tool run after intervening text", () => {
 
   assert.equal(output.length, 2);
   assert.match(output[0] ?? "", /\n.*Read.*first\.ts/s);
-  assert.match(output[1] ?? "", /\n.*search.*second/s);
+  assert.match(output[1] ?? "", /\n.*Search.*second/s);
+});
+
+test("title-cases built-in and fallback tool labels", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "custom_tool",
+    args: { value: true },
+    call_id: "call_custom",
+  });
+  renderer.renderToolResult({
+    name: "custom_tool",
+    status: "ok",
+    call_id: "call_custom",
+  });
+
+  const rendered = stripTestAnsi(output.join("\n"));
+  assert.match(rendered, /Custom tool/u);
+  assert.doesNotMatch(rendered, /custom_tool/u);
 });
 
 test("renders each failed read once on its correlated compact row", () => {
