@@ -43,14 +43,16 @@ export function currentClientVersion(): string {
   return CHUMP_CLIENT_VERSION;
 }
 
-export async function checkForUpdate(options: { force?: boolean } = {}): Promise<UpdateInfo | null> {
+export async function checkForUpdate(
+  options: { force?: boolean; refresh?: boolean } = {},
+): Promise<UpdateInfo | null> {
   if (!options.force && updateCheckDisabled()) {
     return null;
   }
 
   const currentVersion = currentClientVersion();
   const cached =
-    !options.force
+    !options.force && !options.refresh
       ? await readUpdateCache()
       : null;
 
@@ -82,8 +84,10 @@ export async function checkForUpdate(options: { force?: boolean } = {}): Promise
   };
 }
 
-export async function maybeRenderUpdateNotice(): Promise<string | null> {
-  const info = await checkForUpdate().catch(() => null);
+export async function maybeRenderUpdateNotice(
+  options: { refresh?: boolean } = {},
+): Promise<string | null> {
+  const info = await checkForUpdate(options).catch(() => null);
   return formatUpdateNotice(info);
 }
 

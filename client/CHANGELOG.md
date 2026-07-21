@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.5
+
+### Patch Changes
+
+- Truncate long terminal command previews to five rows with a compact ellipsis marker, and refresh update checks on every interactive launch so newly published releases appear immediately.
+
 ## 0.2.4
 
 ### Patch Changes

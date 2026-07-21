@@ -50,9 +50,9 @@ pnpm run bin:uninstall
 
 ## Updates
 
-Interactive launches check for a newer `chump-agent` release at most once per
-day and print a short notice when one is available. Disable this with
-`CHUMP_NO_UPDATE_CHECK=1`.
+Interactive launches check for a newer `chump-agent` release and print a short
+notice when one is available. The check runs alongside startup so it does not
+hold up the interface. Disable it with `CHUMP_NO_UPDATE_CHECK=1`.
 
 Update an installed CLI or prebuilt binary:
 

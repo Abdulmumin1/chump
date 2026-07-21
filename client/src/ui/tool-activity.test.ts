@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ToolActivityRenderer } from "./tool-activity.ts";
-import { renderCommandOutput } from "./render.ts";
+import { renderCommand, renderCommandOutput } from "./render.ts";
 import {
   TranscriptRenderer,
   transcriptEventFromSse,
@@ -556,6 +556,29 @@ test("keeps each concurrent bash result with its originating command", () => {
   assert.match(output[1] ?? "", /first output/);
   assert.match(stripTestAnsi(output[3] ?? ""), /printf second/);
   assert.match(output[4] ?? "", /second output/);
+});
+
+test("caps long commands to five terminal rows", () => {
+  const command = [
+    "python3 -c '",
+    ...Array.from({ length: 20 }, (_, index) => `print(${index})`),
+    "'",
+  ].join("\n");
+  const rendered = stripTestAnsi(renderCommand(command, 80));
+  const lines = rendered.split("\n");
+
+  assert.equal(lines.length, 5);
+  assert.match(lines[0] ?? "", /^◐ \$ python3 -c '/u);
+  assert.match(lines.at(-1) ?? "", /^  │  …$/u);
+  assert.doesNotMatch(rendered, /print\(19\)/u);
+});
+
+test("caps wrapped single-line commands to five terminal rows", () => {
+  const rendered = stripTestAnsi(renderCommand(`printf ${"x".repeat(500)}`, 40));
+  const lines = rendered.split("\n");
+
+  assert.equal(lines.length, 5);
+  assert.match(lines.at(-1) ?? "", /^  │  …$/u);
 });
 
 test("caps long single-line command output to roughly five terminal rows", () => {
