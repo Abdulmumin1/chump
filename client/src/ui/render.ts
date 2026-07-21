@@ -1020,19 +1020,26 @@ function renderDiffLinesWithNumbers(lines: string[]): string[] {
 export function renderCommand(
   command: string,
   columns = process.stdout.columns ?? 80,
+  maxRows = 5,
 ): string {
   const prefixWidth = 4;
   const commandLines = wrapTextWithAnsi(
     renderScriptCodeLine(command, "bash"),
     Math.max(1, columns - prefixWidth),
   );
-  return commandLines
-    .map((line, index) =>
-      index === 0
-        ? `${accent("◐")} ${accent("$")} ${line}`
-        : `${muted("  │ ")}${line}`
-    )
-    .join("\n");
+  const truncated = commandLines.length > maxRows;
+  const visibleLines = truncated
+    ? commandLines.slice(0, Math.max(1, maxRows - 1))
+    : commandLines;
+  const rendered = visibleLines.map((line, index) =>
+    index === 0
+      ? `${accent("◐")} ${accent("$")} ${line}`
+      : `${muted("  │ ")}${line}`
+  );
+  if (truncated) {
+    rendered.push(`${muted("  │ ")} ${muted("…")}`);
+  }
+  return rendered.join("\n");
 }
 
 export function renderCommandOutput(

@@ -248,6 +248,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
+  // Refresh on every interactive launch so a recently published release is
+  // not hidden by yesterday's "up to date" cache entry. Start the request
+  // while the managed server initializes so it does not delay the UI.
+  const updateNoticePromise = maybeRenderUpdateNotice({ refresh: true });
   const target = await ensureServerTarget(workspaceRoot, options);
   let config = loadConfig({
     agentId: options.sessionId ?? undefined,
@@ -446,7 +450,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     writeOutput(`[server] ${target.note}\n`);
   }
   writeOutput(`${renderBanner(config, { workspaceRoot: health.workspace_root })}\n`);
-  const updateNotice = await maybeRenderUpdateNotice();
+  const updateNotice = await updateNoticePromise;
   if (updateNotice) {
     writeOutput(`${renderMuted(updateNotice)}\n`);
   }
