@@ -7,7 +7,7 @@ import pytest
 
 from ai_query import Field, tool
 from ai_query.providers import FauxProvider, FauxResponse, faux
-from ai_query.types import ToolCall
+from ai_query.types import ImagePart, TextPart, ToolCall
 
 from chump_server.agent import ChumpAgent
 from chump_server.config import ChumpConfig
@@ -170,6 +170,17 @@ async def test_abort_hands_pending_steering_to_one_follow_up_turn(
 ) -> None:
     provider_started = asyncio.Event()
     provider_cancelled = asyncio.Event()
+    image_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
+    steering_message = (
+        "Use this screenshot [Image: proof.png] and give me the short answer"
+    )
+    attachment = {
+        "type": "image",
+        "label": "[Image: proof.png]",
+        "filename": "proof.png",
+        "mime": "image/png",
+        "data": image_data,
+    }
 
     async def blocked_response(_call):
         provider_started.set()
@@ -182,9 +193,14 @@ async def test_abort_hands_pending_steering_to_one_follow_up_turn(
         user_messages = [
             message.content for message in call.messages if message.role == "user"
         ]
-        assert user_messages == [
-            "Start the long task",
-            "Skip it and give me the short answer",
+        assert user_messages[0] == "Start the long task"
+        assert user_messages[1] == [
+            TextPart(text="Use this screenshot "),
+            ImagePart(
+                image=f"data:image/png;base64,{image_data}",
+                media_type="image/png",
+            ),
+            TextPart(text=" and give me the short answer"),
         ]
         return FauxResponse(
             text="Short answer ready.",
@@ -214,7 +230,8 @@ async def test_abort_hands_pending_steering_to_one_follow_up_turn(
         await asyncio.wait_for(provider_started.wait(), timeout=1)
 
         assert await agent.steer_current_turn(
-            "Skip it and give me the short answer"
+            steering_message,
+            attachments=[attachment],
         ) == {"status": "steered"}
         assert await agent.abort_current_turn() == {"status": "aborting"}
 
@@ -232,9 +249,17 @@ async def test_abort_hands_pending_steering_to_one_follow_up_turn(
     ]
     assert [event["data"]["content"] for event in user_events] == [
         "Start the long task",
-        "Skip it and give me the short answer",
+        steering_message,
     ]
     assert user_events[-1]["data"]["steered"] is True
+    assert user_events[-1]["data"]["attachments"] == [
+        {
+            "type": "image",
+            "label": "[Image: proof.png]",
+            "filename": "proof.png",
+            "mime": "image/png",
+        }
+    ]
 
     terminal_events = [
         event
