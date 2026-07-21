@@ -1,5 +1,13 @@
 # chump-agent
 
+## 0.2.4
+
+### Patch Changes
+
+- Make managed sessions responsive and self-recovering: keep the server alive while prompts and actions hydrate session state, replay an interrupted first request after recovery, and filter `/model` choices to models the connected server actually supports.
+
+  Reduce persistent writes by making routine client diagnostics opt-in, rotating client and server logs, disabling verbose backend tracing by default, and moving replay history to bounded incremental storage with automatic migration from legacy session blobs.
+
 ## 0.2.3
 
 ### Patch Changes
