@@ -1,5 +1,13 @@
 # chump-agent
 
+## 0.2.6
+
+### Patch Changes
+
+- Make large session histories fast without hiding older conversations. Chump now hydrates only the six most recent session summaries during CLI startup, pages metadata directly in SQLite without decoding stored transcripts, and keeps that work off the server request loop.
+
+  Opening `/session` lazily retrieves the remaining six-item pages with bounded concurrency, so scrolling and title or session-ID search still cover the complete history. Web session lists retain explicit page navigation while benefiting from the same lightweight server summaries.
+
 ## 0.2.5
 
 ### Patch Changes
