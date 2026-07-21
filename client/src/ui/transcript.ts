@@ -393,7 +393,7 @@ function extractTextContent(content: unknown): string {
 
 function userMessageDisplayFromContent(content: unknown): string {
   if (typeof content === "string") {
-    return content;
+    return skillCommandDisplayFromPrompt(content) ?? content;
   }
 
   if (!Array.isArray(content)) {
@@ -415,6 +415,24 @@ function userMessageDisplayFromContent(content: unknown): string {
   }
 
   return rendered;
+}
+
+export function skillCommandDisplayFromPrompt(value: string): string | null {
+  const match = /^<skill_content name="([a-z0-9-]+)">\n/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const closing = "\n</skill_content>";
+  const closingIndex = value.lastIndexOf(closing);
+  if (closingIndex < match[0].length) {
+    return null;
+  }
+  const suffix = value.slice(closingIndex + closing.length).trim();
+  if (suffix && !suffix.startsWith("User:")) {
+    return null;
+  }
+  const args = suffix.slice("User:".length).trim();
+  return `/skill:${match[1]}${args ? ` ${args}` : ""}`;
 }
 
 function attachmentDisplayLabel(attachment: unknown): string {

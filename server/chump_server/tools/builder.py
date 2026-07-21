@@ -207,10 +207,13 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
     skill = bind_skill(
         wrap_tool=wrap_tool,
         get_skill=lambda name: (
-            build_skill_bundle(match) if (match := resources.get_skill(name)) else None
+            build_skill_bundle(match)
+            if (match := resources.get_model_skill(name))
+            else None
         ),
         available_skills_text="\n".join(
-            f"- {skill.name}: {skill.description}" for skill in resources.skills
+            f"- {skill.name}: {skill.description}"
+            for skill in resources.model_skills
         )
         or "- none",
     )

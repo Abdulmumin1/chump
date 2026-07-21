@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
+import { ServerHttpError } from "./errors.ts";
 
 const EVENT_STREAM_CLIENT_ID = `cli-${randomUUID()}`;
 
@@ -7,13 +8,14 @@ export async function openEventStream(
   config: ChumpConfig,
   handlers: {
     onEvent: (event: SseEvent) => void | Promise<void>;
-    onError?: (error: Error) => void;
+    onError?: (error: Error) => void | Promise<void>;
   },
   options: {
     lastEventId?: number;
     reconnectDelayMs?: number;
     maxReconnectDelayMs?: number;
     idleTimeoutMs?: number;
+    onLastEventId?: (eventId: number) => void;
   } = {},
 ): Promise<() => void> {
   const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
@@ -65,7 +67,10 @@ export async function openEventStream(
         });
 
         if (!response.ok) {
-          throw new Error(`event stream failed with ${response.status}`);
+          throw new ServerHttpError(
+            `event stream failed with ${response.status}`,
+            response.status,
+          );
         }
 
         await consumeSse(
@@ -79,6 +84,7 @@ export async function openEventStream(
             await handlers.onEvent(event);
             if (eventId !== null) {
               lastEventId = eventId;
+              options.onLastEventId?.(eventId);
             }
           },
           armIdleTimer,
@@ -90,9 +96,14 @@ export async function openEventStream(
         // Aborted is a deliberate restart (e.g. idle watchdog), don't trigger onError
         if (controller && !controller.signal.aborted) {
           reconnectFailures += 1;
-          handlers.onError?.(
-            error instanceof Error ? error : new Error(String(error)),
-          );
+          try {
+            await handlers.onError?.(
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          } catch {
+            // Recovery hooks are advisory. Keep the reconnect loop alive so a
+            // transient restart failure can be retried on the next attempt.
+          }
         }
       } finally {
         clearIdleTimer();

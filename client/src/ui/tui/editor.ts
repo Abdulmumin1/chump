@@ -38,7 +38,7 @@ export class ChumpEditor extends Editor {
     theme: EditorTheme,
     keyHandlers: ChumpTuiKeyHandler[],
   ) {
-    super(tui, theme, { paddingX: 1, autocompleteMaxVisible: 6 });
+    super(tui, theme, { paddingX: 0, autocompleteMaxVisible: 6 });
     this.keyHandlers = keyHandlers;
     this.onChange = (value) => {
       if (this.submittedAttachments === null) {
@@ -205,7 +205,7 @@ function isPopQueuedInput(data: string): boolean {
 }
 
 function formatSubmissionPreview(submission: PromptSubmission): string {
-  let text = submission.text;
+  let text = submission.displayText ?? submission.text;
   for (const attachment of submission.attachments) {
     if (attachment.type === "text") {
       text = text.replace(attachment.text, attachment.label);

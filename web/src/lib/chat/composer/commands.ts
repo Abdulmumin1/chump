@@ -4,7 +4,12 @@ export type Suggestion = {
     label: string;
     command: string;
     description: string;
-    kind: "root" | "model" | "command";
+    kind: "root" | "model" | "skill" | "command";
+};
+
+export type SkillChoice = {
+    name: string;
+    description: string;
 };
 
 const ROOT_COMMANDS: Suggestion[] = [
@@ -70,6 +75,7 @@ const THINKING_PRESETS: Suggestion[] = [
 export function buildComposerSuggestions(
     composerText: string,
     models: ModelChoice[],
+    skills: SkillChoice[] = [],
 ): Suggestion[] {
     if (!composerText.startsWith("/")) {
         return [];
@@ -101,8 +107,52 @@ export function buildComposerSuggestions(
         );
     }
 
-    const hits = ROOT_COMMANDS.filter((command) =>
+    if (/^\/skill:/.test(trimmed) && !/\s/.test(trimmed)) {
+        const query = trimmed.slice("/skill:".length).toLowerCase();
+        return skills
+            .filter(
+                (skill) =>
+                    !query || skill.name.toLowerCase().startsWith(query),
+            )
+            .map((skill) => ({
+                label: `/skill:${skill.name}`,
+                command: `/skill:${skill.name}`,
+                description: skill.description,
+                kind: "skill" as const,
+            }));
+    }
+
+    const skillCommands = skills.map((skill) => ({
+        label: `/skill:${skill.name}`,
+        command: `/skill:${skill.name}`,
+        description: skill.description,
+        kind: "skill" as const,
+    }));
+    const rootCommands = ROOT_COMMANDS.filter((command) =>
         command.label.startsWith(trimmed),
     );
-    return hits.length > 0 ? hits : trimmed === "/" ? ROOT_COMMANDS : [];
+    const skillQuery = trimmed.slice(1);
+    const matchingSkills = skillCommands.filter((command) =>
+        matchesSkillQuery(command, skillQuery),
+    );
+    const hits = [...rootCommands, ...matchingSkills];
+    return hits.length > 0
+        ? hits
+        : trimmed === "/"
+          ? [...ROOT_COMMANDS, ...skillCommands]
+          : [];
+}
+
+function matchesSkillQuery(
+    skill: Pick<Suggestion, "label" | "description">,
+    query: string,
+): boolean {
+    const terms = query.toLowerCase().split(/[\s:_-]+/).filter(Boolean);
+    if (terms.length === 0) {
+        return true;
+    }
+    const searchable = `${skill.label.slice("/skill:".length)} ${skill.description}`
+        .toLowerCase()
+        .replace(/[\s:_-]+/g, " ");
+    return terms.every((term) => searchable.includes(term));
 }

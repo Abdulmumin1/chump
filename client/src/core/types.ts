@@ -138,6 +138,7 @@ export type ChatAttachment = ImageAttachment | TextAttachment;
 
 export type PromptSubmission = {
   text: string;
+  displayText?: string;
   attachments: ChatAttachment[];
 };
 

@@ -136,8 +136,13 @@ export async function steerCurrentTurn(
 	agentId: string,
 	message: string,
 	attachments: ChatAttachment[] = [],
+	displayMessage?: string,
 ): Promise<{ status: string }> {
-	return await invokeAction<{ status: string }>(target, agentId, 'steer_current_turn', { message, attachments });
+	return await invokeAction<{ status: string }>(target, agentId, 'steer_current_turn', {
+		message,
+		attachments,
+		...(displayMessage ? { display_message: displayMessage } : {})
+	});
 }
 
 export async function cancelSteering(
@@ -154,6 +159,7 @@ export async function streamChat(
 	message: string,
 	attachments: ChatAttachment[] = [],
 	signal?: AbortSignal,
+	displayMessage?: string,
 ): Promise<string> {
 	const response = await fetch(`${buildAgentUrl(target, agentId)}/chat?stream=true`, {
 		method: 'POST',
@@ -162,7 +168,11 @@ export async function streamChat(
 			...requestHeaders(target),
 			'content-type': 'application/json'
 		},
-		body: JSON.stringify({ message, attachments })
+		body: JSON.stringify({
+			message,
+			attachments,
+			...(displayMessage ? { display_message: displayMessage } : {})
+		})
 	});
 
 	if (!response.ok) {

@@ -488,6 +488,27 @@ test("maps provider tool argument deltas onto streaming previews", () => {
   });
 });
 
+test("replays manual skill prompts as compact slash commands", () => {
+  const events = transcriptEventsFromStoredMessages([
+    {
+      role: "user",
+      content:
+        '<skill_content name="release">\n# Release\n</skill_content>' +
+        "\n\nUser: publish patch",
+    },
+  ]);
+
+  assert.deepEqual(events, [
+    {
+      type: "user_message",
+      payload: {
+        schema_version: 1,
+        content: "/skill:release publish patch",
+      },
+    },
+  ]);
+});
+
 function searchCall(query: string, path = ""): Record<string, unknown> {
   return {
     name: "search",

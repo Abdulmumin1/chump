@@ -30,6 +30,7 @@
         isSending,
         isCompacting = false,
         models = [],
+        skills = [],
         currentModel = "",
         workspaceRoot = "",
         serverUrl = "",
@@ -52,6 +53,7 @@
         isSending: boolean;
         isCompacting?: boolean;
         models: ModelChoice[];
+        skills?: Array<{ name: string; description: string }>;
         currentModel: string;
         workspaceRoot: string;
         serverUrl: string;
@@ -82,7 +84,7 @@
     let searchSequence = 0;
 
     const suggestions = $derived(
-        buildComposerSuggestions(composerText, models),
+        buildComposerSuggestions(composerText, models, skills),
     );
     const visible = $derived(suggestions.length > 0 && menuOpen);
     const fileVisible = $derived(fileMenuOpen && mentionRange !== null);
@@ -292,6 +294,10 @@
                 "thinking",
                 trimmed.slice("/thinking ".length).trim(),
             );
+            return;
+        }
+        if (trimmed.startsWith("/skill:")) {
+            void onCommand("skill", trimmed.slice("/skill:".length).trim());
         }
     }
 

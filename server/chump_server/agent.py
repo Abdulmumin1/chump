@@ -196,10 +196,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self,
         message: str,
         attachments: list[dict[str, Any]] | None = None,
+        display_message: str | None = None,
     ) -> dict[str, Any]:
         turn = self._current_turn
         if turn is None or turn.done:
             return {"status": "idle"}
+        visible_message = display_message if display_message is not None else message
         content = build_user_content(message, attachments or [])
         async with self._steering_lock:
             if turn is not self._current_turn or turn.done:
@@ -208,9 +210,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
             self._pending_steering_contents.append(content)
             self._pending_steering_events.append(
                 {
-                    "content": message,
+                    "content": visible_message,
                     "display_content": build_user_display_content(
-                        message, attachments or []
+                        visible_message, attachments or []
                     ),
                     "attachments": summarize_attachments(attachments or []),
                     "steered": True,
@@ -218,8 +220,10 @@ class ChumpAgent(Agent[dict[str, Any]]):
             )
             await self._emit_steering_queue()
         now = time.time()
-        await self.update_state(updated_at=now, last_user_goal=message)
-        self._log(f"steer queued: {message} attachments={len(attachments or [])}")
+        await self.update_state(updated_at=now, last_user_goal=visible_message)
+        self._log(
+            f"steer queued: {visible_message} attachments={len(attachments or [])}"
+        )
         return {"status": "steered"}
 
     @action
@@ -328,12 +332,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
         message: str,
         *,
         attachments: list[dict[str, Any]] | None = None,
+        display_message: str | None = None,
         signal: AbortSignal | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        next_message = message
+        next_message = display_message if display_message is not None else message
         next_attachments = attachments
-        next_content: str | list[Any] | None = None
+        next_content: str | list[Any] | None = (
+            build_user_content(message, attachments or [])
+            if display_message is not None
+            else None
+        )
         emit_user_message = True
         announced_running = False
         try:
@@ -660,8 +669,11 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
         message = request.get("message", "")
         attachments = request.get("attachments", [])
+        display_message = request.get("display_message")
         if not isinstance(attachments, list):
             attachments = []
+        if not isinstance(display_message, str):
+            display_message = None
 
         try:
             yield "event: start\ndata: \n\n"
@@ -670,6 +682,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             async for chunk in self.stream(
                 message,
                 attachments=attachments,
+                display_message=display_message,
             ):
                 full_text += chunk
                 yield f"event: chunk\ndata: {json.dumps(chunk)}\n\n"

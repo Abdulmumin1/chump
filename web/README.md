@@ -12,7 +12,7 @@ multiple tabs or devices watch and steer the same session in realtime.
 - Live transcript updates while the agent is working
 - Shared session state across multiple browser clients
 - Session sidebar for browsing and reopening sessions
-- Composer support for slash commands, steering, and image attachments
+- Composer support for slash commands (including `/skill:<name>`), steering, and image attachments
 - QR-based connect flow for shared links
 
 ## Connect flow
