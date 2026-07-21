@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { workspaceLockIsStale } from "./runtime.ts";
+import { rotateManagedLog, workspaceLockIsStale } from "./runtime.ts";
 
 test("detects workspace locks left by exited processes", async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-lock-"));
@@ -28,4 +28,16 @@ test("keeps workspace locks owned by the current process", async () => {
   );
 
   assert.equal(await workspaceLockIsStale(lockDir), false);
+});
+
+test("rotates only one previous managed server log", async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-log-"));
+  const logPath = path.join(rootPath, "server.log");
+  await writeFile(logPath, "current log");
+  await writeFile(`${logPath}.previous`, "stale previous log");
+
+  rotateManagedLog(logPath);
+
+  assert.equal(await readFile(`${logPath}.previous`, "utf8"), "current log");
+  await assert.rejects(readFile(logPath, "utf8"), { code: "ENOENT" });
 });

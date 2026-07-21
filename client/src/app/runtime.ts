@@ -1,4 +1,11 @@
-import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -524,7 +531,8 @@ async function spawnManagedServer(
   const paths = getWorkspaceStatePaths(workspaceRoot);
   await mkdir(paths.dataDir, { recursive: true });
 
-  const logFd = openSync(paths.logPath, "a");
+  rotateManagedLog(paths.logPath);
+  const logFd = openSync(paths.logPath, "w");
   try {
     // On Windows, `detached: true` gives console children their own console
     // window. Keep the child non-detached there so the managed server can run
@@ -615,6 +623,19 @@ async function withWorkspaceLock<T>(
     return await task();
   } finally {
     await rm(lockDir, { recursive: true, force: true });
+  }
+}
+
+export function rotateManagedLog(logPath: string): void {
+  if (!existsSync(logPath)) {
+    return;
+  }
+  const previousPath = `${logPath}.previous`;
+  try {
+    rmSync(previousPath, { force: true });
+    renameSync(logPath, previousPath);
+  } catch {
+    // Opening the active log with `w` still prevents unbounded accumulation.
   }
 }
 

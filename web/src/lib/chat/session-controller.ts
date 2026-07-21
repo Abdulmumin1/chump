@@ -110,7 +110,10 @@ export function createSessionController(
             state.health = nextHealth;
             applySessionsResponse(nextSessionsResponse);
             if (nextHealth.available_providers?.length) {
-                listModelChoices(nextHealth.available_providers)
+                listModelChoices(
+                    nextHealth.available_providers,
+                    nextHealth.available_models,
+                )
                     .then((choices) => {
                         state.availableModels = choices;
                     })

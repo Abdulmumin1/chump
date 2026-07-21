@@ -19,6 +19,7 @@ export type ChumpHealth = {
 	skills: Array<{ name: string; description: string }>;
 	models?: string[];
 	available_providers?: string[];
+	available_models?: Record<string, string[]>;
 	usage?: UsageSummary | null;
 };
 

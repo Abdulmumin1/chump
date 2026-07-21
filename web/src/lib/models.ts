@@ -390,14 +390,20 @@ export type ModelChoice = {
   name?: string;
 };
 
-export async function listModelChoices(providers: string[]): Promise<ModelChoice[]> {
+export async function listModelChoices(
+  providers: string[],
+  availableModels?: Record<string, readonly string[]>,
+): Promise<ModelChoice[]> {
   const catalog = await fetchModelCatalog();
   return providers.flatMap((provider) => {
     const entry = catalog[modelCatalogProviderId(provider)] ?? FALLBACK_MODELS[provider];
     if (!entry) {
       return [];
     }
+    const serverModels = availableModels?.[provider];
+    const serverModelSet = serverModels ? new Set(serverModels) : null;
     return Object.values(entry.models)
+      .filter((model: any) => serverModelSet === null || serverModelSet.has(model.id))
       .filter((model: any) => isUsableChatModel(provider, model))
       .map((model: any) => ({
         provider,

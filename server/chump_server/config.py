@@ -292,7 +292,7 @@ def load_config() -> ChumpConfig:
     if verbose_raw is not None:
         verbose = str(verbose_raw).lower() not in {"0", "false", "no", "off"}
     else:
-        verbose = True
+        verbose = False
 
     return ChumpConfig(
         host=host,

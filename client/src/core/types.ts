@@ -94,6 +94,8 @@ export type ChumpHealth = {
   uptime_seconds: number;
   instruction_files: string[];
   skills: SkillSummary[];
+  available_providers?: string[];
+  available_models?: Record<string, string[]>;
 };
 
 export type ChumpState = {

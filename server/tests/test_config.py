@@ -149,6 +149,18 @@ def test_load_config_uses_default_max_steps(monkeypatch, tmp_path):
     assert config.max_steps == DEFAULT_MAX_STEPS
 
 
+def test_load_config_keeps_verbose_logging_opt_in(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHUMP_AUTH_FILE", str(tmp_path / "missing-auth.json"))
+    monkeypatch.setenv("CHUMP_CONFIG_FILE", str(tmp_path / "missing-config.json"))
+    monkeypatch.setenv("CHUMP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("CHUMP_VERBOSE", raising=False)
+
+    assert load_config().verbose is False
+
+    monkeypatch.setenv("CHUMP_VERBOSE", "1")
+    assert load_config().verbose is True
+
+
 def test_load_config_reads_compaction_env(monkeypatch, tmp_path):
     auth_file = tmp_path / "missing-auth.json"
     monkeypatch.setenv("CHUMP_AUTH_FILE", str(auth_file))

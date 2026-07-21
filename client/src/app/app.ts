@@ -307,7 +307,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
   promptReader.setRuleBadge(await renderInputBadge(status));
   promptReader.setSessionSuggestions(sessions.sessions);
-  promptReader.setModelSuggestions(await loadModelSuggestions());
+  promptReader.setModelSuggestions(
+    await loadModelSuggestions(health.available_models),
+  );
   promptReader.setSkillSuggestions(health.skills);
   promptReader.setAbortHandler(null);
   promptReader.setQueuedLinePopHandler(() => {
@@ -356,6 +358,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
     promptReader.setRuleBadge(await renderInputBadge(status));
     promptReader.setSessionSuggestions(sessions.sessions);
+    promptReader.setModelSuggestions(
+      await loadModelSuggestions(health.available_models),
+    );
     promptReader.setSkillSuggestions(health.skills);
     promptReader.setQueuedDisplay(steeringQueueSubmissions({ items: status.steering_queue ?? [] }));
     sharedTurnSync.applyTurnStatus({
@@ -1519,7 +1524,10 @@ async function handleSlashCommand(
       await updateGlobalAuth({ provider: status.provider, model: status.model });
       context.setFooter(renderSessionFooter(config, status, context.shareManager.current()));
       context.setRuleBadge(await renderInputBadge(status));
-      context.setModelSuggestions(await loadModelSuggestions());
+      const health = await request(getHealth);
+      context.setModelSuggestions(
+        await loadModelSuggestions(health.available_models),
+      );
       writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
       break;
     }
@@ -1665,7 +1673,11 @@ async function handleSlashCommand(
         running: switchedStatus.turn_running === true,
         steering_queue: switchedStatus.steering_queue ?? [],
       });
-      context.setSkillSuggestions((await request(getHealth)).skills);
+      const health = await request(getHealth);
+      context.setSkillSuggestions(health.skills);
+      context.setModelSuggestions(
+        await loadModelSuggestions(health.available_models),
+      );
       break;
     }
     case "agent": {
@@ -1700,12 +1712,14 @@ async function handleSlashCommand(
   return { config, closeEventStream };
 }
 
-async function loadModelSuggestions(): Promise<Awaited<ReturnType<typeof listModelChoices>>> {
+async function loadModelSuggestions(
+  availableModels?: Record<string, readonly string[]>,
+): Promise<Awaited<ReturnType<typeof listModelChoices>>> {
   const auth = await readGlobalAuth();
   const providers = Array.from(
     new Set(["chump_cloud", ...Object.keys(auth.credentials ?? {})]),
   );
-  return await listModelChoices(providers);
+  return await listModelChoices(providers, availableModels);
 }
 
 function parseModelSelector(value: string): [string | null, string | null] {
