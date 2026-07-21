@@ -3,6 +3,10 @@ import type {
     StoredEvent,
     StoredMessage,
 } from "$lib/chump/types";
+import {
+    isChumpEventType,
+    parseChumpEvent,
+} from "$lib/chump/events";
 import type { SteeringQueueItem } from "$lib/chat/types";
 import {
     asString,
@@ -73,6 +77,9 @@ export function applyLiveEventToMessages(
     data: Record<string, unknown> | null,
 ): StoredMessage[] {
     if (!data) return source;
+    const chumpEvent = parseChumpEvent(type, data);
+    if (isChumpEventType(type) && !chumpEvent) return source;
+    data = chumpEvent?.data ?? data;
 
     if (isToolLifecycleEvent(type)) {
         return applyToolLifecycleEvent(source, type, data);

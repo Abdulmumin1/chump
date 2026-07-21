@@ -99,6 +99,7 @@ import {
 } from "./daemon-command.ts";
 import { parseAppCommand, runAppCommand } from "./app-command.ts";
 import { renderSessionFooter } from "../ui/footer.ts";
+import { isChumpEventType, parseChumpEvent } from "../core/events.ts";
 import type {
   ChumpConfig,
   CliOptions,
@@ -815,7 +816,17 @@ async function createPrintVerboseEventLogger(config: ChumpConfig): Promise<{
     if (event.id <= baselineEventId || renderedEventIds.has(event.id)) {
       return;
     }
-    if (renderVerboseToolEvent(event.type, event.data, renderer)) {
+    const chumpEvent = parseChumpEvent(event.type, event.data);
+    if (isChumpEventType(event.type) && !chumpEvent) {
+      return;
+    }
+    if (
+      renderVerboseToolEvent(
+        event.type,
+        chumpEvent?.data ?? event.data,
+        renderer,
+      )
+    ) {
       renderedEventIds.add(event.id);
     }
   };
@@ -859,10 +870,14 @@ function storedEventFromSse(event: SseEvent): StoredEvent | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return null;
   }
+  const chumpEvent = parseChumpEvent(event.event, data);
+  if (isChumpEventType(event.event) && !chumpEvent) {
+    return null;
+  }
   return {
     id,
     type: event.event,
-    data: data as Record<string, unknown>,
+    data: chumpEvent?.data ?? data as Record<string, unknown>,
   };
 }
 

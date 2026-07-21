@@ -121,7 +121,23 @@ async def test_faux_provider_drives_and_reloads_a_complete_chump_turn(
         "preview": "profile:chump",
         "metadata": {},
         "duration": tool_result["data"]["duration"],
+        "schema_version": 1,
     }
+
+    chump_event_types = {
+        "assistant_text",
+        "user_message",
+        "tool_call",
+        "tool_result",
+        "agent_status",
+        "turn_status",
+        "status",
+    }
+    assert all(
+        event["data"]["schema_version"] == 1
+        for event in original_events
+        if event["type"] in chump_event_types
+    )
 
     reloaded = ChumpAgent("faux-harness")
     async with reloaded:

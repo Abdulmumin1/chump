@@ -14,6 +14,7 @@ from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
 from ai_query.types import AbortSignal, Message, ProviderOptions
 
 from .config import ChumpConfig, load_auth_config, load_config
+from .events import version_chump_event_payload
 from .resources import ResourceCatalog, build_skill_bundle
 from .runtime.compaction import (
     choose_compaction_start,
@@ -281,6 +282,19 @@ class ChumpAgent(Agent[dict[str, Any]]):
     def current_abort_signal(self) -> AbortSignal | None:
         turn = self._current_turn
         return turn._controller.signal if turn else None
+
+    async def emit(
+        self,
+        event: str,
+        data: dict[str, Any],
+        *,
+        replay: bool = True,
+    ) -> int:
+        return await super().emit(
+            event,
+            version_chump_event_payload(event, data),
+            replay=replay,
+        )
 
     async def chat(
         self,
