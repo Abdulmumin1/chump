@@ -93,11 +93,11 @@ When only `client/` changed (no server changes). The client build will bundle wh
 ### On push to `main`
 
 1. **server-tag job**: Compares the first server changelog version with existing tags and creates the missing tag on the merged `main` commit.
-2. **server-release workflow**: Builds/publishes the tagged server and uploads its standalone binaries.
+2. **server release jobs**: Build/publish the tagged server and upload its standalone binaries from the main release workflow. Keeping PyPI publishing in this workflow preserves the configured trusted publisher identity.
 3. **npm job**: Runs Changesets and publishes the client after the server release succeeds or is already current.
 4. **binaries job** (if npm published): Fetches the latest `chump-server-v*` tag, builds the server runtime, copies it into `client/vendor/chump-server/`, then builds the client archive with `pnpm --dir client run build:bin`. Uploads `.tar.gz` archives to the `chump-agent@<version>` release.
 
-The tag is created with the workflow token and the server publish is called as a reusable workflow, so the process does not depend on a tag-push event (which GitHub does not emit for workflow-token pushes). Existing tags can be republished manually from `server-release.yml` if a release needs recovery; creating a new tag manually is no longer part of the process.
+The tag is created with the workflow token and the server release jobs run in the same workflow, so the process does not depend on a tag-push event (which GitHub does not emit for workflow-token pushes). Existing tags can be republished manually with the `server_tag` workflow input if a release needs recovery; creating a new tag manually is no longer part of the process.
 
 ---
 
@@ -106,7 +106,6 @@ The tag is created with the workflow token and the server publish is called as a
 | File | Purpose |
 | ---- | ------- |
 | `.github/workflows/release.yml` | CI workflow for npm + PyPI + binary bundling |
-| `.github/workflows/server-release.yml` | Reusable/manual server publish and binary workflow |
 | `.github/workflows/ci.yml` | CI for typecheck, build, smoke test |
 | `package.json` | `changeset`, `version-packages`, `release` scripts |
 | `client/scripts/build-bin.ts` | Client binary build — looks for server runtime in `vendor/chump-server/` |
