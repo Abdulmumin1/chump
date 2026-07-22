@@ -11,6 +11,7 @@
     { "$ref": "#/$defs/agent_status_event" },
     { "$ref": "#/$defs/steering_queue_event" },
     { "$ref": "#/$defs/turn_status_event" },
+    { "$ref": "#/$defs/turn_error_event" },
     { "$ref": "#/$defs/compaction_status_event" },
     { "$ref": "#/$defs/compaction_event" },
     { "$ref": "#/$defs/status_event" }
@@ -110,6 +111,16 @@
       },
       "additionalProperties": true
     },
+    "turn_error_payload": {
+      "type": "object",
+      "required": ["schema_version", "message", "error_type"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/version" },
+        "message": { "type": "string" },
+        "error_type": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
     "compaction_status_payload": {
       "type": "object",
       "required": ["schema_version", "running", "reason"],
@@ -156,6 +167,7 @@
     "agent_status_event": { "$ref": "#/$defs/event_agent_status" },
     "steering_queue_event": { "$ref": "#/$defs/event_steering_queue" },
     "turn_status_event": { "$ref": "#/$defs/event_turn_status" },
+    "turn_error_event": { "$ref": "#/$defs/event_turn_error" },
     "compaction_status_event": { "$ref": "#/$defs/event_compaction_status" },
     "compaction_event": { "$ref": "#/$defs/event_compaction" },
     "status_event": { "$ref": "#/$defs/event_status" },
@@ -192,6 +204,11 @@
     "event_turn_status": {
       "type": "object", "required": ["type", "data"],
       "properties": { "type": { "const": "turn_status" }, "data": { "$ref": "#/$defs/turn_status_payload" } },
+      "additionalProperties": false
+    },
+    "event_turn_error": {
+      "type": "object", "required": ["type", "data"],
+      "properties": { "type": { "const": "turn_error" }, "data": { "$ref": "#/$defs/turn_error_payload" } },
       "additionalProperties": false
     },
     "event_compaction_status": {

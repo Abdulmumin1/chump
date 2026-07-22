@@ -13,6 +13,7 @@ ChumpEventType = Literal[
     "agent_status",
     "steering_queue",
     "turn_status",
+    "turn_error",
     "compaction_status",
     "compaction",
     "status",
@@ -27,6 +28,7 @@ CHUMP_EVENT_TYPES: frozenset[str] = frozenset(
         "agent_status",
         "steering_queue",
         "turn_status",
+        "turn_error",
         "compaction_status",
         "compaction",
         "status",
@@ -85,6 +87,11 @@ class TurnStatusPayload(VersionedEventPayload):
     steering_queue: list[dict[str, Any]]
 
 
+class TurnErrorPayload(VersionedEventPayload):
+    message: str
+    error_type: str
+
+
 class CompactionStatusPayload(VersionedEventPayload):
     running: bool
     reason: str
@@ -112,6 +119,7 @@ ChumpEventPayload = (
     | AgentStatusPayload
     | SteeringQueuePayload
     | TurnStatusPayload
+    | TurnErrorPayload
     | CompactionStatusPayload
     | CompactionPayload
     | StepStatusPayload
@@ -140,6 +148,7 @@ _REQUIRED_FIELDS: dict[str, dict[str, type[Any] | tuple[type[Any], ...]]] = {
     "agent_status": {"agent_id": str, "provider": str, "model": str},
     "steering_queue": {"items": list},
     "turn_status": {"running": bool, "steering_queue": list},
+    "turn_error": {"message": str, "error_type": str},
     "compaction_status": {"running": bool, "reason": str},
     "compaction": {
         "reason": str,
