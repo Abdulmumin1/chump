@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.1.8
+
+- Compact long-running tool-use turns between model steps as soon as provider-reported context reaches the configured threshold, preventing Codex sessions from exceeding the limit before the next user turn.
+- Keep runtime and persisted histories synchronized after in-turn compaction while preserving the system prompt and full-turn usage accounting.
+- Allow each bash tool call to set a custom timeout of up to one hour while retaining the configured command timeout as the default.
+
 ## 0.1.7
 
 - Add server-owned Model Context Protocol support for local stdio and remote HTTP/SSE servers, with shared and project configuration, explicit project trust, lifecycle cleanup, and optional direct tool exposure.

@@ -4,11 +4,13 @@ import unittest
 import tempfile
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.patch_tool import AddFilePatch, UpdateFilePatch, parse_patch
 from chump_server.safety import SafetyError, WorkspaceGuard
+from chump_server.tools.bash import bind_bash, resolve_command_timeout
 from chump_server.tools.view_image import bind_view_image, detect_image_type
 from chump_server.tools._utils import (
     BASH_OUTPUT_BYTE_LIMIT,
@@ -82,6 +84,43 @@ class ViewImageTests(unittest.IsolatedAsyncioTestCase):
             detect_image_type(b"RIFF\x00\x00\x00\x00WEBPpayload"),
             "image/webp",
         )
+
+
+class BashTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    def test_uses_configured_timeout_when_override_is_omitted(self) -> None:
+        self.assertEqual(resolve_command_timeout(None, 120), 120)
+
+    def test_accepts_a_per_command_timeout_override(self) -> None:
+        self.assertEqual(resolve_command_timeout(900, 120), 900)
+        self.assertEqual(resolve_command_timeout(3_600, 120), 3_600)
+
+    def test_rejects_non_positive_timeout(self) -> None:
+        with self.assertRaisesRegex(ValueError, "greater than zero"):
+            resolve_command_timeout(0, 120)
+
+    def test_rejects_timeout_above_one_hour(self) -> None:
+        with self.assertRaisesRegex(ValueError, "cannot exceed 3600 seconds"):
+            resolve_command_timeout(3_601, 120)
+
+    async def test_per_command_timeout_overrides_the_configured_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            async def wrap_tool(_name, _payload, runner):
+                return await runner()
+
+            async def note_command(_command):
+                return None
+
+            tool = bind_bash(
+                WorkspaceGuard(Path(temp_dir)),
+                SimpleNamespace(command_timeout=0),
+                wrap_tool,
+                note_command,
+                SimpleNamespace(current_abort_signal=None),
+            )
+
+            result = await tool.run(command="printf custom-timeout", timeout=2)
+
+        self.assertEqual(result, "custom-timeout")
 
 
 class CommandOutputTruncationTests(unittest.TestCase):

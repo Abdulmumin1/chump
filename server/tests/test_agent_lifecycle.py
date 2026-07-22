@@ -79,6 +79,112 @@ def test_step_usage_accumulates_new_ai_query_per_step_usage():
     assert agent._last_step_records[-1]["cumulative_usage"]["total_tokens"] == 35
 
 
+def test_auto_compaction_runs_between_steps_after_context_crosses_threshold():
+    agent = make_agent()
+    agent._config = SimpleNamespace(compaction_tokens=200_000)
+    agent._pending_auto_compaction_tokens = None
+    agent._messages = [
+        Message(role="user", content="work"),
+        Message(role="assistant", content="calling a tool"),
+        Message(role="tool", content="large result"),
+    ]
+    agent._compact_messages = AsyncMock(return_value={"status": "ok"})
+
+    asyncio.run(
+        agent.after_step(
+            SimpleNamespace(
+                event=SimpleNamespace(
+                    usage=Usage(
+                        input_tokens=204_000,
+                        output_tokens=1_000,
+                        total_tokens=205_000,
+                    )
+                )
+            )
+        )
+    )
+
+    runtime_messages = [
+        Message(role="system", content="instructions"),
+        *agent._messages,
+    ]
+    asyncio.run(
+        agent.before_step(
+            SimpleNamespace(
+                step_number=2,
+                event=SimpleNamespace(messages=runtime_messages),
+            )
+        )
+    )
+
+    agent._compact_messages.assert_awaited_once_with(
+        reason="auto",
+        estimated_tokens=205_000,
+        messages=runtime_messages,
+        persist_system_prefix=1,
+    )
+    assert agent._pending_auto_compaction_tokens is None
+
+
+def test_in_turn_compaction_replaces_runtime_and_persisted_history():
+    agent = make_agent()
+    agent._config = SimpleNamespace(compaction_keep_recent_tokens=2)
+    agent._usage_summary["current_turn"] = {
+        "input_tokens": 205_000,
+        "output_tokens": 1_000,
+        "cached_tokens": 0,
+        "total_tokens": 206_000,
+    }
+    agent._generate_compaction_summary = AsyncMock(return_value="Durable summary")
+    agent.update_state = AsyncMock()
+    runtime_messages = [
+        Message(role="system", content="instructions"),
+        Message(role="user", content="old request"),
+        Message(role="assistant", content="old response"),
+        Message(role="user", content="recent request"),
+        Message(role="assistant", content="recent response"),
+    ]
+    agent._messages = list(runtime_messages[1:])
+
+    result = asyncio.run(
+        agent._compact_messages(
+            reason="auto",
+            estimated_tokens=206_000,
+            messages=runtime_messages,
+            persist_system_prefix=1,
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert runtime_messages[0].role == "system"
+    assert "Durable summary" in str(runtime_messages[1].content)
+    assert agent._messages == runtime_messages[1:]
+    assert agent._usage_summary["current_turn"]["total_tokens"] == 206_000
+    agent._persist_messages.assert_awaited_once()
+
+
+def test_auto_compaction_is_not_scheduled_below_threshold():
+    agent = make_agent()
+    agent._config = SimpleNamespace(compaction_tokens=200_000)
+    agent._pending_auto_compaction_tokens = None
+
+    asyncio.run(
+        agent.after_step(
+            SimpleNamespace(
+                event=SimpleNamespace(
+                    usage=Usage(
+                        input_tokens=198_000,
+                        output_tokens=1_000,
+                        total_tokens=199_000,
+                    )
+                )
+            )
+        )
+    )
+
+    assert agent._pending_auto_compaction_tokens is None
+
+
 def test_finalize_turn_keeps_accumulated_usage_instead_of_final_step_only():
     agent = make_agent()
     agent._usage_summary["current_turn"] = {
