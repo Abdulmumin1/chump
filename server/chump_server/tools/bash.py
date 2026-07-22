@@ -6,18 +6,19 @@ from ai_query import Field, tool
 from ai_query.types import AbortError
 
 from ..config import ChumpConfig
-from ..safety import WorkspaceGuard, validate_command
+from ..safety import PathResolver, validate_command
 from ._utils import _terminate_process, _truncate_command_output
 
 
 MAX_BASH_TIMEOUT_SECONDS = 3_600
 
 
-@tool(description="Run a shell command inside the workspace.")
+@tool(description="Run a shell command.")
 async def bash(
     command: str = Field(description="Shell command to execute"),
     cwd: str = Field(
-        description="Working directory relative to workspace root", default="."
+        description="Working directory; relative paths resolve from workspace root",
+        default=".",
     ),
     timeout: int | None = Field(
         description=(
@@ -31,17 +32,18 @@ async def bash(
 
 
 def bind_bash(
-    guard: WorkspaceGuard,
+    guard: PathResolver,
     config: ChumpConfig,
     wrap_tool,
     note_command,
     agent,
 ):
-    @tool(description="Run a shell command inside the workspace.")
+    @tool(description="Run a shell command.")
     async def bash_impl(
         command: str = Field(description="Shell command to execute"),
         cwd: str = Field(
-            description="Working directory relative to workspace root", default="."
+            description="Working directory; relative paths resolve from workspace root",
+            default=".",
         ),
         timeout: int | None = Field(
             description=(

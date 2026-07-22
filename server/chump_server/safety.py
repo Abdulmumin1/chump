@@ -24,15 +24,15 @@ class SafetyError(ValueError):
     """Raised when a path or command fails safety checks."""
 
 
-class WorkspaceGuard:
+class PathResolver:
     def __init__(self, workspace_root: Path):
         self.workspace_root = workspace_root.resolve()
 
     def resolve_path(self, raw_path: str) -> Path:
-        candidate = (self.workspace_root / raw_path).resolve()
-        if candidate != self.workspace_root and self.workspace_root not in candidate.parents:
-            raise SafetyError(f"path escapes workspace root: {raw_path}")
-        return candidate
+        candidate = Path(raw_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.workspace_root / candidate
+        return candidate.resolve()
 
     def ensure_text_file(self, raw_path: str) -> Path:
         path = self.resolve_path(raw_path)

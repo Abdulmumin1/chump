@@ -62,6 +62,7 @@ import { createActivityStatusController } from "../ui/activity-status.ts";
 import type { StatusDisplay } from "../ui/status.ts";
 import {
   renderSessionTranscript,
+  renderMcpServers,
   renderServerStatus,
   renderSessions,
 } from "../ui/output.ts";
@@ -91,6 +92,7 @@ import {
 } from "./completion.ts";
 import {
   ManagedServerRequestCoordinator,
+  reloadManagedServerUrl,
   recoverManagedServerUrl,
   type ServerRequestRunner,
 } from "./managed-recovery.ts";
@@ -119,6 +121,7 @@ import type {
   PromptSubmission,
   ShareStatus,
   ChumpStatus,
+  SlashCommandMenuContext,
   StoredEvent,
   SseEvent,
   UsageSummary,
@@ -335,6 +338,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     await loadModelSuggestions(health.available_models),
   );
   promptReader.setSkillSuggestions(health.skills);
+  promptReader.setMcpSuggestions(health.mcp ?? []);
   promptReader.setAbortHandler(null);
   promptReader.setQueuedLinePopHandler(() => {
     lineQueue.popLast();
@@ -386,6 +390,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       await loadModelSuggestions(health.available_models),
     );
     promptReader.setSkillSuggestions(health.skills);
+    promptReader.setMcpSuggestions(health.mcp ?? []);
     promptReader.setQueuedDisplay(steeringQueueSubmissions({ items: status.steering_queue ?? [] }));
     sharedTurnSync.applyTurnStatus({
       running: status.turn_running === true,
@@ -406,6 +411,22 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     closeEventStream?.();
     closeEventStream = await startRecoverableEventStream(config);
     await refreshCliHydration();
+  };
+
+  const reloadManagedServerSession = async (): Promise<(() => void) | null> => {
+    if (config.serverSource !== "managed") {
+      throw new Error("reload is unavailable for externally managed servers");
+    }
+
+    closeEventStream?.();
+    closeEventStream = null;
+    config.serverUrl = await reloadManagedServerUrl(
+      config.workspaceRoot,
+      config.serverUrl,
+    );
+    closeEventStream = await startRecoverableEventStream(config);
+    await refreshCliHydration();
+    return closeEventStream;
   };
 
   const requestCoordinator = new ManagedServerRequestCoordinator(
@@ -525,8 +546,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
+        setMcpSuggestions: (mcps) => promptReader.setMcpSuggestions(mcps),
         setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
         runServerRequest,
+        reloadManagedServer: reloadManagedServerSession,
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           if (nextConfig.agentId !== config.agentId) {
@@ -578,8 +601,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
+        setMcpSuggestions: (mcps) => promptReader.setMcpSuggestions(mcps),
         setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
         runServerRequest,
+        reloadManagedServer: reloadManagedServerSession,
         restartEventStream: async (nextConfig) => {
           closeEventStream?.();
           if (nextConfig.agentId !== config.agentId) {
@@ -1409,6 +1434,7 @@ function isBlockedActiveSlashCommand(value: string): boolean {
     "/new",
     "/model",
     "/thinking",
+    "/reload",
     "/clear",
     "/compact",
     "/agent",
@@ -1501,8 +1527,10 @@ async function handleSlashCommand(
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
     setSkillSuggestions: (skills: Awaited<ReturnType<typeof getHealth>>["skills"]) => void;
+    setMcpSuggestions: (mcps: SlashCommandMenuContext["mcps"]) => void;
     setRemoteTurnStatus: (payload: Record<string, unknown>) => void;
     runServerRequest: ServerRequestRunner;
+    reloadManagedServer: () => Promise<(() => void) | null>;
     restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
@@ -1530,6 +1558,24 @@ async function handleSlashCommand(
         getState(requestConfig),
       ]));
       writeOutput(`${renderSessionStatusSummary(config, status, state)}\n`);
+      break;
+    }
+    case "reload": {
+      if (config.serverSource !== "managed") {
+        writeOutput(`${renderError("[reload] unavailable for externally managed servers")}\n`);
+        break;
+      }
+      context.setStatus("Reloading server");
+      writeOutput(`${renderMuted("restarting managed server...")}\n`);
+      closeEventStream = null;
+      try {
+        closeEventStream = await context.reloadManagedServer();
+        writeOutput(`${renderMuted(`reloaded server at ${config.serverUrl}`)}\n`);
+      } catch (error) {
+        writeOutput(`${renderError(`[reload] ${errorMessage(error)}`)}\n`);
+      } finally {
+        context.setStatus(null);
+      }
       break;
     }
     case "sessions": {
@@ -1602,6 +1648,22 @@ async function handleSlashCommand(
       context.setFooter(renderSessionFooter(config, status, context.shareManager.current()));
       context.setRuleBadge(await renderInputBadge(status));
       writeOutput(`${renderMuted(`thinking set to ${mode}`)}\n`);
+      break;
+    }
+    case "mcps":
+    case "mcp": {
+      const status = await request(getStatus);
+      const mcpServers = status.mcp ?? [];
+      context.setMcpSuggestions(mcpServers);
+      if (mcpServers.length === 0) {
+        const health = await request(getHealth);
+        const healthMcp = health.mcp ?? [];
+        context.setMcpSuggestions(healthMcp);
+        renderMcpServers(healthMcp);
+      } else {
+        context.setMcpSuggestions(mcpServers);
+        renderMcpServers(mcpServers);
+      }
       break;
     }
     case "clear": {
@@ -1681,6 +1743,7 @@ async function handleSlashCommand(
           steering_queue: switchedStatus.steering_queue ?? [],
         });
         context.setSkillSuggestions((await request(getHealth)).skills);
+        context.setMcpSuggestions((await request(getHealth)).mcp ?? []);
         break;
       }
 
@@ -1730,6 +1793,7 @@ async function handleSlashCommand(
         steering_queue: switchedStatus.steering_queue ?? [],
       });
       context.setSkillSuggestions((await request(getHealth)).skills);
+      context.setMcpSuggestions((await request(getHealth)).mcp ?? []);
       break;
     }
     case "quit":
@@ -1791,25 +1855,33 @@ async function renderSwitchedSession(
 }
 
 async function renderInputBadge(
-  health: {
+  status: {
     provider: string;
     model: string;
     turn_running?: boolean;
     usage?: UsageSummary | null;
+    mcp?: Array<{ status: string }> | null;
   },
 ): Promise<string | null> {
-  const limit = await getModelContextLimit(health.provider, health.model);
-  const latestContext = latestContextTokens(health.usage);
+  const limit = await getModelContextLimit(status.provider, status.model);
+  const latestContext = latestContextTokens(status.usage);
+  const connectedMcps = (status.mcp ?? []).filter(
+    (server) => server.status === "connected",
+  ).length;
+  const mcpSuffix = connectedMcps > 0 ? ` · MCP ${connectedMcps}` : "";
+
+  let ctxLabel: string | null = null;
   if (limit && latestContext !== null && latestContext >= 0) {
-    return `ctx ${formatCompactNumber(Math.min(latestContext, limit))} / ${formatCompactNumber(limit)}`;
+    ctxLabel = `ctx ${formatCompactNumber(Math.min(latestContext, limit))} / ${formatCompactNumber(limit)}`;
+  } else if (limit) {
+    ctxLabel = `ctx ${formatCompactNumber(limit)}`;
+  } else if (latestContext !== null && latestContext > 0) {
+    ctxLabel = `ctx ${formatCompactNumber(latestContext)}`;
+  } else {
+    ctxLabel = await getModelContextLabel(status.provider, status.model);
   }
-  if (limit) {
-    return `ctx ${formatCompactNumber(limit)}`;
-  }
-  if (latestContext !== null && latestContext > 0) {
-    return `ctx ${formatCompactNumber(latestContext)}`;
-  }
-  return await getModelContextLabel(health.provider, health.model);
+
+  return ctxLabel ? `${ctxLabel}${mcpSuffix}` : (mcpSuffix || null);
 }
 
 function latestContextTokens(usage: UsageSummary | null | undefined): number | null {

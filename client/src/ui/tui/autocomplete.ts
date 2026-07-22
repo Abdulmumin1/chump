@@ -22,6 +22,8 @@ const PICKER_COMMANDS = new Set([
   "/session",
   "/share",
   "/thinking",
+  "/mcps",
+  "/mcp",
 ]);
 
 export class ChumpAutocompleteProvider implements AutocompleteProvider {
@@ -30,6 +32,7 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
     sessions: [],
     models: [],
     skills: [],
+    mcps: [],
   };
   private fileSearch: ((query: string) => Promise<FileSearchResult[]>) | null = null;
   private sessionSuggestionLoader: (() => Promise<SessionSummary[]>) | null = null;
@@ -47,9 +50,14 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
   }
 
   setCommandContext(
-    context: Pick<SlashCommandMenuContext, "models" | "skills">,
+    context: Pick<SlashCommandMenuContext, "models" | "skills"> &
+      Partial<Pick<SlashCommandMenuContext, "mcps">>,
   ): void {
     this.context = { ...this.context, ...context };
+  }
+
+  setMcpSuggestions(mcps: SlashCommandMenuContext["mcps"]): void {
+    this.context = { ...this.context, mcps };
   }
 
   setSessionSuggestions(sessions: SessionSummary[]): void {
@@ -177,7 +185,7 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
     cursorCol: number,
   ): boolean {
     const beforeCursor = (lines[cursorLine] ?? "").slice(0, cursorCol);
-    return /^\/(?:model|session|share|thinking)\s/u.test(beforeCursor) ||
+    return /^\/(?:model|session|share|thinking|mcps|mcp)\s/u.test(beforeCursor) ||
       findFileMention(beforeCursor) !== null;
   }
 

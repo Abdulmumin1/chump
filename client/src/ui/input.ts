@@ -23,6 +23,7 @@ export type PromptReader = {
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
+  setMcpSuggestions: (mcps: SlashCommandMenuContext["mcps"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setSessionSuggestionLoader: (
@@ -79,6 +80,7 @@ function createFallbackPromptReader(fallbackRl: Interface | null): PromptReader 
     setQueuedLinePopHandler: () => {},
     setModelSuggestions: () => {},
     setSkillSuggestions: () => {},
+    setMcpSuggestions: () => {},
     setAbortHandler: () => {},
     setSessionSuggestions: () => {},
     setSessionSuggestionLoader: () => {},

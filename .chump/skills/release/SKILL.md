@@ -1,16 +1,16 @@
 ---
 name: release
-description: Release process for chump — npm (chump-agent) via Changesets, and PyPI (chump-server) via git tags.
+description: Release process for chump — npm (chump-agent) via Changesets, and PyPI (chump-server) via automatic git tags.
 ---
 
 # Chump Release Process
 
-Client binaries bundle the server runtime. A client release always picks up the **latest** `chump-server-v*` tag, builds the server, and packages it alongside the CLI. Release order matters: tag the server **before** merging client changes.
+Client binaries bundle the server runtime. A client release always picks up the **latest** `chump-server-v*` tag, builds the server, and packages it alongside the CLI. After a merge to `main`, CI creates the server tag from the leading version in `server/CHANGELOG.md`, publishes the server, and only then publishes/packages the client.
 
 | Package        | Registry | Mechanism                          |
 | -------------- | -------- | ---------------------------------- |
 | `chump-agent`  | npm      | Changesets (automatic on push to `main`) |
-| `chump-server` | PyPI     | Git tag `chump-server-v*`          |
+| `chump-server` | PyPI     | Automatic `chump-server-v*` tag from the changelog |
 
 All releases go through `main`. Prep work happens on a `release/*` branch.
 
@@ -58,24 +58,13 @@ git push origin release/<name>
 
 Create a PR or merge directly.
 
-### Step 5: On main, tag the server **first**
+### Step 5: CI handles the release
 
-```bash
-git fetch origin
-git checkout main
-git pull
-git tag chump-server-v<next-version>
-git push origin chump-server-v<next-version>
-```
-
-This triggers the PyPI publish + standalone server binary uploads (see CI flow below).
-
-### Step 6: CI handles the client
-
-On push to `main`, the Changesets action:
-- Publishes `chump-agent` to npm
-- Builds binaries that bundle the latest `chump-server-v*` runtime
-- Uploads client archives to the `chump-agent@<version>` GitHub release
+On the push to `main`, CI:
+1. Reads the first stable `## x.y.z` heading in `server/CHANGELOG.md`.
+2. Creates `chump-server-vx.y.z` on the merged commit if that version is not already tagged.
+3. Publishes the server wheel and standalone binaries.
+4. Runs Changesets to publish `chump-agent` and uploads client archives bundled with that server tag.
 
 ---
 
@@ -83,16 +72,9 @@ On push to `main`, the Changesets action:
 
 When only `server/` changed and the client doesn't need a new npm version.
 
-1. Update `server/CHANGELOG.md`.
-2. Commit, merge to `main`.
-3. On `main`, tag and push:
-
-```bash
-git tag chump-server-v<next-version>
-git push origin chump-server-v<next-version>
-```
-
-CI publishes the server wheel to PyPI, builds standalone server binaries, and creates a GitHub release.
+1. Update `server/CHANGELOG.md` with the next version as its first version heading.
+2. Commit and merge to `main`.
+3. CI creates the matching tag, publishes the server wheel, builds standalone server binaries, and creates a GitHub release.
 
 ---
 
@@ -110,13 +92,12 @@ When only `client/` changed (no server changes). The client build will bundle wh
 
 ### On push to `main`
 
-1. **npm job**: Builds client, runs `changesets/action` → publishes to npm.
-2. **binaries job** (if npm published): On each platform, fetches the latest `chump-server-v*` tag, builds the server runtime, copies it into `client/vendor/chump-server/`, then builds the client archive with `pnpm --dir client run build:bin`. Uploads `.tar.gz` archives to the `chump-agent@<version>` release.
+1. **server-tag job**: Compares the first server changelog version with existing tags and creates the missing tag on the merged `main` commit.
+2. **server-release workflow**: Builds/publishes the tagged server and uploads its standalone binaries.
+3. **npm job**: Runs Changesets and publishes the client after the server release succeeds or is already current.
+4. **binaries job** (if npm published): Fetches the latest `chump-server-v*` tag, builds the server runtime, copies it into `client/vendor/chump-server/`, then builds the client archive with `pnpm --dir client run build:bin`. Uploads `.tar.gz` archives to the `chump-agent@<version>` release.
 
-### On tag `chump-server-v*`
-
-1. **pypi job**: Builds server wheel with `uv build`, validates version matches the tag, publishes to PyPI, extracts release notes from `server/CHANGELOG.md`, creates a GitHub release.
-2. **server-binaries job**: Builds standalone server runtimes (`onedir` archive + `onefile`) and uploads them to the GitHub release.
+The tag is created with the workflow token and the server publish is called as a reusable workflow, so the process does not depend on a tag-push event (which GitHub does not emit for workflow-token pushes). Existing tags can be republished manually from `server-release.yml` if a release needs recovery; creating a new tag manually is no longer part of the process.
 
 ---
 
@@ -125,6 +106,7 @@ When only `client/` changed (no server changes). The client build will bundle wh
 | File | Purpose |
 | ---- | ------- |
 | `.github/workflows/release.yml` | CI workflow for npm + PyPI + binary bundling |
+| `.github/workflows/server-release.yml` | Reusable/manual server publish and binary workflow |
 | `.github/workflows/ci.yml` | CI for typecheck, build, smoke test |
 | `package.json` | `changeset`, `version-packages`, `release` scripts |
 | `client/scripts/build-bin.ts` | Client binary build — looks for server runtime in `vendor/chump-server/` |

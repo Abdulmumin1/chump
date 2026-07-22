@@ -1,5 +1,5 @@
 import { ensureDaemonProjectTarget } from "./daemon-client.ts";
-import { recoverManagedServer } from "./runtime.ts";
+import { recoverManagedServer, stopManagedServer } from "./runtime.ts";
 import { isTransientServerError } from "../api/errors.ts";
 import type { ChumpConfig } from "../core/types.ts";
 
@@ -9,6 +9,10 @@ export type ManagedRecoveryDependencies = {
     workspaceRoot: string,
     previousUrl: string,
   ) => Promise<string>;
+};
+
+export type ManagedReloadDependencies = ManagedRecoveryDependencies & {
+  stopManagedServer?: (workspaceRoot: string) => Promise<string>;
 };
 
 export type ServerRequestOptions = {
@@ -105,4 +109,14 @@ export async function recoverManagedServerUrl(
   } catch {
     return await recoverDirectly(workspaceRoot, previousUrl);
   }
+}
+
+export async function reloadManagedServerUrl(
+  workspaceRoot: string,
+  previousUrl: string,
+  dependencies: ManagedReloadDependencies = {},
+): Promise<string> {
+  const stopServer = dependencies.stopManagedServer ?? stopManagedServer;
+  await stopServer(workspaceRoot);
+  return await recoverManagedServerUrl(workspaceRoot, previousUrl, dependencies);
 }

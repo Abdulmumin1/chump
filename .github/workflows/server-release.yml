@@ -1,0 +1,125 @@
+name: Server Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Existing chump-server tag to publish"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing chump-server tag to publish, e.g. chump-server-v0.1.10"
+        required: true
+        type: string
+
+jobs:
+  pypi:
+    name: PyPI
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout server tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Checkout ai-query for dev lock compatibility
+        uses: actions/checkout@v4
+        with:
+          repository: Abdulmumin1/ai-query
+          path: ai-query
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build server package
+        run: uv build
+
+      - name: Validate built server version
+        run: |
+          expected="${{ inputs.tag }}"
+          expected="${expected#chump-server-v}"
+          python -c "from pathlib import Path; expected='$expected'; wheels=list(Path('dist').glob('chump_server-*.whl')); assert wheels, 'missing wheel'; name=wheels[0].name; assert name.startswith(f'chump_server-{expected}-'), f'{name} does not match {expected}'"
+
+      - name: Publish server package
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: server/dist
+
+      - name: Prepare GitHub release notes
+        run: |
+          version="${{ inputs.tag }}"
+          version="${version#chump-server-v}"
+          python scripts/extract_release_notes.py CHANGELOG.md "$version" .release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: server/.release-notes.md
+          tag_name: ${{ inputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  server-binaries:
+    name: server binaries (${{ matrix.os }})
+    needs: pypi
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-15-intel
+          - os: macos-14
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout server tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Checkout ai-query for server build
+        uses: actions/checkout@v4
+        with:
+          repository: Abdulmumin1/ai-query
+          path: ai-query
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build server runtime archive
+        run: python server/scripts/build_binary.py --mode onedir --archive
+
+      - name: Build legacy server binary
+        run: python server/scripts/build_binary.py --mode onefile
+
+      - name: Upload server runtime archive
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            server/dist/bin/chump-server-*.tar.gz
+            server/dist/bin/chump-server-*
+          tag_name: ${{ inputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

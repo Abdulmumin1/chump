@@ -1,4 +1,5 @@
 import {
+  renderAccent,
   renderMuted,
 } from "./render.ts";
 import { writeOutputLine, withDraftPaused } from "./terminal.ts";
@@ -11,6 +12,7 @@ import type {
   ChumpHealth,
   ChumpStatus,
   ManagedServerMetadata,
+  MCPServerStatusSummary,
 } from "../core/types.ts";
 
 const MAX_REPLAY_MESSAGES = 80;
@@ -33,6 +35,35 @@ export function renderStoredMessages(
   });
 }
 
+export function renderMcpServers(
+  mcpServers: MCPServerStatusSummary[],
+): void {
+  withDraftPaused(() => {
+    if (mcpServers.length === 0) {
+      writeOutputLine(renderMuted("(no mcp servers connected)"));
+      return;
+    }
+
+    writeOutputLine(
+      renderMuted(
+        `${"Server".padEnd(20, " ")}${"Type".padEnd(10, " ")}${"Status".padEnd(14, " ")}Details`,
+      ),
+    );
+    for (const server of mcpServers) {
+      const name = server.name.padEnd(20, " ");
+      const type = server.type.padEnd(10, " ");
+      const statusPadded = server.status.padEnd(14, " ");
+      const details =
+        server.status === "connected"
+          ? `${server.tools} tool${server.tools === 1 ? "" : "s"}`
+          : (server.error ?? "-");
+
+      writeOutputLine(
+        `${renderAccent(name)}${renderMuted(type)}${renderMuted(statusPadded)}${details}`,
+      );
+    }
+  });
+}
 export function renderSessionTranscript(
   messages: Array<{ role: string; content: unknown }>,
 ): void {

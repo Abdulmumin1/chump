@@ -4,29 +4,33 @@ from pathlib import Path
 
 from ai_query import Field, tool
 
-from ..safety import WorkspaceGuard, SafetyError
+from ..safety import PathResolver, SafetyError
 from ..patch_tool import read_text_snapshot, write_text_snapshot
 from ._utils import _default_text_style, _diff_metadata
 
 
-@tool(description="Write a UTF-8 text file inside the workspace.")
+@tool(description="Write a UTF-8 text file.")
 async def write_file(
-    path: str = Field(description="File path relative to workspace root"),
+    path: str = Field(
+        description="File path; relative paths resolve from workspace root"
+    ),
     content: str = Field(description="Full file contents to write"),
 ) -> str:
     raise NotImplementedError("write_file must be bound via bind_write_file")
 
 
 def bind_write_file(
-    guard: WorkspaceGuard,
+    guard: PathResolver,
     wrap_tool,
     record_file_changes,
     require_fresh_read,
     remember_file_read,
 ):
-    @tool(description="Write a UTF-8 text file inside the workspace.")
+    @tool(description="Write a UTF-8 text file.")
     async def write_file_impl(
-        path: str = Field(description="File path relative to workspace root"),
+        path: str = Field(
+            description="File path; relative paths resolve from workspace root"
+        ),
         content: str = Field(description="Full file contents to write"),
     ) -> str:
         async def runner() -> str:
