@@ -116,6 +116,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._steering_lock = asyncio.Lock()
         self._turn_instruction_claims: set[str] = set()
         self._usage_summary: dict[str, Any] = default_usage_summary()
+        self._pending_auto_compaction_tokens: int | None = None
         self._pending_tool_result_details: dict[str, deque[dict[str, Any]]] = (
             defaultdict(deque)
         )
@@ -557,6 +558,41 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "last": last if isinstance(last, dict) else None,
         }
 
+    async def after_step(self, ctx: Any) -> None:
+        """Schedule compaction before the next model step in a tool-use turn."""
+        threshold = self._config.compaction_tokens
+        usage = usage_to_dict(ctx.event.usage)
+        context_tokens = int((usage or {}).get("total_tokens", 0) or 0)
+        self._pending_auto_compaction_tokens = (
+            context_tokens
+            if threshold is not None and context_tokens >= threshold
+            else None
+        )
+
+    async def before_step(self, ctx: Any) -> None:
+        estimated_tokens = self._pending_auto_compaction_tokens
+        self._pending_auto_compaction_tokens = None
+        if ctx.step_number <= 1 or estimated_tokens is None:
+            return
+
+        messages = ctx.event.messages
+        # stream_text prepends the agent system prompt to its private runtime
+        # history. It is not part of Agent.messages and must not be persisted.
+        runtime_system_prefix = int(
+            bool(messages)
+            and str(messages[0].role) == "system"
+            and (
+                not self._messages
+                or str(self._messages[0].role) != "system"
+            )
+        )
+        await self._compact_messages(
+            reason="auto",
+            estimated_tokens=estimated_tokens,
+            messages=messages,
+            persist_system_prefix=runtime_system_prefix,
+        )
+
     async def _maybe_compact_before_turn(self) -> None:
         threshold = self._config.compaction_tokens
         if threshold is None:
@@ -574,17 +610,20 @@ class ChumpAgent(Agent[dict[str, Any]]):
         *,
         reason: str,
         estimated_tokens: int | None = None,
+        messages: list[Message] | None = None,
+        persist_system_prefix: int = 0,
     ) -> dict[str, Any]:
-        if len(self._messages) < 4:
+        target_messages = self._messages if messages is None else messages
+        if len(target_messages) < 4:
             return {
                 "status": "skipped",
                 "reason": "not_enough_messages",
-                "message_count": len(self._messages),
+                "message_count": len(target_messages),
             }
 
         estimated_tokens = estimated_tokens or self._context_token_estimate()
         keep_start = choose_compaction_start(
-            self._messages,
+            target_messages,
             self._config.compaction_keep_recent_tokens,
             # Auto compaction is triggered from provider-reported context usage
             # (the same source shown in the CLI ctx badge). Local text estimates
@@ -592,24 +631,24 @@ class ChumpAgent(Agent[dict[str, Any]]):
             # minimal old slice when provider usage crosses the threshold.
             force=reason in {"auto", "manual"},
         )
-        protected_count = leading_system_message_count(self._messages)
+        protected_count = leading_system_message_count(target_messages)
         if keep_start <= protected_count:
             return {
                 "status": "skipped",
                 "reason": "nothing_to_compact",
-                "message_count": len(self._messages),
+                "message_count": len(target_messages),
                 "estimated_tokens": estimated_tokens,
             }
 
-        compacted_messages = self._messages[:keep_start]
-        recent_messages = self._messages[keep_start:]
+        compacted_messages = target_messages[:keep_start]
+        recent_messages = target_messages[keep_start:]
         await self.emit(
             "compaction_status",
             {
                 "running": True,
                 "reason": reason,
                 "tokens_before": estimated_tokens,
-                "messages_before": len(self._messages),
+                "messages_before": len(target_messages),
             },
         )
         try:
@@ -622,16 +661,20 @@ class ChumpAgent(Agent[dict[str, Any]]):
                     "reason": reason,
                 },
             )
-        before_count = len(self._messages)
-        self._messages = replace_compacted_messages(
-            self._messages,
+        before_count = len(target_messages)
+        replacement = replace_compacted_messages(
+            target_messages,
             keep_start,
             summary,
         )
+        target_messages[:] = replacement
+        if messages is not None:
+            self._messages = list(replacement[persist_system_prefix:])
         await self._persist_messages()
-        tokens_after = estimate_messages_tokens(self._messages)
+        tokens_after = estimate_messages_tokens(target_messages)
         self._usage_summary["last_step"] = context_usage_dict(tokens_after)
-        self._usage_summary["current_turn"] = zero_usage_dict()
+        if messages is None:
+            self._usage_summary["current_turn"] = zero_usage_dict()
 
         now = time.time()
         compaction = {
@@ -639,7 +682,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "tokens_before": estimated_tokens,
             "tokens_after": tokens_after,
             "messages_before": before_count,
-            "messages_after": len(self._messages),
+            "messages_after": len(target_messages),
             "compacted_messages": len(compacted_messages),
             "kept_messages": len(recent_messages),
             "summary_chars": len(summary),
