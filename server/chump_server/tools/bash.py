@@ -10,11 +10,21 @@ from ..safety import WorkspaceGuard, validate_command
 from ._utils import _terminate_process, _truncate_command_output
 
 
+MAX_BASH_TIMEOUT_SECONDS = 3_600
+
+
 @tool(description="Run a shell command inside the workspace.")
 async def bash(
     command: str = Field(description="Shell command to execute"),
     cwd: str = Field(
         description="Working directory relative to workspace root", default="."
+    ),
+    timeout: int | None = Field(
+        description=(
+            "Timeout in seconds for this command (max 3600); "
+            "defaults to the configured command timeout"
+        ),
+        default=None,
     ),
 ) -> str:
     raise NotImplementedError("bash must be bound via bind_bash")
@@ -33,9 +43,17 @@ def bind_bash(
         cwd: str = Field(
             description="Working directory relative to workspace root", default="."
         ),
+        timeout: int | None = Field(
+            description=(
+                "Timeout in seconds for this command (max 3600); "
+                "defaults to the configured command timeout"
+            ),
+            default=None,
+        ),
     ) -> str:
         async def runner() -> str:
             validate_command(command)
+            timeout_seconds = resolve_command_timeout(timeout, config.command_timeout)
             directory = guard.ensure_directory(cwd)
             if not directory.exists():
                 raise RuntimeError(f"directory does not exist: {cwd}")
@@ -53,7 +71,7 @@ def bind_bash(
             )
 
             communicate_task = asyncio.create_task(process.communicate())
-            timeout_task = asyncio.create_task(asyncio.sleep(config.command_timeout))
+            timeout_task = asyncio.create_task(asyncio.sleep(timeout_seconds))
             abort_task = (
                 asyncio.create_task(abort_signal.wait())
                 if abort_signal
@@ -79,7 +97,7 @@ def bind_bash(
                 if timeout_task in done:
                     await _terminate_process(process)
                     raise RuntimeError(
-                        f"command timed out after {config.command_timeout} seconds"
+                        f"command timed out after {timeout_seconds} seconds"
                     )
 
                 stdout, stderr = communicate_task.result()
@@ -95,6 +113,21 @@ def bind_bash(
                 )
             return output or "(command produced no output)"
 
-        return await wrap_tool("bash", {"command": command, "cwd": cwd}, runner)
+        return await wrap_tool(
+            "bash",
+            {"command": command, "cwd": cwd, "timeout": timeout},
+            runner,
+        )
 
     return bash_impl
+
+
+def resolve_command_timeout(requested: int | None, configured: int) -> int:
+    timeout = configured if requested is None else requested
+    if timeout <= 0:
+        raise ValueError("bash timeout must be greater than zero seconds")
+    if timeout > MAX_BASH_TIMEOUT_SECONDS:
+        raise ValueError(
+            f"bash timeout cannot exceed {MAX_BASH_TIMEOUT_SECONDS} seconds"
+        )
+    return timeout
