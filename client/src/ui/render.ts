@@ -853,14 +853,14 @@ export function renderToolResult(
   preview: string,
 ): string {
   if (status === "ok") {
-    return `${success("◐")} ${accent(name)} ${muted(preview)}`;
+    return `${success("○")} ${accent(name)} ${muted(preview)}`;
   }
   return `${danger("×")} ${accent(name)} ${preview}`;
 }
 
 export function renderToolDone(name: string, args: string): string {
   const suffix = args ? ` ${foreground(args)}` : "";
-  return `${success("◐")} ${accent(name)}${suffix}`;
+  return `${success("○")} ${accent(name)}${suffix}`;
 }
 
 export function renderFileChangeSummary(
@@ -1033,7 +1033,7 @@ export function renderCommand(
     : commandLines;
   const rendered = visibleLines.map((line, index) =>
     index === 0
-      ? `${accent("◐")} ${accent("$")} ${line}`
+      ? `${accent("○")} ${accent("$")} ${line}`
       : `${muted("  │ ")}${line}`
   );
   if (truncated) {

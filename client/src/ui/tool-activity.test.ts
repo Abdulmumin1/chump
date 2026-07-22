@@ -20,7 +20,7 @@ test("renders consecutive searches as a compact run without blank lines", () => 
   renderer.renderToolResult(searchResult("fff|FFF", 0));
 
   assert.equal(output.length, 2);
-  assert.match(stripTestAnsi(output[0] ?? ""), /\n◐ Search/u);
+  assert.match(stripTestAnsi(output[0] ?? ""), /\n○ Search/u);
   assert.match(output[0] ?? "", /\n.*CHUMP_FFF_COMMAND.*4 matches/s);
   assert.match(output[1] ?? "", /fff\|FFF.*\.\/client.*no matches/s);
   assert.equal(output[1]?.startsWith("\n"), false);
@@ -568,7 +568,7 @@ test("caps long commands to five terminal rows", () => {
   const lines = rendered.split("\n");
 
   assert.equal(lines.length, 5);
-  assert.match(lines[0] ?? "", /^◐ \$ python3 -c '/u);
+  assert.match(lines[0] ?? "", /^○ \$ python3 -c '/u);
   assert.match(lines.at(-1) ?? "", /^  │  …$/u);
   assert.doesNotMatch(rendered, /print\(19\)/u);
 });
@@ -628,7 +628,7 @@ test("cleans, formats, and indents multiline command output with tree markers", 
   const commandLine = stripTestAnsi(output[0] ?? "");
   const outputLine = stripTestAnsi(output[1] ?? "");
 
-  assert.match(commandLine, /^◐\s+\$\s+python3 -c/mu);
+  assert.match(commandLine, /^○\s+\$\s+python3 -c/mu);
   if (!process.env.NO_COLOR) {
     assert.match(output[0] ?? "", /\x1b\[38;2;/u);
   }
