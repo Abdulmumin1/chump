@@ -1,5 +1,15 @@
 # chump-agent
 
+## 0.2.9
+
+### Patch Changes
+
+- Add shell completion for Bash, Zsh, Fish, and PowerShell. Platform
+  installers automatically generate and enable completion for the running
+  shell. A `chump completion <shell>` command remains available for manual
+  setup, and global npm installs enable completion on first interactive
+  launch.
+
 ## 0.2.8
 
 ### Patch Changes

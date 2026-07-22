@@ -84,6 +84,12 @@ import {
   stopManagedServer,
 } from "./runtime.ts";
 import {
+  completionCommandUsage,
+  enablePackageShellCompletion,
+  parseCompletionShell,
+  renderShellCompletion,
+} from "./completion.ts";
+import {
   ManagedServerRequestCoordinator,
   recoverManagedServerUrl,
   type ServerRequestRunner,
@@ -172,6 +178,19 @@ async function runProvidersCommand(): Promise<void> {
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv[0] === "completion") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      console.log(completionCommandUsage());
+      return;
+    }
+    console.log(renderShellCompletion(parseCompletionShell(argv[1])));
+    return;
+  }
+
+  if (input.isTTY) {
+    await enablePackageShellCompletion();
+  }
+
   if (argv[0] === "app") {
     if (argv[1] === "--help" || argv[1] === "-h") {
       console.log("chump app [--web-url <url>] [--no-open] [--json]");

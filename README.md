@@ -70,8 +70,13 @@ chump projects remove <id>     # Remove a project from the registry
 chump stop                     # Stop managed server
 chump update                   # Update an installed CLI/binary
 chump share                    # Share session via tunnel
+chump completion zsh           # Print a completion script (normally installed automatically)
 chump --version                # Print CLI version
 ```
+
+The platform installers automatically enable completion for your current
+Bash, Zsh, Fish, or PowerShell shell. Open a new terminal after installation;
+there is no separate completion setup step.
 
 Resume or switch sessions:
 

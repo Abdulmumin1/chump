@@ -102,6 +102,7 @@ if ((-not (Test-Path $serverDir)) -and (-not $server)) {
 
 $stagedApp = "$destDir\.chump.install-$PID.exe"
 $stagedServer = "$destDir\.server.install-$PID"
+$stagedCompletions = "$destDir\.completions.install-$PID"
 
 Copy-Item "$packageDir\chump.exe" $stagedApp -Force
 if (Test-Path $serverDir) {
@@ -116,6 +117,33 @@ if (Test-Path "$destDir\server") {
     Remove-Item -Recurse -Force "$destDir\server"
 }
 Move-Item $stagedServer "$destDir\server" -Force
+
+# Generate the completion script from the installed binary, then register a
+# small managed profile block. This keeps completion available after a normal
+# install without asking the user to run an extra setup command.
+New-Item -ItemType Directory -Force -Path $stagedCompletions | Out-Null
+& $dest completion powershell | Set-Content -Path "$stagedCompletions\chump.ps1" -Encoding utf8
+if (Test-Path "$destDir\completions") {
+    Remove-Item -Recurse -Force "$destDir\completions"
+}
+Move-Item $stagedCompletions "$destDir\completions" -Force
+
+$profilePath = $PROFILE.CurrentUserAllHosts
+$profileDirectory = Split-Path -Parent $profilePath
+if (-not (Test-Path $profileDirectory)) {
+    New-Item -ItemType Directory -Force -Path $profileDirectory | Out-Null
+}
+if (-not (Test-Path $profilePath)) {
+    New-Item -ItemType File -Force -Path $profilePath | Out-Null
+}
+$completionStart = "# chump completion"
+$completionEnd = "# /chump completion"
+$profileContent = Get-Content -Raw -Path $profilePath
+if ($profileContent -notmatch [regex]::Escape($completionStart)) {
+    Add-Content -Path $profilePath -Value "`n$completionStart`n. '$destDir\completions\chump.ps1'`n$completionEnd"
+    Write-Muted "Enabled PowerShell completion."
+}
+
 Remove-Item -Recurse -Force $extractDir
 Remove-Item -Force $archive
 

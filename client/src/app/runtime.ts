@@ -180,6 +180,7 @@ export function printCliUsage(): void {
   console.log("chump client [-c <server-url>] [-s <session-id>]");
   console.log("chump server");
   console.log("chump connect");
+  console.log("chump completion <bash|fish|powershell|zsh>");
   console.log("chump app [--web-url <url>]");
   console.log("chump providers");
   console.log("chump daemon [start|status|stop]");
