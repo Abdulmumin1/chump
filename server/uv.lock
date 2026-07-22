@@ -10,7 +10,7 @@ resolution-markers = [
 
 [[package]]
 name = "ai-query"
-version = "1.9.2"
+version = "1.9.4"
 source = { editable = "../ai-query" }
 dependencies = [
     { name = "aiohttp" },

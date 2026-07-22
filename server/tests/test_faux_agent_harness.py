@@ -164,6 +164,54 @@ async def test_faux_provider_drives_and_reloads_a_complete_chump_turn(
 
 
 @pytest.mark.asyncio
+async def test_provider_failure_before_first_token_is_persisted_and_streamed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = faux(
+        responses=[
+            FauxResponse(error=RuntimeError("provider rejected request")),
+        ]
+    )
+    config = _test_config(tmp_path)
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(
+        ChumpAgent,
+        "_server_resources",
+        ResourceCatalog(tmp_path),
+    )
+
+    agent = ChumpAgent("faux-provider-error")
+    agent.model = model
+
+    async with agent:
+        frames = [
+            frame
+            async for frame in agent.handle_request_stream(
+                {"message": "Trigger the provider"}
+            )
+        ]
+        events = (await agent.event_log())["events"]
+
+    assert frames == [
+        "event: start\ndata: \n\n",
+        'event: error\ndata: "provider rejected request"\n\n',
+    ]
+    turn_error = next(event for event in events if event["type"] == "turn_error")
+    assert turn_error["data"] == {
+        "message": "provider rejected request",
+        "error_type": "RuntimeError",
+        "schema_version": 1,
+    }
+    assert [event["type"] for event in events][-2:] == [
+        "turn_error",
+        "turn_status",
+    ]
+    assert events[-1]["data"]["running"] is False
+    assert not any(event["type"] == "assistant_text" for event in events)
+
+
+@pytest.mark.asyncio
 async def test_abort_hands_pending_steering_to_one_follow_up_turn(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

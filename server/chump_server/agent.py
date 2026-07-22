@@ -446,6 +446,18 @@ class ChumpAgent(Agent[dict[str, Any]]):
                     "auto-restarting turn for "
                     f"{len(drained_events)} un-drained steering item(s)"
                 )
+        except AbortError:
+            raise
+        except Exception as exc:
+            if announced_running:
+                await self.emit(
+                    "turn_error",
+                    {
+                        "message": self._format_chat_error(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                )
+            raise
         finally:
             if announced_running:
                 await self._emit_turn_status(False)

@@ -8,6 +8,7 @@ export const CHUMP_EVENT_TYPES = [
   "agent_status",
   "steering_queue",
   "turn_status",
+  "turn_error",
   "compaction_status",
   "compaction",
   "status",
@@ -60,6 +61,10 @@ export type TurnStatusPayload = VersionedEventPayload & {
   running: boolean;
   steering_queue: SteeringItem[];
 };
+export type TurnErrorPayload = VersionedEventPayload & {
+  message: string;
+  error_type: string;
+};
 export type CompactionStatusPayload = VersionedEventPayload & {
   running: boolean;
   reason: string;
@@ -90,6 +95,7 @@ export type ChumpEvent =
   | { type: "agent_status"; data: AgentStatusPayload }
   | { type: "steering_queue"; data: SteeringQueuePayload }
   | { type: "turn_status"; data: TurnStatusPayload }
+  | { type: "turn_error"; data: TurnErrorPayload }
   | { type: "compaction_status"; data: CompactionStatusPayload }
   | { type: "compaction"; data: CompactionPayload }
   | { type: "status"; data: StepStatusPayload };
@@ -155,6 +161,10 @@ export function parseChumpEvent(type: string, data: unknown): ChumpEvent | null 
       return typeof data.running === "boolean" &&
           Array.isArray(data.steering_queue)
         ? { type, data: versioned as TurnStatusPayload }
+        : null;
+    case "turn_error":
+      return isString(data.message) && isString(data.error_type)
+        ? { type, data: versioned as TurnErrorPayload }
         : null;
     case "compaction_status":
       return typeof data.running === "boolean" && isString(data.reason)

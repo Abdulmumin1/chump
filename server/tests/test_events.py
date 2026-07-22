@@ -51,6 +51,7 @@ def test_server_versions_new_events_without_mutating_the_caller() -> None:
     [
         ("assistant_text", {}),
         ("turn_status", {"running": "yes", "steering_queue": []}),
+        ("turn_error", {"message": "failed", "error_type": 500}),
         ("status", {"phase": "unknown", "step": 1}),
         ("user_message", {"schema_version": 2, "content": "hello"}),
     ],

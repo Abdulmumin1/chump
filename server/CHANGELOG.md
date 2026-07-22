@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.1.9
+
+- Normalize Google function declarations through `ai-query==1.9.4` so Gemini accepts Chump's MCP tool and other schemas with free-form object parameters.
+- Persist provider failures that occur before the first token as replayable `turn_error` events while continuing to return the original error to the active chat stream.
+- Add `turn_error` to the shared event contract and surface replayed failures in the web client instead of leaving failed turns indistinguishable from empty responses.
+
 ## 0.1.8
 
 - Compact long-running tool-use turns between model steps as soon as provider-reported context reaches the configured threshold, preventing Codex sessions from exceeding the limit before the next user turn.

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.11
+
+### Patch Changes
+
+- Bundle the Gemini tool-schema compatibility fix and preserve provider failures as replayable turn errors instead of leaving silent, empty turns.
+
 ## 0.2.10
 
 ### Patch Changes

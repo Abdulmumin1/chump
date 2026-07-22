@@ -426,6 +426,11 @@ export function createSessionController(
         }
         const payload = chumpEvent?.data ?? rawPayload;
 
+        if (chumpEvent?.type === "turn_error") {
+            state.connectionError = chumpEvent.data.message;
+            return;
+        }
+
         if (event.event === "assistant_text" || event.event === "reasoning") {
             state.messages = applyLiveEventToMessages(
                 state.messages,
