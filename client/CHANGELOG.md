@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.7
+
+### Patch Changes
+
+- Use a hollow-circle marker for completed CLI tools and commands so their labels align consistently across terminal fonts.
+
 ## 0.2.6
 
 ### Patch Changes
