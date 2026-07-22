@@ -4,16 +4,10 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "chump-server-v*"
   workflow_dispatch:
     inputs:
       client_tag:
         description: "Existing chump-agent release tag to upload client archives to, e.g. chump-agent@0.0.35"
-        required: false
-        type: string
-      server_tag:
-        description: "Existing chump-server release tag to upload server binaries to, e.g. chump-server-v0.0.32"
         required: false
         type: string
 
@@ -22,10 +16,81 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  server-tag:
+    name: Tag server release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create server tag from changelog
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version=$(sed -nE 's/^## ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' server/CHANGELOG.md | head -n 1)
+          if [[ -z "$version" ]]; then
+            echo "The server changelog does not start with a stable version heading" >&2
+            exit 1
+          fi
+
+          latest_tag=$(git tag --list 'chump-server-v*' --sort=-version:refname | head -n 1)
+          latest_version=${latest_tag#chump-server-v}
+
+          if [[ "$version" == "$latest_version" ]]; then
+            echo "Server $version is already tagged"
+            exit 0
+          fi
+
+          if [[ -n "$latest_tag" && "$(printf '%s\n' "$latest_version" "$version" | sort -V | tail -n 1)" != "$version" ]]; then
+            echo "Server changelog version $version is older than existing tag $latest_tag" >&2
+            exit 1
+          fi
+
+          tag="chump-server-v$version"
+          remote_commit=$(git ls-remote origin "refs/tags/$tag" | awk 'NR == 1 { print $1 }')
+          if [[ -n "$remote_commit" ]]; then
+            if [[ "$remote_commit" != "$GITHUB_SHA" ]]; then
+              echo "Tag $tag already exists at $remote_commit, not $GITHUB_SHA" >&2
+              exit 1
+            fi
+            echo "Tag $tag already exists at this commit"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  server-release:
+    name: Publish server
+    needs: server-tag
+    if: needs.server-tag.outputs.tag != ''
+    uses: ./.github/workflows/server-release.yml
+    with:
+      tag: ${{ needs.server-tag.outputs.tag }}
+    secrets: inherit
+
   npm:
     name: npm
+    needs: [server-tag, server-release]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/')
+    if: >-
+      always() &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.server-tag.result == 'success' &&
+      (needs.server-release.result == 'success' || needs.server-release.result == 'skipped')
     outputs:
       published: ${{ steps.changesets.outputs.published }}
       tag: ${{ steps.get_version.outputs.tag }}
@@ -70,13 +135,16 @@ jobs:
         id: get_version
         run: |
           PUBLISHED_PACKAGES='${{ steps.changesets.outputs.publishedPackages }}'
-          VERSION=$(echo $PUBLISHED_PACKAGES | jq -r '.[] | select(.name == "chump-agent") | .version')
-          echo "tag=chump-agent@$VERSION" >> $GITHUB_OUTPUT
+          VERSION=$(echo "$PUBLISHED_PACKAGES" | jq -r '.[] | select(.name == "chump-agent") | .version')
+          echo "tag=chump-agent@$VERSION" >> "$GITHUB_OUTPUT"
 
   binaries:
     name: binaries (${{ matrix.os }})
-    needs: npm
-    if: always() && (needs.npm.outputs.published == 'true' || inputs.client_tag != '')
+    needs: [npm, server-tag, server-release]
+    if: >-
+      always() &&
+      (needs.npm.outputs.published == 'true' || inputs.client_tag != '') &&
+      (needs.server-release.result == 'success' || needs.server-release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -129,12 +197,12 @@ jobs:
       - name: Build latest server runtime
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PLATFORM: ${{ matrix.platform }}
         run: |
-          server_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,publishedAt --jq '[.[] | select(.tagName | startswith("chump-server-v"))] | sort_by(.publishedAt) | last | .tagName')
+          git fetch origin '+refs/tags/chump-server-v*:refs/tags/chump-server-v*' --force
+          server_tag=$(git tag --list 'chump-server-v*' --sort=-version:refname | head -n 1)
           if [[ -z "$server_tag" || "$server_tag" == "null" ]]; then
-            echo "No chump-server release found" >&2
+            echo "No chump-server tag found" >&2
             exit 1
           fi
 
@@ -170,122 +238,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: client/dist/packages/*.tar.gz
-          tag_name: ${{ steps.release_tag.outputs.tag }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  pypi:
-    name: PyPI
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/chump-server-v')
-    permissions:
-      id-token: write
-      contents: write
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Checkout ai-query for dev lock compatibility
-        uses: actions/checkout@v4
-        with:
-          repository: Abdulmumin1/ai-query
-          path: ai-query
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Build server package
-        run: uv build
-
-      - name: Validate built server version
-        if: startsWith(github.ref, 'refs/tags/chump-server-v')
-        run: |
-          expected="${GITHUB_REF_NAME#chump-server-v}"
-          python -c "from pathlib import Path; expected='$expected'; wheels=list(Path('dist').glob('chump_server-*.whl')); assert wheels, 'missing wheel'; name=wheels[0].name; assert name.startswith(f'chump_server-{expected}-'), f'{name} does not match {expected}'"
-
-      - name: Publish server package
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: server/dist
-
-      - name: Prepare GitHub release notes
-        if: startsWith(github.ref, 'refs/tags/chump-server-v')
-        run: python scripts/extract_release_notes.py CHANGELOG.md "${GITHUB_REF_NAME#chump-server-v}" .release-notes.md
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/chump-server-v')
-        uses: softprops/action-gh-release@v2
-        with:
-          body_path: server/.release-notes.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  server-binaries:
-    name: server binaries (${{ matrix.os }})
-    needs: pypi
-    if: always() && (startsWith(github.ref, 'refs/tags/chump-server-v') || inputs.server_tag != '')
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-          - os: ubuntu-24.04-arm
-          - os: macos-15-intel
-          - os: macos-14
-          - os: windows-latest
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Checkout ai-query for server build
-        uses: actions/checkout@v4
-        with:
-          repository: Abdulmumin1/ai-query
-          path: ai-query
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Build server runtime archive
-        run: python server/scripts/build_binary.py --mode onedir --archive
-
-      - name: Build legacy server binary
-        run: python server/scripts/build_binary.py --mode onefile
-
-      - name: Resolve release tag
-        id: release_tag
-        shell: bash
-        run: |
-          if [[ -n "${{ inputs.server_tag }}" ]]; then
-            echo "tag=${{ inputs.server_tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Upload server runtime archive
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            server/dist/bin/chump-server-*.tar.gz
-            server/dist/bin/chump-server-*
           tag_name: ${{ steps.release_tag.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
