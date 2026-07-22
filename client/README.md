@@ -60,6 +60,14 @@ Update an installed CLI or prebuilt binary:
 chump update
 ```
 
+## Shell completion
+
+Platform installers automatically generate and enable completion for the shell
+that runs the installer (Bash, Zsh, Fish, or PowerShell). Open a new terminal
+after installation; no extra setup command is needed. `chump completion
+<bash|fish|powershell|zsh>` remains available for package managers or custom
+shell configurations.
+
 ## Development
 
 From the `client/` directory:

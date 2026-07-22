@@ -62,11 +62,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
     _server_config: ChumpConfig | None = None
     _server_resources: ResourceCatalog | None = None
     _server_search: Any = None
+    _server_mcp: Any = None
 
     @classmethod
     def configure(cls, config: ChumpConfig, resources: ResourceCatalog) -> None:
         cls._server_config = config
         cls._server_resources = resources
+        cls._server_mcp = None
 
     def __init__(self, id: str):
         config = self._server_config or load_config()
@@ -99,7 +101,14 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
         self._config = config
         self._resources = resources
-        self.tools = build_tools(self, config, resources, self._server_search)
+        self._refresh_mcp_tool_bindings = None
+        self.tools = build_tools(
+            self,
+            config,
+            resources,
+            self._server_search,
+            self._server_mcp,
+        )
         self._last_step_records: list[dict[str, Any]] = []
         self._current_turn: AgentTurn | None = None
         self._pending_steering_events: list[dict[str, Any]] = []
@@ -116,6 +125,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     async def on_start(self) -> None:
         self._usage_summary = normalize_usage_summary(self.state.get("usage_summary"))
+        if self._server_mcp is not None:
+            await self._server_mcp.start()
+            self.refresh_mcp_tools()
+
+    def refresh_mcp_tools(self) -> None:
+        if self._refresh_mcp_tool_bindings is not None:
+            self._refresh_mcp_tool_bindings()
 
     @action
     async def status(self) -> dict[str, Any]:
@@ -466,6 +482,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
         **kwargs: Any,
     ) -> AgentTurn:
         self._ensure_model()
+        if self._server_mcp is not None:
+            await self._server_mcp.start()
+            self.refresh_mcp_tools()
         await self._maybe_compact_before_turn()
         self._last_step_records = []
         self._turn_instruction_claims = set()

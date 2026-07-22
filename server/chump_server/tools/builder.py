@@ -23,11 +23,18 @@ from .website import bind_website
 from .skill import bind_skill
 from .search import bind_search
 from .sessions import bind_session_tools
+from .mcp import bind_mcp_tools
 
 MAX_CHANGE_RECORDS = 200
 
 
-def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
+def build_tools(
+    agent,
+    config: ChumpConfig,
+    resources: ResourceCatalog,
+    search,
+    mcp_manager=None,
+):
     guard = WorkspaceGuard(config.workspace_root)
     state_lock = asyncio.Lock()
 
@@ -219,8 +226,14 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
     )
     search_tool = bind_search(search=search, wrap_tool=wrap_tool)
     session_tools = bind_session_tools(agent=agent, config=config, wrap_tool=wrap_tool)
+    mcp_tools = bind_mcp_tools(
+        agent=agent,
+        config=config,
+        manager=mcp_manager,
+        wrap_tool=wrap_tool,
+    )
 
-    return {
+    tools = {
         "read_file": read_file,
         "view_image": view_image,
         "write_file": write_file,
@@ -230,5 +243,23 @@ def build_tools(agent, config: ChumpConfig, resources: ResourceCatalog, search):
         "website": website,
         "search": search_tool,
         **session_tools,
+        **mcp_tools,
         "bash": bash,
     }
+    mcp_tool_names = set(mcp_tools)
+
+    def refresh_mcp_tool_bindings():
+        replacements = bind_mcp_tools(
+            agent=agent,
+            config=config,
+            manager=mcp_manager,
+            wrap_tool=wrap_tool,
+        )
+        for name in mcp_tool_names:
+            tools.pop(name, None)
+        tools.update(replacements)
+        mcp_tool_names.clear()
+        mcp_tool_names.update(replacements)
+
+    agent._refresh_mcp_tool_bindings = refresh_mcp_tool_bindings
+    return tools

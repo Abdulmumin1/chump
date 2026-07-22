@@ -72,6 +72,22 @@ test("title-cases built-in and fallback tool labels", () => {
   assert.doesNotMatch(rendered, /custom_tool/u);
 });
 
+test("renders MCP calls with an uppercase label and readable target", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "mcp",
+    args: { action: "call_tool", server: "context7", tool_name: "query-docs" },
+    call_id: "call_mcp",
+  });
+  renderer.renderToolResult({ name: "mcp", status: "ok", call_id: "call_mcp" });
+
+  const rendered = stripTestAnsi(output.join("\n"));
+  assert.match(rendered, /MCP.*Calling tool.*context7 \/ query-docs/su);
+  assert.doesNotMatch(rendered, /\{"action"/u);
+});
+
 test("renders each failed read once on its correlated compact row", () => {
   const output: string[] = [];
   const renderer = new ToolActivityRenderer((value = "") => output.push(value));

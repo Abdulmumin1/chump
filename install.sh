@@ -396,6 +396,23 @@ $(path_command)
 EOF
 }
 
+completion_script_path() {
+    case "$(shell_name)" in
+        bash|fish|zsh) echo "$INSTALL_DIR/completions/chump.$(shell_name)" ;;
+        *) return 1 ;;
+    esac
+}
+
+completion_block() {
+    local script_path
+    script_path=$(completion_script_path) || return 0
+    cat <<EOF
+# chump completion
+source "$script_path"
+# /chump completion
+EOF
+}
+
 first_existing_config() {
     local file
     for file in $(candidate_shell_configs); do
@@ -405,6 +422,33 @@ first_existing_config() {
         fi
     done
     return 1
+}
+
+default_shell_config() {
+    case "$(shell_name)" in
+        fish) echo "$HOME/.config/fish/config.fish" ;;
+        zsh) echo "${ZDOTDIR:-$HOME}/.zshrc" ;;
+        bash) echo "$HOME/.bashrc" ;;
+        ash|sh) echo "$HOME/.profile" ;;
+        *) return 1 ;;
+    esac
+}
+
+shell_config_file() {
+    first_existing_config || default_shell_config
+}
+
+ensure_shell_config_file() {
+    local config_file="$1"
+    if [[ -f "$config_file" ]]; then
+        return 0
+    fi
+    if [[ "$dry_run" == "true" ]]; then
+        info "dry-run: create $config_file"
+        return 0
+    fi
+    mkdir -p "$(dirname "$config_file")"
+    touch "$config_file"
 }
 
 add_to_path() {
@@ -419,12 +463,13 @@ add_to_path() {
     fi
 
     local config_file=""
-    config_file=$(first_existing_config || true)
+    config_file=$(shell_config_file || true)
     if [[ -z "$config_file" ]]; then
-        warn "No shell config found for $(shell_name). Add this manually:"
-        say "  $(path_command)"
+        warn "No supported shell config found for $(shell_name); PATH was not changed"
         return 0
     fi
+
+    ensure_shell_config_file "$config_file"
 
     if grep -Fq "$INSTALL_DIR" "$config_file" 2>/dev/null; then
         info "PATH entry already exists in $config_file"
@@ -449,6 +494,67 @@ add_to_path() {
     success "Added chump to PATH in $config_file"
 }
 
+generate_shell_completion() {
+    local shell script_path staged_path
+    shell=$(shell_name)
+    script_path=$(completion_script_path) || {
+        info "Shell completion is unavailable for $shell"
+        return 0
+    }
+
+    if [[ "$dry_run" == "true" ]]; then
+        info "dry-run: generate $script_path"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$script_path")"
+    staged_path="$script_path.install-$$"
+    if ! "$INSTALL_DIR/$APP" completion "$shell" > "$staged_path"; then
+        rm -f "$staged_path"
+        warn "Could not generate $shell completion"
+        return 0
+    fi
+    mv "$staged_path" "$script_path"
+}
+
+add_shell_completion() {
+    if [[ "$no_modify_path" == "true" ]]; then
+        info "Shell completion unchanged (--no-modify-path)"
+        return 0
+    fi
+
+    local script_path config_file
+    script_path=$(completion_script_path) || return 0
+    if [[ ! -f "$script_path" ]]; then
+        return 0
+    fi
+    config_file=$(shell_config_file || true)
+    if [[ -z "$config_file" ]]; then
+        warn "No supported shell config found for $(shell_name); completion was not enabled"
+        return 0
+    fi
+
+    ensure_shell_config_file "$config_file"
+    if grep -Fq "# chump completion" "$config_file" 2>/dev/null; then
+        info "Shell completion already enabled in $config_file"
+        return 0
+    fi
+    if [[ ! -w "$config_file" ]]; then
+        warn "Cannot write $config_file; completion was not enabled"
+        return 0
+    fi
+    if [[ "$dry_run" == "true" ]]; then
+        info "dry-run: append managed completion block to $config_file"
+        return 0
+    fi
+
+    {
+        echo ""
+        completion_block
+    } >> "$config_file"
+    success "Enabled $(shell_name) completion in $config_file"
+}
+
 remove_path_blocks_from_file() {
     local file="$1"
     [[ -f "$file" && -w "$file" ]] || return 0
@@ -463,8 +569,8 @@ remove_path_blocks_from_file() {
     local tmp
     tmp=$(mktemp)
     awk -v install_dir="$INSTALL_DIR" '
-        $0 == "# chump install" { managed=1; changed=1; next }
-        $0 == "# /chump install" && managed { managed=0; next }
+        $0 == "# chump install" || $0 == "# chump completion" { managed=1; changed=1; next }
+        ($0 == "# /chump install" || $0 == "# /chump completion") && managed { managed=0; next }
         managed { next }
         $0 == "# chump" { legacy=1; legacy_line=$0; next }
         legacy {
@@ -604,6 +710,7 @@ install_from_release() {
     run mv -f "$staged_app" "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
     run rm -rf "$INSTALL_DIR/server"
+    run rm -rf "$INSTALL_DIR/completions"
     run mv -f "$staged_server" "$INSTALL_DIR/server"
     run rm -rf "$extract_dir" "$tmp_file"
 }
@@ -658,6 +765,8 @@ else
 fi
 
 add_to_path
+generate_shell_completion
+add_shell_completion
 
 if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_PATH:-}" ]]; then
     if [[ "$dry_run" == "true" ]]; then
