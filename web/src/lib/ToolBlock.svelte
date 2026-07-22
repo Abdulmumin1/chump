@@ -34,6 +34,31 @@
     });
 
     let isViewImage = $derived(block.originalToolName === "view_image");
+    let isMcpTool = $derived(block.originalToolName === "mcp");
+
+    let mcpActionLabel = $derived.by(() => {
+        if (!isMcpTool) return "";
+        const action = String(block.args?.action ?? "");
+        const actions: Record<string, string> = {
+            status: "Status",
+            list_tools: "List tools",
+            search_tools: "Search tools",
+            get_tool: "Get tool",
+            call_tool: "Call tool",
+            add: "Add server",
+            remove: "Remove server",
+            reconnect: "Reconnect",
+        };
+        return actions[action] ?? "Activity";
+    });
+
+    let mcpDetail = $derived.by(() => {
+        if (!isMcpTool) return "";
+        const server = String(block.args?.server ?? "");
+        const tool = String(block.args?.tool_name ?? "");
+        const query = String(block.args?.query ?? "");
+        return [server, tool].filter(Boolean).join(" / ") || query;
+    });
 
     let imagePath = $derived.by(() => {
         if (!isViewImage) return "";
@@ -111,7 +136,7 @@
 {:else}
     <div>
         <button
-            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none {isMcpTool ? 'bg-text-highlight/5 hover:bg-text-highlight/10' : ''}"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">
@@ -199,6 +224,21 @@
                         <span
                             class="ml-1 truncate font-mono text-[11px] text-text-secondary"
                             >{(block.toolName || "").replace(/^Skill\s+/i, "")}</span
+                        >
+                    {/if}
+                {:else if isMcpTool}
+                    <span
+                        class="flex-shrink-0 rounded border border-text-highlight/30 bg-text-highlight/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-[0.12em] text-text-highlight"
+                        >MCP</span
+                    >
+                    <span
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-main"
+                        >{mcpActionLabel}</span
+                    >
+                    {#if mcpDetail}
+                        <span
+                            class="min-w-0 truncate font-mono text-[11px] text-text-secondary"
+                            >{mcpDetail}</span
                         >
                     {/if}
                 {:else if isSessionTool}

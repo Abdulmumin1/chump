@@ -57,6 +57,109 @@ The following fields can be configured in either your local `.chump/config.json`
 | `allowed_origins` | `array<str>` / `string` | `CHUMP_ALLOWED_ORIGINS` | *Standard Origins* | List of browser client origins permitted to connect to the backend server. |
 | `reasoning` | `object` | *See below* | `None` | Object setting reasoning constraints for models (e.g. `{"effort": "medium", "budget": 2048}`). |
 
+## MCP Servers
+
+Chump can connect to Model Context Protocol servers over local stdio,
+Streamable HTTP, or legacy SSE. MCP tools are available through Chump's single
+`mcp` tool by default, which avoids filling the model context with every tool
+definition. Ask the agent things like:
+
+- “Show my MCP server status.”
+- “Find a tool in the context7 MCP server for React documentation.”
+- “Add the Context7 remote MCP server to this project.”
+- “Why did the github MCP server fail, and can you reconnect it?”
+
+The agent can inspect, call, add, and remove MCP servers with the `mcp` tool.
+Project changes are written to `.mcp.json`; global changes are written to
+`~/.config/mcp/mcp.json` (or `$XDG_CONFIG_HOME/mcp/mcp.json`). These shared
+files use the common `mcpServers` format and can be reused by other agents.
+Because local MCP entries can execute commands, project-level entries must set
+`"enabled": true`; entries added through the agent include this explicit opt-in.
+
+### Shared `.mcp.json` format
+
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "cwd": ".",
+      "enabled": true,
+      "env": {
+        "PLAYWRIGHT_TOKEN": "${PLAYWRIGHT_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Chump loads MCP configuration in this order, with later entries overriding a
+server of the same name:
+
+1. Global shared config (`~/.config/mcp/mcp.json`)
+2. Global Chump config (`config.json`, under `mcp`)
+3. Project shared config (`<workspace>/.mcp.json`)
+4. Project Chump config (`<workspace>/.chump/config.json`, under `mcp`)
+
+Both `${NAME}` and `{env:NAME}` environment references are expanded only when
+connecting. Keep credentials in environment variables—never commit literal
+tokens to an MCP config.
+
+### Chump/OpenCode-style config
+
+MCP servers can also be defined under `mcp` in either Chump `config.json`:
+
+```json
+{
+  "mcp": {
+    "local-server": {
+      "type": "local",
+      "command": ["npx", "-y", "example-mcp-server"],
+      "environment": {
+        "API_KEY": "{env:EXAMPLE_API_KEY}"
+      },
+      "enabled": true
+    },
+    "remote-server": {
+      "type": "remote",
+      "url": "https://example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${EXAMPLE_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Remote servers try Streamable HTTP and then fall back to legacy SSE. Set
+`"transport": "http"` or `"transport": "sse"` to force one transport.
+Header-based authentication is supported. OAuth is not yet supported.
+
+### Direct tools
+
+Proxy access is the default because large MCP servers can consume substantial
+model context. To expose selected tools directly alongside Chump's built-ins,
+set `directTools` to `true` or to an allowlist. Direct names use
+`mcp_<server>_<tool>`.
+
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "directTools": ["resolve-library-id", "query-docs"],
+      "excludeTools": ["deprecated-tool"],
+      "timeout": 30000
+    }
+  }
+}
+```
+
 ### Nested Retry Customization
 You can also customize the API request retry policies using the `retry` object:
 ```json

@@ -14,6 +14,7 @@
   "reasoning": {
     "effort": "medium"
   },
+  "mcp": {},
   "retry": {
     "max_attempts": 3,
     "initial_delay": 0.5,

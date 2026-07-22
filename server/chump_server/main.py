@@ -13,6 +13,7 @@ from .git_utils import get_git_branch
 from .agent import ChumpAgent
 from .config import ChumpConfig, PROVIDER_MODELS, load_config
 from .managed_idle import is_resume_gap
+from .mcp_runtime import MCPManager
 from .process_title import set_process_title
 from .resources import ResourceCatalog
 from .search import WorkspaceSearch
@@ -30,6 +31,8 @@ class ChumpServer(AgentServer):
         ChumpAgent.configure(config, resources)
         self.search = WorkspaceSearch(config.workspace_root)
         ChumpAgent._server_search = self.search
+        self.mcp = MCPManager(config.workspace_root, config.mcp_servers)
+        ChumpAgent._server_mcp = self.mcp
         # `allowed_origins=None` makes ai-query's CORS middleware reply with `*`
         # for any origin, which is fine when the server is only reachable on
         # loopback. As soon as it's exposed via an onlocal share the wildcard
@@ -58,6 +61,7 @@ class ChumpServer(AgentServer):
         app.on_startup.append(self._start_managed_idle_shutdown)
         app.on_cleanup.append(self._stop_managed_idle_shutdown)
         app.on_cleanup.append(self._close_search)
+        app.on_cleanup.append(self._close_mcp)
 
     @web.middleware
     async def _track_active_requests(
@@ -73,6 +77,9 @@ class ChumpServer(AgentServer):
 
     async def _close_search(self, app: web.Application) -> None:
         await self.search.close()
+
+    async def _close_mcp(self, app: web.Application) -> None:
+        await self.mcp.close()
 
     async def health(self, request: web.Request) -> web.Response:
         return web.json_response(
@@ -106,6 +113,7 @@ class ChumpServer(AgentServer):
                     provider: sorted(PROVIDER_MODELS.get(provider, ()))
                     for provider in self.chump_config.available_providers
                 },
+                "mcp": self.mcp.status(),
             }
         )
 

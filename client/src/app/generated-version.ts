@@ -1,1 +1,1 @@
-export const CHUMP_CLIENT_VERSION = "0.2.7";
+export const CHUMP_CLIENT_VERSION = "0.2.8";

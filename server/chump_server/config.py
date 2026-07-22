@@ -6,9 +6,11 @@ import os
 import re
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .mcp_config import MCPServerConfig, load_mcp_server_configs
 
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 DEFAULT_PROVIDER = "chump_cloud"
@@ -167,6 +169,7 @@ class ChumpConfig:
     verbose: bool
     allowed_origins: tuple[str, ...]
     available_providers: tuple[str, ...]
+    mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
 
 
 def load_config() -> ChumpConfig:
@@ -317,6 +320,11 @@ def load_config() -> ChumpConfig:
         verbose=verbose,
         allowed_origins=load_allowed_origins(repo_config, global_config),
         available_providers=load_available_providers(auth_config),
+        mcp_servers=load_mcp_server_configs(
+            workspace_root,
+            repo_config,
+            global_config,
+        ),
     )
 
 

@@ -480,6 +480,9 @@ function formatSemanticToolPreview(
   toolName: string,
   args: Record<string, unknown>,
 ): string {
+  if (toolName === "mcp") {
+    return renderLiveActivity("MCP", mcpActivityLabel(args));
+  }
   const renderedArgs = formatToolArgs(toolName, args) || "…";
   const label = semanticToolLabel(toolName);
   return renderLiveActivity(label, renderedArgs);
@@ -506,6 +509,8 @@ function semanticToolLabel(toolName: string): string {
       return "Inspecting session";
     case "start_session":
       return "Starting session";
+    case "mcp":
+      return "MCP";
     default:
       return `Running ${displayToolName(toolName)}`;
   }
@@ -648,6 +653,7 @@ function displayToolName(name: string): string {
     inspect_session: "Inspect session",
     list_sessions: "List sessions",
     load_skill: "Skill",
+    mcp: "MCP",
     read_file: "Read",
     replace_in_file: "Edit file",
     search: "Search",
@@ -675,6 +681,9 @@ export function formatToolArgs(toolName: string, value: unknown): string {
   }
 
   const args = value as Record<string, unknown>;
+  if (toolName === "mcp") {
+    return mcpActivityLabel(args);
+  }
   if (toolName === "read_file") {
     const path = typeof args.path === "string" ? args.path : "";
     const limit = typeof args.limit === "number" ? args.limit : undefined;
@@ -749,6 +758,25 @@ export function formatToolArgs(toolName: string, value: unknown): string {
   }
 
   return compactJson(value);
+}
+
+function mcpActivityLabel(args: Record<string, unknown>): string {
+  const action = typeof args.action === "string" ? args.action : "";
+  const server = typeof args.server === "string" ? args.server : "";
+  const tool = typeof args.tool_name === "string" ? args.tool_name : "";
+  const query = typeof args.query === "string" ? args.query : "";
+  const operation: Record<string, string> = {
+    status: "Checking status",
+    list_tools: "Listing tools",
+    search_tools: "Searching tools",
+    get_tool: "Getting tool",
+    call_tool: "Calling tool",
+    add: "Adding server",
+    remove: "Removing server",
+    reconnect: "Reconnecting server",
+  };
+  const target = [server, tool].filter(Boolean).join(" / ");
+  return [operation[action] ?? "Running", target || query].filter(Boolean).join(" · ");
 }
 
 export function compactJson(value: unknown): string {

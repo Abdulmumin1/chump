@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.8
+
+### Patch Changes
+
+- Add readable MCP tool activity to the CLI while the bundled server gains conversational MCP discovery, invocation, and configuration support.
+
 ## 0.2.7
 
 ### Patch Changes

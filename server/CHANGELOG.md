@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.1.7
+
+- Add server-owned Model Context Protocol support for local stdio and remote HTTP/SSE servers, with shared and project configuration, explicit project trust, lifecycle cleanup, and optional direct tool exposure.
+- Add a low-context MCP proxy for conversational server discovery, tool inspection and invocation, reconnect diagnostics, and project/global configuration management.
+- Render MCP activity with concise, readable labels in the CLI and web transcript instead of exposing raw proxy arguments.
+
 ## 0.1.6
 
 - Page session summaries directly in SQLite instead of reading and decoding every stored transcript and legacy replay log before slicing the result.
