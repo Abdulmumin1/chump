@@ -9,7 +9,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.patch_tool import AddFilePatch, UpdateFilePatch, parse_patch
-from chump_server.safety import SafetyError, WorkspaceGuard
+from chump_server.safety import PathResolver, SafetyError
 from chump_server.tools.bash import bind_bash, resolve_command_timeout
 from chump_server.tools.view_image import bind_view_image, detect_image_type
 from chump_server.tools._utils import (
@@ -21,6 +21,27 @@ from chump_server.tools._utils import (
     _result_metadata,
     _truncate_command_output,
 )
+
+
+class PathResolverTests(unittest.TestCase):
+    def test_relative_paths_resolve_from_workspace_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.assertEqual(
+                PathResolver(root).resolve_path("nested/file.txt"),
+                (root / "nested" / "file.txt").resolve(),
+            )
+
+    def test_paths_may_resolve_outside_workspace_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "workspace"
+            root.mkdir()
+            outside = Path(temp_dir) / "shared.txt"
+
+            resolver = PathResolver(root)
+
+            self.assertEqual(resolver.resolve_path(str(outside)), outside.resolve())
+            self.assertEqual(resolver.resolve_path("../shared.txt"), outside.resolve())
 
 
 class DiffMetadataTests(unittest.TestCase):
@@ -57,7 +78,7 @@ class ViewImageTests(unittest.IsolatedAsyncioTestCase):
         async def wrap_tool(_name, _payload, runner):
             return await runner()
 
-        self.tool = bind_view_image(WorkspaceGuard(self.root), wrap_tool)
+        self.tool = bind_view_image(PathResolver(self.root), wrap_tool)
 
     async def asyncTearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -111,7 +132,7 @@ class BashTimeoutTests(unittest.IsolatedAsyncioTestCase):
                 return None
 
             tool = bind_bash(
-                WorkspaceGuard(Path(temp_dir)),
+                PathResolver(Path(temp_dir)),
                 SimpleNamespace(command_timeout=0),
                 wrap_tool,
                 note_command,

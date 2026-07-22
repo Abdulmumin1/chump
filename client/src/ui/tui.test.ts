@@ -135,7 +135,7 @@ test("wrapped user messages keep the compact surface and alignment", () => {
 
 test("built-in Pi autocomplete serves slash commands and file mentions", async () => {
   const provider = new ChumpAutocompleteProvider();
-  provider.setContext({ sessions: [], models: [], skills: [] });
+  provider.setContext({ sessions: [], models: [], skills: [], mcps: [] });
   provider.setFileSearch(async (query) => [{
     path: `src/${query || "index"}.ts`,
     name: `${query || "index"}.ts`,
@@ -171,7 +171,7 @@ test("built-in Pi autocomplete serves slash commands and file mentions", async (
 
 test("fill-only slash completions remain in the editor", async () => {
   const provider = new ChumpAutocompleteProvider();
-  provider.setContext({ sessions: [], models: [], skills: [] });
+  provider.setContext({ sessions: [], models: [], skills: [], mcps: [] });
   const suggestions = await provider.getSuggestions(
     ["/mo"],
     0,
@@ -196,6 +196,7 @@ test("exact picker commands expand before their option suggestions", async () =>
       description: "Codex",
     }],
     skills: [],
+    mcps: [],
   });
 
   const root = await provider.getSuggestions(
@@ -249,7 +250,7 @@ test("session picker lazily loads and searches every session page", async () => 
   const recent = sessionSummary("recent", "Recent conversation", 20);
   const older = sessionSummary("older", "Archived deployment notes", 10);
   let loads = 0;
-  provider.setContext({ sessions: [recent], models: [], skills: [] });
+  provider.setContext({ sessions: [recent], models: [], skills: [], mcps: [] });
   provider.setSessionSuggestionLoader(async () => {
     loads += 1;
     return [recent, older];

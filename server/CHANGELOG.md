@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.1.10
+
+- Expose live MCP connection state, transport type, tool counts, and errors through agent status responses so clients can render accurate MCP diagnostics.
+- Stop prompting agents to search for `AGENTS.md` and `CLAUDE.md` files that Chump has already loaded, and keep general code searches scoped to relevant workspace paths.
+- Allow built-in file, patch, image, and shell-working-directory paths to use absolute paths or traverse outside the workspace, while continuing to resolve ordinary relative paths from the workspace root.
+
 ## 0.1.9
 
 - Normalize Google function declarations through `ai-query==1.9.4` so Gemini accepts Chump's MCP tool and other schemas with free-form object parameters.

@@ -163,6 +163,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 {"name": item.name, "description": item.description}
                 for item in self._resources.skills
             ],
+            "mcp": self._server_mcp.status() if self._server_mcp else [],
             "usage": self._usage_summary,
         }
 

@@ -1,5 +1,15 @@
 # chump-agent
 
+## 0.2.12
+
+### Patch Changes
+
+- Add `/reload` to explicitly restart a managed server, reconnect the CLI, preserve the current session, and refresh skills, instructions, models, sessions, and MCP status without restarting Chump manually.
+
+  Add `/mcps` diagnostics and autocomplete, including live connection state, transport type, tool counts, errors, and a connected-server count in the input footer.
+
+  Stop redundant filesystem searches for already-loaded `AGENTS.md` and `CLAUDE.md` instructions, and allow built-in path-based tools to read, write, patch, inspect, or run from locations outside the workspace when given absolute or parent-relative paths.
+
 ## 0.2.11
 
 ### Patch Changes

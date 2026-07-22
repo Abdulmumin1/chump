@@ -4,14 +4,16 @@ from pathlib import Path
 
 from ai_query import Field, tool
 
-from ..safety import WorkspaceGuard, SafetyError
+from ..safety import PathResolver, SafetyError
 from ..patch_tool import read_text_snapshot
 from ._utils import _workspace_key, _fingerprint
 
 
-@tool(description="Read a UTF-8 text file from the workspace.")
+@tool(description="Read a UTF-8 text file.")
 async def read_file(
-    path: str = Field(description="File path relative to workspace root"),
+    path: str = Field(
+        description="File path; relative paths resolve from workspace root"
+    ),
     offset: int = Field(
         description="Zero-based line offset to start reading from", default=0
     ),
@@ -21,14 +23,16 @@ async def read_file(
 
 
 def bind_read_file(
-    guard: WorkspaceGuard,
+    guard: PathResolver,
     wrap_tool,
     remember_file_read,
     resolve_read_context,
 ):
-    @tool(description="Read a UTF-8 text file from the workspace.")
+    @tool(description="Read a UTF-8 text file.")
     async def read_file_impl(
-        path: str = Field(description="File path relative to workspace root"),
+        path: str = Field(
+            description="File path; relative paths resolve from workspace root"
+        ),
         offset: int = Field(
             description="Zero-based line offset to start reading from", default=0
         ),

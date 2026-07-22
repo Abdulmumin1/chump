@@ -14,7 +14,7 @@ from ..patch_tool import (
     read_text_snapshot,
     write_text_snapshot,
 )
-from ..safety import WorkspaceGuard, SafetyError
+from ..safety import PathResolver, SafetyError
 from ._utils import _diff_metadata
 
 
@@ -35,7 +35,7 @@ async def apply_patch(
 
 
 def bind_apply_patch(
-    guard: WorkspaceGuard,
+    guard: PathResolver,
     wrap_tool,
     record_file_changes,
     require_fresh_read,

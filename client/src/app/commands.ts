@@ -28,6 +28,12 @@ const ROOT_COMMANDS: Array<{
     action: "submit",
   },
   {
+    label: "/reload",
+    command: "/reload",
+    description: "restart and reconnect to the managed server",
+    action: "submit",
+  },
+  {
     label: "/sessions",
     command: "/session ",
     description: "pick a stored session",
@@ -49,6 +55,12 @@ const ROOT_COMMANDS: Array<{
     label: "/thinking",
     command: "/thinking ",
     description: "choose reasoning level",
+    action: "fill",
+  },
+  {
+    label: "/mcps",
+    command: "/mcps ",
+    description: "view connected MCP servers",
     action: "fill",
   },
   {
@@ -114,6 +126,11 @@ export function completeSlashCommand(
       line,
       thinkingSuggestions,
     ];
+  }
+
+  const mcpSuggestions = completeMcpCommand(line, context.mcps);
+  if (mcpSuggestions.length > 0) {
+    return [mcpSuggestions.map(toSuggestionView), line, mcpSuggestions];
   }
 
   const skillSuggestions = completeSkillCommand(line, context.skills);
@@ -231,6 +248,63 @@ function completeShareCommand(line: string): SlashCommandSuggestion[] {
       kind: "command" as const,
       action: "submit" as const,
     }));
+}
+
+function completeMcpCommand(
+  line: string,
+  mcps: SlashCommandMenuContext["mcps"] = [],
+): SlashCommandSuggestion[] {
+  if (!/^\/mcp(?:s)?(?:\s.*)?$/i.test(line)) {
+    return [];
+  }
+
+  const match = /^\/mcp(?:s)?(?:\s+(.*))?$/i.exec(line);
+  if (!match) {
+    return [];
+  }
+  const query = (match[1] ?? "").trim().toLowerCase();
+
+  const matching = mcps.filter((mcp) => {
+    if (!query) {
+      return true;
+    }
+    return (
+      mcp.name.toLowerCase().includes(query) ||
+      mcp.type.toLowerCase().includes(query) ||
+      mcp.status.toLowerCase().includes(query)
+    );
+  });
+
+  if (matching.length === 0) {
+    if (mcps.length === 0) {
+      return [
+        {
+          label: "(no connected MCP servers)",
+          command: "/mcps",
+          description: "no MCP servers configured or connected",
+          kind: "mcp" as const,
+          action: "submit" as const,
+        },
+      ];
+    }
+    return [];
+  }
+
+  return matching.map((mcp) => {
+    let desc = `${mcp.status} (${mcp.type})`;
+    if (mcp.status === "connected") {
+      desc = `connected · ${mcp.tools} tool${mcp.tools === 1 ? "" : "s"} (${mcp.type})`;
+    } else if (mcp.error) {
+      desc = `${mcp.status} · ${mcp.error} (${mcp.type})`;
+    }
+    return {
+      label: mcp.name,
+      command: `/mcps ${mcp.name}`,
+      description: desc,
+      kind: "mcp" as const,
+      action: "submit" as const,
+    };
+  });
 }
 
 function completeModelCommand(
@@ -391,6 +465,7 @@ export function parseSlashCommand(input: string): {
   switch (command) {
     case "help":
     case "status":
+    case "reload":
     case "sessions":
     case "clear":
     case "compact":
@@ -399,6 +474,8 @@ export function parseSlashCommand(input: string): {
     case "model":
     case "share":
     case "thinking":
+    case "mcps":
+    case "mcp":
     case "quit":
       return { command, args };
     default:

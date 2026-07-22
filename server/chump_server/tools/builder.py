@@ -5,7 +5,7 @@ import json
 
 from ..config import ChumpConfig
 from ..resources import ResourceCatalog, build_instruction_bundle, build_skill_bundle
-from ..safety import SafetyError, WorkspaceGuard
+from ..safety import PathResolver, SafetyError
 from ._utils import (
     _fingerprint,
     _multiline_preview,
@@ -35,7 +35,7 @@ def build_tools(
     search,
     mcp_manager=None,
 ):
-    guard = WorkspaceGuard(config.workspace_root)
+    guard = PathResolver(config.workspace_root)
     state_lock = asyncio.Lock()
 
     def log(message: str) -> None:

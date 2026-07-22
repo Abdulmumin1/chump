@@ -6,6 +6,7 @@ import { completeSlashCommand, parseSlashCommand } from "./commands.ts";
 const context = {
   sessions: [],
   models: [],
+  mcps: [],
   skills: [
     {
       name: "release",
@@ -26,6 +27,10 @@ test("lists discovered skills as Pi-style slash commands", () => {
   const [root] = completeSlashCommand("/", context);
   assert.equal(
     root.some((item) => item.command === "/skill:release"),
+    true,
+  );
+  assert.equal(
+    root.some((item) => item.command === "/reload"),
     true,
   );
 
@@ -50,5 +55,12 @@ test("parses a skill command while preserving its arguments", () => {
   assert.deepEqual(parseSlashCommand("/skill:review"), {
     command: "skill",
     args: ["review"],
+  });
+});
+
+test("parses the reload command", () => {
+  assert.deepEqual(parseSlashCommand("/reload"), {
+    command: "reload",
+    args: [],
   });
 });

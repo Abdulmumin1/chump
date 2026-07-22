@@ -51,6 +51,14 @@ export type ManagedServerMetadata = {
   started_at: string;
 };
 
+export type MCPServerStatusSummary = {
+  name: string;
+  type: string;
+  status: string;
+  tools: number;
+  error?: string | null;
+};
+
 export type ChumpStatus = {
   agent_id: string;
   workspace_root: string;
@@ -72,6 +80,7 @@ export type ChumpStatus = {
   steering_queue?: SteeringQueueItem[];
   instruction_files: string[];
   skills: SkillSummary[];
+  mcp?: MCPServerStatusSummary[];
   usage?: UsageSummary | null;
 };
 
@@ -96,6 +105,7 @@ export type ChumpHealth = {
   skills: SkillSummary[];
   available_providers?: string[];
   available_models?: Record<string, string[]>;
+  mcp?: MCPServerStatusSummary[];
 };
 
 export type ChumpState = {
@@ -275,6 +285,7 @@ export type SlashCommandMenuContext = {
   sessions: SessionSummary[];
   models: ModelSuggestion[];
   skills: SkillSummary[];
+  mcps: MCPServerStatusSummary[];
 };
 
 export type ModelSuggestion = {
@@ -293,12 +304,13 @@ export type SlashCommandSuggestionView = {
     created: string;
     conversation: string;
   };
-  kind?: "model" | "session" | "skill" | "command" | "file";
+  kind?: "model" | "session" | "skill" | "command" | "file" | "mcp";
 };
 
 export type SlashCommand =
   | "help"
   | "status"
+  | "reload"
   | "sessions"
   | "clear"
   | "compact"
@@ -307,5 +319,7 @@ export type SlashCommand =
   | "model"
   | "share"
   | "skill"
+  | "mcps"
+  | "mcp"
   | "thinking"
   | "quit";

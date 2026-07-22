@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   ManagedServerRequestCoordinator,
+  reloadManagedServerUrl,
   recoverManagedServerUrl,
 } from "./managed-recovery.ts";
 import type { ChumpConfig } from "../core/types.ts";
@@ -37,6 +38,23 @@ test("falls back to direct managed recovery when daemon recovery fails", async (
   });
 
   assert.equal(url, "http://direct");
+});
+
+test("reload stops the managed server before recovering it", async () => {
+  const calls: string[] = [];
+  const url = await reloadManagedServerUrl("/workspace", "http://old", {
+    stopManagedServer: async (workspace) => {
+      calls.push(`stop:${workspace}`);
+      return "stopped";
+    },
+    recoverThroughDaemon: async (workspace) => {
+      calls.push(`recover:${workspace}`);
+      return "http://new";
+    },
+  });
+
+  assert.equal(url, "http://new");
+  assert.deepEqual(calls, ["stop:/workspace", "recover:/workspace"]);
 });
 
 test("replays the failed request against the recovered server URL", async () => {

@@ -54,6 +54,7 @@ export type PiPromptReader = {
   setQueuedLinePopHandler: (handler: (() => void) | null) => void;
   setModelSuggestions: (models: SlashCommandMenuContext["models"]) => void;
   setSkillSuggestions: (skills: SlashCommandMenuContext["skills"]) => void;
+  setMcpSuggestions: (mcps: SlashCommandMenuContext["mcps"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
   setSessionSuggestionLoader: (
@@ -114,6 +115,7 @@ class PiTuiShell implements PiPromptReader {
     sessions: [],
     models: [],
     skills: [],
+    mcps: [],
   };
   private inputEnded = false;
   private closed = false;
@@ -256,6 +258,11 @@ class PiTuiShell implements PiPromptReader {
     this.syncAutocompleteContext();
   }
 
+  setMcpSuggestions(mcps: SlashCommandMenuContext["mcps"]): void {
+    this.slashContext = { ...this.slashContext, mcps };
+    this.syncAutocompleteContext();
+  }
+
   setAbortHandler(handler: (() => void) | null): void {
     this.abortHandler = handler;
     this.editor.onAbort = handler ? () => handler() : undefined;
@@ -356,6 +363,7 @@ class PiTuiShell implements PiPromptReader {
     this.autocomplete.setCommandContext({
       models: this.slashContext.models,
       skills: this.slashContext.skills,
+      mcps: this.slashContext.mcps,
     });
     this.refreshAutocomplete();
   }

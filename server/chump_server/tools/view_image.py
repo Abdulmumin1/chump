@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ai_query import Field, ImagePart, TextPart, ToolOutput, tool
 
-from ..safety import SafetyError, WorkspaceGuard
+from ..safety import PathResolver, SafetyError
 
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -23,15 +23,17 @@ def detect_image_type(data: bytes) -> str | None:
     return None
 
 
-def bind_view_image(guard: WorkspaceGuard, wrap_tool):
+def bind_view_image(guard: PathResolver, wrap_tool):
     @tool(
         description=(
-            "Inspect a PNG, JPEG, GIF, or WebP image from the workspace. "
+            "Inspect a PNG, JPEG, GIF, or WebP image. "
             "Returns the image visually to the model."
         )
     )
     async def view_image_impl(
-        path: str = Field(description="Image path relative to workspace root"),
+        path: str = Field(
+            description="Image path; relative paths resolve from workspace root"
+        ),
     ) -> ToolOutput:
         async def runner() -> ToolOutput:
             image_path = guard.resolve_path(path)
