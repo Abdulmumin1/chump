@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { browser } from "$app/environment";
+    import { browser, dev } from "$app/environment";
     import { onMount, tick } from "svelte";
     import SessionsSidebar from "$lib/SessionsSidebar.svelte";
     import TranscriptPane from "$lib/TranscriptPane.svelte";
@@ -70,6 +70,10 @@
         readDaemonConnection,
         rememberDaemonConnection,
     } from "$lib/chump/daemon-connection-store";
+    import {
+        getLoopbackPermissionState,
+        loopbackPermissionMessage,
+    } from "$lib/chump/loopback-permission";
 
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
@@ -827,10 +831,28 @@
             }
             closeConnectModal();
         } catch (error) {
-            connectionError = toErrorMessage(error);
+            const permissionMessage = browser
+                ? loopbackPermissionMessage(
+                      await getLoopbackPermissionState(),
+                  )
+                : null;
+            connectionError = permissionMessage ?? toErrorMessage(error);
+            connectModalOpen = true;
         } finally {
             isConnecting = false;
         }
+    }
+
+    async function connectToSavedDaemon(): Promise<void> {
+        const permissionMessage = loopbackPermissionMessage(
+            await getLoopbackPermissionState(),
+        );
+        if (permissionMessage) {
+            connectionError = permissionMessage;
+            connectModalOpen = true;
+            return;
+        }
+        await connectToDaemon();
     }
 
     async function refreshProjectRuntimes(
@@ -1046,11 +1068,19 @@
         };
         window.addEventListener("keydown", handleToggleSidebarShortcut);
 
-        consumeDaemonHandoff(
+        const handoff = consumeDaemonHandoff(
             window.location.href,
             sessionStorage,
             (url) => window.history.replaceState({}, "", url),
         );
+        if (handoff) {
+            rememberDaemonConnection(
+                data.user.id,
+                handoff,
+                sessionStorage,
+                localStorage,
+            );
+        }
         const savedConnection = readDaemonConnection(
             data.user.id,
             sessionStorage,
@@ -1061,8 +1091,8 @@
         activeProjectId =
             sessionStorage.getItem("chump:active-project") ?? "";
         if (daemonUrl && daemonToken) {
-            void connectToDaemon();
-        } else {
+            void connectToSavedDaemon();
+        } else if (dev) {
             void discoverLocalDaemon()
                 .then((connection) => {
                     if (connection) {
@@ -1077,6 +1107,10 @@
                 .catch((error) => {
                     connectionError = toErrorMessage(error);
                 });
+        } else if (serverUrl.trim()) {
+            void connectDirectly();
+        } else {
+            openConnectModal();
         }
 
         return () => {

@@ -13,6 +13,10 @@
 		readDaemonConnection,
 		rememberDaemonConnection
 	} from '$lib/chump/daemon-connection-store';
+	import {
+		getLoopbackPermissionState,
+		loopbackPermissionMessage
+	} from '$lib/chump/loopback-permission';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -42,9 +46,12 @@
 	onMount(() => {
 		name = data.user.name;
 		image = data.user.image ?? '';
-		consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
+		const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
 			window.history.replaceState({}, '', url);
 		});
+		if (handoff) {
+			rememberDaemonConnection(data.user.id, handoff, sessionStorage, localStorage);
+		}
 		const savedConnection = readDaemonConnection(data.user.id, sessionStorage, localStorage);
 		daemonUrl = savedConnection?.url ?? '';
 		daemonToken = savedConnection?.token ?? '';
@@ -185,7 +192,9 @@
 			rememberDaemonConnection(data.user.id, connection, sessionStorage, localStorage);
 			await goto(resolve('/c'));
 		} catch (error: unknown) {
-			connectionError = connectionFailureMessage(error);
+			connectionError =
+				loopbackPermissionMessage(await getLoopbackPermissionState()) ??
+				connectionFailureMessage(error);
 		} finally {
 			testingConnection = false;
 		}
