@@ -2,8 +2,9 @@ import type { DaemonConnection } from './daemon-api';
 
 export const DAEMON_URL_STORAGE_KEY = 'chump:daemon-url';
 export const DAEMON_TOKEN_STORAGE_KEY = 'chump:daemon-token';
+export const DAEMON_USER_STORAGE_KEY = 'chump:daemon-user-id';
 
-type HandoffStorage = Pick<Storage, 'setItem'>;
+type HandoffStorage = Pick<Storage, 'setItem' | 'removeItem'>;
 
 export function consumeDaemonHandoff(
 	href: string,
@@ -34,5 +35,6 @@ export function consumeDaemonHandoff(
 	const connection = { url: daemonUrl, token: daemonToken };
 	storage.setItem(DAEMON_URL_STORAGE_KEY, connection.url);
 	storage.setItem(DAEMON_TOKEN_STORAGE_KEY, connection.token);
+	storage.removeItem(DAEMON_USER_STORAGE_KEY);
 	return connection;
 }

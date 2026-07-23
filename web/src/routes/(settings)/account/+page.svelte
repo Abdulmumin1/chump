@@ -7,11 +7,12 @@
 	import { authClient } from '$lib/auth-client';
 	import { getHealth, normalizeServerUrl } from '$lib/chump/api';
 	import { listDaemonProjects, normalizeDaemonConnection } from '$lib/chump/daemon-api';
+	import { consumeDaemonHandoff } from '$lib/chump/daemon-handoff';
 	import {
-		consumeDaemonHandoff,
-		DAEMON_TOKEN_STORAGE_KEY,
-		DAEMON_URL_STORAGE_KEY
-	} from '$lib/chump/daemon-handoff';
+		forgetDaemonConnection,
+		readDaemonConnection,
+		rememberDaemonConnection
+	} from '$lib/chump/daemon-connection-store';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -41,11 +42,12 @@
 	onMount(() => {
 		name = data.user.name;
 		image = data.user.image ?? '';
-		const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
+		consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
 			window.history.replaceState({}, '', url);
 		});
-		daemonUrl = handoff?.url ?? sessionStorage.getItem(DAEMON_URL_STORAGE_KEY) ?? '';
-		daemonToken = handoff?.token ?? sessionStorage.getItem(DAEMON_TOKEN_STORAGE_KEY) ?? '';
+		const savedConnection = readDaemonConnection(data.user.id, sessionStorage, localStorage);
+		daemonUrl = savedConnection?.url ?? '';
+		daemonToken = savedConnection?.token ?? '';
 		directServerUrl = page.url.searchParams.get('server') ?? '';
 		void loadAccountData();
 	});
@@ -180,8 +182,7 @@
 		try {
 			const connection = normalizeDaemonConnection({ url: daemonUrl, token: daemonToken });
 			await listDaemonProjects(connection);
-			sessionStorage.setItem('chump:daemon-url', connection.url);
-			sessionStorage.setItem('chump:daemon-token', connection.token);
+			rememberDaemonConnection(data.user.id, connection, sessionStorage, localStorage);
 			await goto(resolve('/c'));
 		} catch (error: unknown) {
 			connectionError = connectionFailureMessage(error);
@@ -196,8 +197,7 @@
 		try {
 			const serverUrl = normalizeServerUrl(directServerUrl);
 			await getHealth({ kind: 'direct', serverUrl });
-			sessionStorage.removeItem('chump:daemon-url');
-			sessionStorage.removeItem('chump:daemon-token');
+			forgetDaemonConnection(data.user.id, sessionStorage, localStorage);
 			await goto(`${resolve('/c')}?server=${encodeURIComponent(serverUrl)}`);
 		} catch (error: unknown) {
 			connectionError = connectionFailureMessage(error);

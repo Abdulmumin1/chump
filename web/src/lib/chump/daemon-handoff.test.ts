@@ -5,8 +5,8 @@ import {
 	DAEMON_URL_STORAGE_KEY
 } from './daemon-handoff';
 
-function createStorage(): Pick<Storage, 'setItem'> {
-	return { setItem: vi.fn() };
+function createStorage(): Pick<Storage, 'setItem' | 'removeItem'> {
+	return { setItem: vi.fn(), removeItem: vi.fn() };
 }
 
 describe('consumeDaemonHandoff', () => {

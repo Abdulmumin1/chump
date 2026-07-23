@@ -65,9 +65,11 @@
     } from "$lib/chump/daemon-api";
     import {
         consumeDaemonHandoff,
-        DAEMON_TOKEN_STORAGE_KEY,
-        DAEMON_URL_STORAGE_KEY,
     } from "$lib/chump/daemon-handoff";
+    import {
+        readDaemonConnection,
+        rememberDaemonConnection,
+    } from "$lib/chump/daemon-connection-store";
 
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
@@ -809,8 +811,12 @@
             projects = nextProjects;
             await refreshProjectRuntimes(connection, nextProjects);
             if (browser) {
-                sessionStorage.setItem("chump:daemon-url", daemonUrl);
-                sessionStorage.setItem("chump:daemon-token", daemonToken);
+                rememberDaemonConnection(
+                    data.user.id,
+                    connection,
+                    sessionStorage,
+                    localStorage,
+                );
             }
             const preferredProjectId =
                 nextProjects.some((project) => project.id === activeProjectId)
@@ -1040,19 +1046,18 @@
         };
         window.addEventListener("keydown", handleToggleSidebarShortcut);
 
-        const handoff = consumeDaemonHandoff(
+        consumeDaemonHandoff(
             window.location.href,
             sessionStorage,
             (url) => window.history.replaceState({}, "", url),
         );
-        daemonUrl =
-            handoff?.url ??
-            sessionStorage.getItem(DAEMON_URL_STORAGE_KEY) ??
-            "";
-        daemonToken =
-            handoff?.token ??
-            sessionStorage.getItem(DAEMON_TOKEN_STORAGE_KEY) ??
-            "";
+        const savedConnection = readDaemonConnection(
+            data.user.id,
+            sessionStorage,
+            localStorage,
+        );
+        daemonUrl = savedConnection?.url ?? "";
+        daemonToken = savedConnection?.token ?? "";
         activeProjectId =
             sessionStorage.getItem("chump:active-project") ?? "";
         if (daemonUrl && daemonToken) {
