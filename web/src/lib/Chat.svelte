@@ -64,7 +64,11 @@
         type DaemonRuntime,
     } from "$lib/chump/daemon-api";
     import {
+        clearPendingDaemonHandoff,
         consumeDaemonHandoff,
+        parsePendingDaemonHandoff,
+        PENDING_DAEMON_HANDOFF_STORAGE_KEY,
+        readPendingDaemonHandoff,
     } from "$lib/chump/daemon-handoff";
     import {
         readDaemonConnection,
@@ -821,6 +825,7 @@
                     sessionStorage,
                     localStorage,
                 );
+                clearPendingDaemonHandoff(localStorage);
             }
             const preferredProjectId =
                 nextProjects.some((project) => project.id === activeProjectId)
@@ -1068,6 +1073,22 @@
         };
         window.addEventListener("keydown", handleToggleSidebarShortcut);
 
+        const handlePendingDaemonHandoff = (event: StorageEvent) => {
+            if (
+                event.key !== PENDING_DAEMON_HANDOFF_STORAGE_KEY ||
+                !event.newValue
+            ) {
+                return;
+            }
+            const connection = parsePendingDaemonHandoff(event.newValue);
+            if (!connection) return;
+
+            daemonUrl = connection.url;
+            daemonToken = connection.token;
+            void connectToDaemon();
+        };
+        window.addEventListener("storage", handlePendingDaemonHandoff);
+
         const handoff = consumeDaemonHandoff(
             window.location.href,
             sessionStorage,
@@ -1081,11 +1102,14 @@
                 localStorage,
             );
         }
-        const savedConnection = readDaemonConnection(
-            data.user.id,
-            sessionStorage,
-            localStorage,
-        );
+        const savedConnection =
+            handoff ??
+            readPendingDaemonHandoff(localStorage) ??
+            readDaemonConnection(
+                data.user.id,
+                sessionStorage,
+                localStorage,
+            );
         daemonUrl = savedConnection?.url ?? "";
         daemonToken = savedConnection?.token ?? "";
         activeProjectId =
@@ -1116,6 +1140,7 @@
         return () => {
             window.removeEventListener("keydown", handleOpenProjectShortcut);
             window.removeEventListener("keydown", handleToggleSidebarShortcut);
+            window.removeEventListener("storage", handlePendingDaemonHandoff);
             sessionController.destroy();
             stopQrScanner();
             activeRequest?.controller.abort();

@@ -2,15 +2,16 @@
 	import { onMount } from 'svelte';
 	import { dev } from '$app/environment';
 	import favicon from '$lib/assets/favicon.svg';
-	import { consumeDaemonHandoff } from '$lib/chump/daemon-handoff';
+	import { consumeDaemonHandoff, stageDaemonHandoff } from '$lib/chump/daemon-handoff';
 	import '../app.css';
 
 	let { children } = $props();
 
 	onMount(() => {
-		consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
+		const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
 			window.history.replaceState({}, '', url);
 		});
+		if (handoff) stageDaemonHandoff(localStorage, handoff);
 
 		if ('serviceWorker' in navigator && !dev) {
 			navigator.serviceWorker.register('/service-worker.js', {

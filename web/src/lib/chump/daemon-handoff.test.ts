@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+	clearPendingDaemonHandoff,
 	consumeDaemonHandoff,
 	DAEMON_TOKEN_STORAGE_KEY,
-	DAEMON_URL_STORAGE_KEY
+	DAEMON_URL_STORAGE_KEY,
+	parsePendingDaemonHandoff,
+	PENDING_DAEMON_HANDOFF_STORAGE_KEY,
+	readPendingDaemonHandoff,
+	stageDaemonHandoff
 } from './daemon-handoff';
 
 function createStorage(): Pick<Storage, 'setItem' | 'removeItem'> {
@@ -54,5 +59,61 @@ describe('consumeDaemonHandoff', () => {
 		expect(connection).toBeNull();
 		expect(storage.setItem).not.toHaveBeenCalled();
 		expect(replaceUrl).toHaveBeenCalledWith('https://chump.yaqeen.me/auth');
+	});
+});
+
+describe('pending daemon handoff', () => {
+	function createPendingStorage(): Storage {
+		const values = new Map<string, string>();
+		return {
+			get length() {
+				return values.size;
+			},
+			clear: () => values.clear(),
+			getItem: (key) => values.get(key) ?? null,
+			key: (index) => [...values.keys()][index] ?? null,
+			removeItem: (key) => values.delete(key),
+			setItem: (key, value) => values.set(key, value)
+		};
+	}
+
+	it('makes a fresh handoff available to another tab', () => {
+		const localStorage = createPendingStorage();
+		const connection = { url: 'http://127.0.0.1:9417', token: 'secret-token' };
+
+		stageDaemonHandoff(localStorage, connection, 1_000);
+
+		expect(readPendingDaemonHandoff(localStorage, 2_000)).toEqual(connection);
+		expect(localStorage.getItem(PENDING_DAEMON_HANDOFF_STORAGE_KEY)).not.toBeNull();
+	});
+
+	it('parses the storage event value without racing another tab', () => {
+		const serialized = JSON.stringify({
+			url: 'http://127.0.0.1:9417',
+			token: 'secret-token',
+			capturedAt: 1_000
+		});
+
+		expect(parsePendingDaemonHandoff(serialized, 2_000)).toEqual({
+			url: 'http://127.0.0.1:9417',
+			token: 'secret-token'
+		});
+	});
+
+	it('rejects and removes an expired handoff', () => {
+		const localStorage = createPendingStorage();
+		stageDaemonHandoff(localStorage, { url: 'http://127.0.0.1:9417', token: 'secret-token' }, 1);
+
+		expect(readPendingDaemonHandoff(localStorage, 2 * 60 * 1000 + 2)).toBeNull();
+		expect(localStorage.getItem(PENDING_DAEMON_HANDOFF_STORAGE_KEY)).toBeNull();
+	});
+
+	it('clears the pending handoff after a successful connection', () => {
+		const localStorage = createPendingStorage();
+		stageDaemonHandoff(localStorage, { url: 'http://127.0.0.1:9417', token: 'secret-token' });
+
+		clearPendingDaemonHandoff(localStorage);
+
+		expect(localStorage.getItem(PENDING_DAEMON_HANDOFF_STORAGE_KEY)).toBeNull();
 	});
 });
