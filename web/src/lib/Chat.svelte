@@ -63,6 +63,11 @@
         type DaemonProject,
         type DaemonRuntime,
     } from "$lib/chump/daemon-api";
+    import {
+        consumeDaemonHandoff,
+        DAEMON_TOKEN_STORAGE_KEY,
+        DAEMON_URL_STORAGE_KEY,
+    } from "$lib/chump/daemon-handoff";
 
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
@@ -1035,31 +1040,19 @@
         };
         window.addEventListener("keydown", handleToggleSidebarShortcut);
 
-        const url = new URL(window.location.href);
-        const handoffParams = new URLSearchParams(
-            url.hash.startsWith("#") ? url.hash.slice(1) : url.hash,
+        const handoff = consumeDaemonHandoff(
+            window.location.href,
+            sessionStorage,
+            (url) => window.history.replaceState({}, "", url),
         );
-        const urlDaemonUrl =
-            handoffParams.get("daemonUrl") ??
-            url.searchParams.get("daemonUrl") ??
+        daemonUrl =
+            handoff?.url ??
+            sessionStorage.getItem(DAEMON_URL_STORAGE_KEY) ??
             "";
-        const urlDaemonToken =
-            handoffParams.get("daemonToken") ??
-            url.searchParams.get("daemonToken") ??
+        daemonToken =
+            handoff?.token ??
+            sessionStorage.getItem(DAEMON_TOKEN_STORAGE_KEY) ??
             "";
-        if (urlDaemonUrl && urlDaemonToken) {
-            daemonUrl = urlDaemonUrl;
-            daemonToken = urlDaemonToken;
-            sessionStorage.setItem("chump:daemon-url", daemonUrl);
-            sessionStorage.setItem("chump:daemon-token", daemonToken);
-            url.searchParams.delete("daemonUrl");
-            url.searchParams.delete("daemonToken");
-            url.hash = "";
-            window.history.replaceState({}, "", url.toString());
-        } else {
-            daemonUrl = sessionStorage.getItem("chump:daemon-url") ?? "";
-            daemonToken = sessionStorage.getItem("chump:daemon-token") ?? "";
-        }
         activeProjectId =
             sessionStorage.getItem("chump:active-project") ?? "";
         if (daemonUrl && daemonToken) {

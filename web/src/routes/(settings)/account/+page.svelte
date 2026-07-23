@@ -7,6 +7,11 @@
 	import { authClient } from '$lib/auth-client';
 	import { getHealth, normalizeServerUrl } from '$lib/chump/api';
 	import { listDaemonProjects, normalizeDaemonConnection } from '$lib/chump/daemon-api';
+	import {
+		consumeDaemonHandoff,
+		DAEMON_TOKEN_STORAGE_KEY,
+		DAEMON_URL_STORAGE_KEY
+	} from '$lib/chump/daemon-handoff';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -36,8 +41,11 @@
 	onMount(() => {
 		name = data.user.name;
 		image = data.user.image ?? '';
-		daemonUrl = sessionStorage.getItem('chump:daemon-url') ?? '';
-		daemonToken = sessionStorage.getItem('chump:daemon-token') ?? '';
+		const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
+			window.history.replaceState({}, '', url);
+		});
+		daemonUrl = handoff?.url ?? sessionStorage.getItem(DAEMON_URL_STORAGE_KEY) ?? '';
+		daemonToken = handoff?.token ?? sessionStorage.getItem(DAEMON_TOKEN_STORAGE_KEY) ?? '';
 		directServerUrl = page.url.searchParams.get('server') ?? '';
 		void loadAccountData();
 	});
