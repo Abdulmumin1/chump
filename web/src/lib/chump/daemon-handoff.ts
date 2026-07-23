@@ -4,6 +4,7 @@ export const DAEMON_URL_STORAGE_KEY = 'chump:daemon-url';
 export const DAEMON_TOKEN_STORAGE_KEY = 'chump:daemon-token';
 export const DAEMON_USER_STORAGE_KEY = 'chump:daemon-user-id';
 export const PENDING_DAEMON_HANDOFF_STORAGE_KEY = 'chump:pending-daemon-handoff';
+export const PENDING_DAEMON_HANDOFF_EVENT = 'chump:pending-daemon-handoff';
 
 const PENDING_DAEMON_HANDOFF_MAX_AGE_MS = 2 * 60 * 1000;
 
@@ -56,6 +57,22 @@ export function stageDaemonHandoff(
 	storage.setItem(PENDING_DAEMON_HANDOFF_STORAGE_KEY, JSON.stringify(pending));
 }
 
+export function dispatchPendingDaemonHandoff(
+	target: Pick<EventTarget, 'dispatchEvent'>,
+	connection: DaemonConnection
+): void {
+	target.dispatchEvent(
+		new CustomEvent<DaemonConnection>(PENDING_DAEMON_HANDOFF_EVENT, {
+			detail: connection
+		})
+	);
+}
+
+export function parsePendingDaemonHandoffEvent(event: Event): DaemonConnection | null {
+	if (event.type !== PENDING_DAEMON_HANDOFF_EVENT) return null;
+	return parseDaemonConnection((event as CustomEvent<unknown>).detail);
+}
+
 export function readPendingDaemonHandoff(
 	storage: PendingHandoffStorage,
 	now = Date.now()
@@ -95,11 +112,22 @@ function isPendingDaemonHandoff(value: unknown): value is PendingDaemonHandoff {
 	if (!value || typeof value !== 'object') return false;
 	const pending = value as Record<string, unknown>;
 	return (
-		typeof pending.url === 'string' &&
-		pending.url.length > 0 &&
-		typeof pending.token === 'string' &&
-		pending.token.length > 0 &&
+		parseDaemonConnection(pending) !== null &&
 		typeof pending.capturedAt === 'number' &&
 		Number.isFinite(pending.capturedAt)
 	);
+}
+
+function parseDaemonConnection(value: unknown): DaemonConnection | null {
+	if (!value || typeof value !== 'object') return null;
+	const connection = value as Record<string, unknown>;
+	if (
+		typeof connection.url !== 'string' ||
+		connection.url.length === 0 ||
+		typeof connection.token !== 'string' ||
+		connection.token.length === 0
+	) {
+		return null;
+	}
+	return { url: connection.url, token: connection.token };
 }

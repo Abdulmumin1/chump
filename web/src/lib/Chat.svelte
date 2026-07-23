@@ -60,6 +60,7 @@
         registerDaemonProject,
         startDaemonProject,
         stopDaemonProject,
+        type DaemonConnection,
         type DaemonProject,
         type DaemonRuntime,
     } from "$lib/chump/daemon-api";
@@ -67,6 +68,8 @@
         clearPendingDaemonHandoff,
         consumeDaemonHandoff,
         parsePendingDaemonHandoff,
+        parsePendingDaemonHandoffEvent,
+        PENDING_DAEMON_HANDOFF_EVENT,
         PENDING_DAEMON_HANDOFF_STORAGE_KEY,
         readPendingDaemonHandoff,
     } from "$lib/chump/daemon-handoff";
@@ -1073,6 +1076,12 @@
         };
         window.addEventListener("keydown", handleToggleSidebarShortcut);
 
+        const connectPendingDaemonHandoff = (connection: DaemonConnection) => {
+            daemonUrl = connection.url;
+            daemonToken = connection.token;
+            void connectToDaemon();
+        };
+
         const handlePendingDaemonHandoff = (event: StorageEvent) => {
             if (
                 event.key !== PENDING_DAEMON_HANDOFF_STORAGE_KEY ||
@@ -1083,11 +1092,19 @@
             const connection = parsePendingDaemonHandoff(event.newValue);
             if (!connection) return;
 
-            daemonUrl = connection.url;
-            daemonToken = connection.token;
-            void connectToDaemon();
+            connectPendingDaemonHandoff(connection);
+        };
+        const handleCurrentDocumentDaemonHandoff = (event: Event) => {
+            const connection = parsePendingDaemonHandoffEvent(event);
+            if (!connection) return;
+
+            connectPendingDaemonHandoff(connection);
         };
         window.addEventListener("storage", handlePendingDaemonHandoff);
+        window.addEventListener(
+            PENDING_DAEMON_HANDOFF_EVENT,
+            handleCurrentDocumentDaemonHandoff,
+        );
 
         const handoff = consumeDaemonHandoff(
             window.location.href,
@@ -1141,6 +1158,10 @@
             window.removeEventListener("keydown", handleOpenProjectShortcut);
             window.removeEventListener("keydown", handleToggleSidebarShortcut);
             window.removeEventListener("storage", handlePendingDaemonHandoff);
+            window.removeEventListener(
+                PENDING_DAEMON_HANDOFF_EVENT,
+                handleCurrentDocumentDaemonHandoff,
+            );
             sessionController.destroy();
             stopQrScanner();
             activeRequest?.controller.abort();

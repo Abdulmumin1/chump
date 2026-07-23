@@ -4,6 +4,9 @@ import {
 	consumeDaemonHandoff,
 	DAEMON_TOKEN_STORAGE_KEY,
 	DAEMON_URL_STORAGE_KEY,
+	dispatchPendingDaemonHandoff,
+	parsePendingDaemonHandoffEvent,
+	PENDING_DAEMON_HANDOFF_EVENT,
 	parsePendingDaemonHandoff,
 	PENDING_DAEMON_HANDOFF_STORAGE_KEY,
 	readPendingDaemonHandoff,
@@ -98,6 +101,35 @@ describe('pending daemon handoff', () => {
 			url: 'http://127.0.0.1:9417',
 			token: 'secret-token'
 		});
+	});
+
+	it('notifies the current document without relying on a storage event', () => {
+		const connection = { url: 'http://127.0.0.1:9417', token: 'secret-token' };
+		const dispatchedEvents: Event[] = [];
+
+		dispatchPendingDaemonHandoff(
+			{
+				dispatchEvent(event) {
+					dispatchedEvents.push(event);
+					return true;
+				}
+			},
+			connection
+		);
+
+		const dispatched = dispatchedEvents[0];
+		expect(dispatched).toBeDefined();
+		if (!dispatched) throw new Error('expected a current-document handoff event');
+		expect(dispatched.type).toBe(PENDING_DAEMON_HANDOFF_EVENT);
+		expect(parsePendingDaemonHandoffEvent(dispatched)).toEqual(connection);
+	});
+
+	it('rejects malformed current-document handoffs', () => {
+		const event = new CustomEvent(PENDING_DAEMON_HANDOFF_EVENT, {
+			detail: { url: '', token: 'secret-token' }
+		});
+
+		expect(parsePendingDaemonHandoffEvent(event)).toBeNull();
 	});
 
 	it('rejects and removes an expired handoff', () => {
