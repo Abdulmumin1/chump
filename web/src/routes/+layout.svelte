@@ -29,10 +29,15 @@
 			dispatchPendingDaemonHandoff(window, handoff);
 		};
 
-		const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
-			window.history.replaceState({}, '', url);
-		});
-		if (handoff) publishHandoff(handoff);
+		const consumeCurrentHandoff = () => {
+			const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
+				window.history.replaceState({}, '', url);
+			});
+			if (handoff) publishHandoff(handoff);
+		};
+
+		consumeCurrentHandoff();
+		window.addEventListener('hashchange', consumeCurrentHandoff);
 
 		(window as LaunchQueueWindow).launchQueue?.setConsumer(({ targetURL }) => {
 			if (!targetURL) return;
@@ -50,6 +55,8 @@
 				console.warn('SvelteKit ServiceWorker registration failed: ', err);
 			});
 		}
+
+		return () => window.removeEventListener('hashchange', consumeCurrentHandoff);
 	});
 </script>
 
