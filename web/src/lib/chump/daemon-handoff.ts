@@ -15,6 +15,11 @@ type PendingDaemonHandoff = DaemonConnection & {
 	capturedAt: number;
 };
 
+export type DaemonLaunchTarget = {
+	url: string;
+	connection: DaemonConnection | null;
+};
+
 export function consumeDaemonHandoff(
 	href: string,
 	storage: HandoffStorage,
@@ -46,6 +51,26 @@ export function consumeDaemonHandoff(
 	storage.setItem(DAEMON_TOKEN_STORAGE_KEY, connection.token);
 	storage.removeItem(DAEMON_USER_STORAGE_KEY);
 	return connection;
+}
+
+export function prepareDaemonLaunchTarget(
+	targetURL: string,
+	currentOrigin: string,
+	storage: HandoffStorage
+): DaemonLaunchTarget | null {
+	let target: URL;
+	try {
+		target = new URL(targetURL);
+	} catch {
+		return null;
+	}
+	if (target.origin !== currentOrigin) return null;
+
+	let sanitizedUrl = target.toString();
+	const connection = consumeDaemonHandoff(target.toString(), storage, (url) => {
+		sanitizedUrl = url;
+	});
+	return { url: sanitizedUrl, connection };
 }
 
 export function stageDaemonHandoff(

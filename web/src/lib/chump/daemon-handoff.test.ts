@@ -9,6 +9,7 @@ import {
 	PENDING_DAEMON_HANDOFF_EVENT,
 	parsePendingDaemonHandoff,
 	PENDING_DAEMON_HANDOFF_STORAGE_KEY,
+	prepareDaemonLaunchTarget,
 	readPendingDaemonHandoff,
 	stageDaemonHandoff
 } from './daemon-handoff';
@@ -62,6 +63,55 @@ describe('consumeDaemonHandoff', () => {
 		expect(connection).toBeNull();
 		expect(storage.setItem).not.toHaveBeenCalled();
 		expect(replaceUrl).toHaveBeenCalledWith('https://chump.yaqeen.me/auth');
+	});
+});
+
+describe('prepareDaemonLaunchTarget', () => {
+	it('extracts a handoff and returns a credential-free navigation URL', () => {
+		const storage = createStorage();
+		const target = prepareDaemonLaunchTarget(
+			'https://chump.yaqeen.me/c#daemonUrl=http%3A%2F%2F127.0.0.1%3A9417&daemonToken=secret-token',
+			'https://chump.yaqeen.me',
+			storage
+		);
+
+		expect(target).toEqual({
+			url: 'https://chump.yaqeen.me/c',
+			connection: { url: 'http://127.0.0.1:9417', token: 'secret-token' }
+		});
+		expect(storage.setItem).toHaveBeenCalledWith(
+			DAEMON_URL_STORAGE_KEY,
+			'http://127.0.0.1:9417'
+		);
+	});
+
+	it('preserves same-origin launch targets without handoff credentials', () => {
+		const target = prepareDaemonLaunchTarget(
+			'https://chump.yaqeen.me/account?tab=profile',
+			'https://chump.yaqeen.me',
+			createStorage()
+		);
+
+		expect(target).toEqual({
+			url: 'https://chump.yaqeen.me/account?tab=profile',
+			connection: null
+		});
+	});
+
+	it('rejects malformed and cross-origin launch targets', () => {
+		const storage = createStorage();
+
+		expect(
+			prepareDaemonLaunchTarget('not a URL', 'https://chump.yaqeen.me', storage)
+		).toBeNull();
+		expect(
+			prepareDaemonLaunchTarget(
+				'https://example.com/c#daemonUrl=http://127.0.0.1:9417&daemonToken=secret-token',
+				'https://chump.yaqeen.me',
+				storage
+			)
+		).toBeNull();
+		expect(storage.setItem).not.toHaveBeenCalled();
 	});
 });
 
