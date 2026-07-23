@@ -7,6 +7,11 @@ import path from 'node:path';
 
 export default defineConfig({
 	plugins: [localDaemonBootstrap(), tailwindcss(), sveltekit()],
+	build: {
+		// Pierre's diff viewer emits optional Shiki language and WASM chunks.
+		// Keep the warning above those lazy assets so future bundle growth still surfaces.
+		chunkSizeWarningLimit: 800
+	},
 	ssr: {
 		noExternal: ['bits-ui']
 	}

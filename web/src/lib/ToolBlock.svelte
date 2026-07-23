@@ -1,6 +1,5 @@
 <script lang="ts">
     import { slide } from "svelte/transition";
-    import ToolDiffBlock from "$lib/chat/tool/ToolDiffBlock.svelte";
     import { stringifyValue } from "$lib/chat/tool/diff";
     import type { TranscriptBlock } from "$lib/chat/types";
 
@@ -132,7 +131,9 @@
 </script>
 
 {#if block.isDiff}
-    <ToolDiffBlock {block} />
+    {#await import("$lib/chat/tool/ToolDiffBlock.svelte") then { default: ToolDiffBlock }}
+        <ToolDiffBlock {block} />
+    {/await}
 {:else}
     <div>
         <button

@@ -13,14 +13,12 @@
     let {
         state: sessionState,
         sidebarOpen = false,
-        onRequestCommitPush,
-        onRequestCreatePr,
     } = $props<{
         state: ChumpState | null;
         sidebarOpen?: boolean;
-        onRequestCommitPush?: () => void;
-        onRequestCreatePr?: () => void;
     }>();
+
+    const INLINE_DIFF_MEDIA_QUERY = "(min-width: 1800px)";
 
     let isCollapsed = $state(
         browser
@@ -43,25 +41,10 @@
     let userClosedDiff = $state(false);
     let searchQuery = $state("");
     let mobileDiffFontSize = $state(11);
-    let isLargeScreen = $state(false);
+    let useInlineDiff = $state(
+        browser && window.matchMedia(INLINE_DIFF_MEDIA_QUERY).matches,
+    );
     let appTheme = $state<AppTheme>(getDocumentTheme());
-
-    $effect(() => {
-        if (!browser) return;
-        const media = window.matchMedia("(min-width: 1024px)");
-        isLargeScreen = media.matches;
-        const listener = (e: MediaQueryListEvent) => {
-            isLargeScreen = e.matches;
-        };
-        media.addEventListener("change", listener);
-        return () => media.removeEventListener("change", listener);
-    });
-
-    $effect(() => {
-        if (isLargeScreen && modalOpen) {
-            modalOpen = false;
-        }
-    });
 
     type DiffRow = {
         kind: "add" | "remove" | "context" | "meta";
@@ -122,6 +105,22 @@
         return observeDocumentTheme((theme) => {
             appTheme = theme;
         });
+    });
+
+    $effect(() => {
+        if (!browser) return;
+        const media = window.matchMedia(INLINE_DIFF_MEDIA_QUERY);
+        const listener = (event: MediaQueryListEvent) => {
+            const wasInline = useInlineDiff;
+            useInlineDiff = event.matches;
+            if (event.matches) {
+                modalOpen = false;
+            } else if (wasInline && selectedPath && !userClosedDiff) {
+                modalOpen = true;
+            }
+        };
+        media.addEventListener("change", listener);
+        return () => media.removeEventListener("change", listener);
     });
 
     $effect(() => {
@@ -227,9 +226,7 @@
     function openFile(path: string): void {
         selectedPath = path;
         userClosedDiff = false;
-        if (!isLargeScreen) {
-            modalOpen = true;
-        }
+        modalOpen = !useInlineDiff;
         void scrollToFile(path);
     }
 
@@ -250,6 +247,19 @@
     function closeModal(): void {
         userClosedDiff = true;
         modalOpen = false;
+    }
+
+    function closeDiffView(): void {
+        if (useInlineDiff) {
+            selectedPath = null;
+            userClosedDiff = true;
+            return;
+        }
+        closeModal();
+    }
+
+    function handleWindowKeydown(event: KeyboardEvent): void {
+        if (modalOpen && event.key === "Escape") closeModal();
     }
 
     function selectPreviousFile(): void {
@@ -497,31 +507,26 @@
                         >{/if}
                     <span class="text-text-tertiary">~{totalChangesCount}</span>
                 </div>
-                {#if isLargeScreen}
-                    <button
-                        type="button"
-                        aria-label="Close diff"
-                        class="hidden md:flex rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary ml-2"
-                        onclick={() => {
-                            selectedPath = null;
-                            userClosedDiff = true;
-                        }}
+                <button
+                    type="button"
+                    aria-label="Close diff"
+                    class="hidden md:flex rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary ml-2"
+                    onclick={closeDiffView}
+                >
+                    <svg
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
                     >
-                        <svg
-                            class="h-4 w-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="1.8"
-                                d="M6 6l12 12M18 6L6 18"
-                            ></path>
-                        </svg>
-                    </button>
-                {/if}
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="1.8"
+                            d="M6 6l12 12M18 6L6 18"
+                        ></path>
+                    </svg>
+                </button>
             </div>
         </div>
 
@@ -678,9 +683,11 @@
     </div>
 {/snippet}
 
-{#if isLargeScreen && selectedPath && selectedFile && !isCollapsed}
+<svelte:window onkeydown={handleWindowKeydown} />
+
+{#if useInlineDiff && selectedPath && selectedFile && !isCollapsed}
     <div
-        class="hidden lg:flex flex-col h-full flex-1 min-w-[550px] border-l border-border-subtle bg-bg-surface text-text-main"
+        class="flex min-w-[550px] flex-1 flex-col border-l border-border-subtle bg-bg-surface text-text-main"
     >
         {@render diffPanel()}
     </div>
@@ -694,52 +701,7 @@
     class:border-l-0={isCollapsed}
 >
     <div class="border-b border-border-subtle px-4 py-2.5">
-        <div class="flex min-w-0 items-center gap-3">
-            <div class="flex items-center gap-1.5">
-                <button
-                    type="button"
-                    class="workspace-action-button"
-                    onclick={onRequestCommitPush}
-                    disabled={!onRequestCommitPush || totalChangesCount === 0}
-                >
-                    <svg
-                        class="h-3.5 w-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="1.9"
-                            d="M5 12l4 4L19 6"
-                        />
-                    </svg>
-                    Commit & Push
-                </button>
-                <button
-                    type="button"
-                    class="workspace-action-button workspace-action-button-primary"
-                    onclick={onRequestCreatePr}
-                    disabled={!onRequestCreatePr}
-                >
-                    <svg
-                        class="h-3.5 w-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="1.9"
-                            d="M7 7h7m0 0v7m0-7L5 16m10-1h4v4h-4z"
-                        />
-                    </svg>
-                    Create PR
-                </button>
-            </div>
-            <div class="min-w-0 flex-1"></div>
+        <div class="flex min-w-0 items-center justify-end">
             <div class="flex items-center gap-1 text-text-tertiary">
                 <button
                     class="workspace-icon-button"
@@ -976,19 +938,20 @@
 {#if modalOpen && groupedFiles.length > 0}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay/60 p-0 md:p-4 backdrop-blur-[2px]"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay/60 p-0 md:p-3 backdrop-blur-[2px]"
         onclick={closeModal}
         role="presentation"
     >
         <div
-            class="flex h-full w-full md:h-[min(900px,calc(100vh-4rem))] md:w-[min(1500px,calc(100vw-4rem))] overflow-hidden rounded-none md:rounded-xl bg-bg-surface text-text-main"
+            class="flex h-full w-full overflow-hidden rounded-none border-border-default bg-bg-surface text-text-main shadow-2xl md:rounded-xl md:border"
             onclick={(event) => event.stopPropagation()}
             role="dialog"
+            aria-modal="true"
             tabindex="-1"
             aria-label="Workspace Changes"
         >
             <div
-                class="flex w-full md:w-72 flex-shrink-0 flex-col border-r border-border-subtle bg-bg-surface-alt {selectedPath
+                class="flex w-full flex-shrink-0 flex-col border-border-subtle bg-bg-surface-alt md:order-2 md:w-80 md:border-l {selectedPath
                     ? 'hidden md:flex'
                     : 'flex'}"
             >
@@ -1063,7 +1026,7 @@
             </div>
 
             <div
-                class="flex min-w-0 flex-1 flex-col bg-bg-surface {!selectedPath
+                class="flex min-w-0 flex-1 flex-col bg-bg-surface md:order-1 {!selectedPath
                     ? 'hidden md:flex'
                     : 'flex'}"
             >
@@ -1146,44 +1109,6 @@
 {/if}
 
 <style>
-    .workspace-action-button {
-        display: inline-flex;
-        height: 28px;
-        align-items: center;
-        gap: 6px;
-        border-radius: 6px;
-        padding: 0 8px;
-        color: var(--text-secondary);
-        font-size: 13px;
-        font-weight: 600;
-        line-height: 1;
-        white-space: nowrap;
-        transition:
-            background-color 150ms ease,
-            color 150ms ease,
-            opacity 150ms ease;
-    }
-
-    .workspace-action-button:hover:not(:disabled) {
-        background: var(--bg-hover);
-        color: var(--text-main);
-    }
-
-    .workspace-action-button-primary {
-        background: var(--accent);
-        color: var(--text-on-accent);
-    }
-
-    .workspace-action-button-primary:hover:not(:disabled) {
-        background: var(--accent-hover);
-        color: var(--text-on-accent);
-    }
-
-    .workspace-action-button:disabled {
-        cursor: default;
-        opacity: 0.35;
-    }
-
     .workspace-icon-button {
         display: inline-flex;
         height: 26px;

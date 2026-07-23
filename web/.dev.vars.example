@@ -1,0 +1,6 @@
+BETTER_AUTH_URL=http://localhost:5173
+BETTER_AUTH_SECRET=replace-with-output-from-openssl-rand-base64-32
+
+# Optional GitHub OAuth. Configure both or neither.
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=

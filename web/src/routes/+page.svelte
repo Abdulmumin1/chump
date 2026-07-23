@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { cubicOut, cubicIn } from 'svelte/easing';
+	import { resolve } from '$app/paths';
 	import MacintoshSE from './MacintoshSE.svelte';
+	import type { PageProps } from './$types';
+	let { data }: PageProps = $props();
 	let selectedTab = $state('CLI');
 	const tabs = ['CLI', 'WEB', 'MOBILE', 'COLLABORATIVE', 'SERVER'];
 	
@@ -61,7 +64,12 @@
 	<!-- TOP NAV -->
 	<nav class="absolute top-6 w-full flex justify-center sm:justify-end sm:pr-10 z-50 font-mono text-[10px] sm:text-xs tracking-[0.15em] items-center space-x-6">
 		<a href="https://github.com/Abdulmumin1/chump" target="_blank" rel="noopener noreferrer" class="text-text-secondary hover:text-text-main transition-colors">GITHUB</a>
-		<a href="/c" class="group relative flex items-center gap-2 text-text-secondary hover:text-text-main transition-colors">
+		{#if data.user}
+			<a href={resolve('/account')} class="text-text-secondary hover:text-text-main transition-colors">ACCOUNT</a>
+		{:else}
+			<a href={resolve('/auth')} class="text-text-secondary hover:text-text-main transition-colors">SIGN IN</a>
+		{/if}
+		<a href={resolve('/c')} class="group relative flex items-center gap-2 text-text-secondary hover:text-text-main transition-colors">
 			<span class="tracking-[0.2em]">CONNECT</span>
 			<!-- Weird/Funky symbol: an asterisk that spins on hover, simulating a connection spark/terminal star -->
 			<div class="relative w-4 h-4 flex items-center justify-center">
@@ -85,7 +93,7 @@
 			<div class="flex items-center ml-3 sm:ml-5" aria-hidden="true">
 				<div class="relative flex items-center justify-center w-10 h-10 sm:w-14 sm:h-14 md:w-20 md:h-20 lg:w-24 lg:h-24 transition-all duration-500 line-anim" style="animation-delay: 90ms;">
 					<div class="absolute inset-0 rounded-full flex flex-col justify-evenly overflow-hidden border border-border-default">
-						{#each Array(7) as _}
+						{#each Array(7) as _, index (index)}
 							<div class="w-full h-[2px] bg-text-inverse opacity-20"></div>
 						{/each}
 					</div>
@@ -135,7 +143,7 @@
 	<!-- FLOATING TOOLBAR -->
 	<nav class="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 bg-bg-surface/80 backdrop-blur-md p-1.5 rounded-full border border-border-default z-50 overflow-x-auto max-w-[95vw] hide-scrollbar">
 		<div class="flex items-center min-w-max">
-			{#each tabs as tab}
+			{#each tabs as tab (tab)}
 				<button 
 					role="tab"
 					aria-selected={selectedTab === tab}

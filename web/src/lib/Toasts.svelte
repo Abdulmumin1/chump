@@ -1,27 +1,31 @@
 <script lang="ts">
+	import { removeToast, toastStore, type ToastItem } from '$lib/toast-store.svelte';
+
 	let {
 		toasts = $bindable()
-	} = $props<{
-		toasts: Array<{
-			id: number;
-			message: string;
-			type?: 'default' | 'success' | 'error';
-		}>;
-	}>();
+	}: {
+		toasts?: ToastItem[];
+	} = $props();
+
+	const activeToasts = $derived(toasts ?? toastStore.items);
 
 	function remove(id: number) {
-		toasts = toasts.filter((t: { id: number }) => t.id !== id);
+		if (toasts) {
+			toasts = toasts.filter((t) => t.id !== id);
+		} else {
+			removeToast(id);
+		}
 	}
 </script>
 
 <div class="fixed top-4 left-1/2 -translate-x-1/2 md:top-auto md:bottom-4 md:left-auto md:right-4 md:translate-x-0 z-50 flex flex-col items-center md:items-end gap-2 pointer-events-none" aria-live="polite">
-	{#each toasts as toast (toast.id)}
+	{#each activeToasts as toast (toast.id)}
 		<button
 			onclick={() => remove(toast.id)}
-			class="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-full border text-[13px] font-medium transition-all duration-300 opacity-0 animate-toast-in whitespace-nowrap max-w-[90vw] overflow-hidden text-ellipsis
+			class="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-full border text-[13px] font-medium transition-all duration-300 opacity-0 animate-toast-in whitespace-nowrap max-w-[90vw] overflow-hidden text-ellipsis shadow-lg
 				{toast.type === 'error' ? 'bg-bg-toast-err border-error/25 text-error' : 
 				 toast.type === 'success' ? 'bg-bg-toast-ok border-success/25 text-text-success' : 
-				 'bg-bg-code border-border-default text-text-secondary'}"
+				 'bg-bg-surface border-border-default text-text-secondary'}"
 			type="button"
 		>
 			{#if toast.type === 'success'}
@@ -49,7 +53,7 @@
 		to { opacity: 1; transform: translateY(0); }
 	}
 	@keyframes toast-in-bottom {
-		from { opacity: 0; transform: translateY(16px); }
+		from { opacity: 0; transform: translateY(-16px); }
 		to { opacity: 1; transform: translateY(0); }
 	}
 	.animate-toast-in {

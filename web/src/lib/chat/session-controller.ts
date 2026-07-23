@@ -151,20 +151,47 @@ export function createSessionController(
         }
 
         try {
-            if (!state.apiTarget) return;
-            const nextSessions = await getSessions(state.apiTarget, {
-                page: state.sessionPage,
-            });
-            applySessionsResponse(nextSessions);
+            const apiTarget = state.apiTarget;
+            if (!apiTarget) return;
+            const firstPage = await getSessions(apiTarget, { page: 1 });
+            const loadedPageCount = Math.max(
+                1,
+                Math.min(state.sessionPage, firstPage.total_pages),
+            );
+            const remainingPages = await Promise.all(
+                Array.from({ length: loadedPageCount - 1 }, (_, index) =>
+                    getSessions(apiTarget, { page: index + 2 }),
+                ),
+            );
+            state.sessions = [firstPage, ...remainingPages].flatMap(
+                (response) => response.sessions,
+            );
+            state.sessionPage = loadedPageCount;
+            state.sessionTotalPages = firstPage.total_pages;
+            state.sessionTotal = firstPage.total;
         } catch (error) {
             state.connectionError = toErrorMessage(error);
         }
     }
 
-    async function loadSessionsPage(page: number): Promise<void> {
-        if (!state.apiTarget || page < 1 || page > state.sessionTotalPages) return;
+    async function loadMoreSessions(): Promise<void> {
+        if (!state.apiTarget || state.sessionPage >= state.sessionTotalPages) return;
         try {
-            applySessionsResponse(await getSessions(state.apiTarget, { page }));
+            const response = await getSessions(state.apiTarget, {
+                page: state.sessionPage + 1,
+            });
+            const existingSessionIds = new Set(
+                state.sessions.map((session) => session.id),
+            );
+            state.sessions = [
+                ...state.sessions,
+                ...response.sessions.filter(
+                    (session) => !existingSessionIds.has(session.id),
+                ),
+            ];
+            state.sessionPage = response.page;
+            state.sessionTotalPages = response.total_pages;
+            state.sessionTotal = response.total;
         } catch (error) {
             state.connectionError = toErrorMessage(error);
         }
@@ -190,7 +217,14 @@ export function createSessionController(
 
         state.activeSessionId = nextSessionId;
         state.sessionInput = nextSessionId;
+        // Session-scoped status must never leak into the next active view while
+        // its snapshot is loading. The previous turn continues server-side.
+        state.status = null;
+        state.sessionState = null;
         state.messages = [];
+        state.steeringQueue = [];
+        state.isSending = false;
+        state.isCompacting = false;
         state.lastEventId = 0;
         state.stopEvents?.();
         state.stopEvents = null;
@@ -343,6 +377,7 @@ export function createSessionController(
         state.sessionState = null;
         state.messages = [];
         state.steeringQueue = [];
+        state.isSending = false;
         state.isCompacting = false;
         state.lastEventId = 0;
         if (!state.sessions.some((session) => session.id === state.activeSessionId)) {
@@ -538,15 +573,13 @@ export function createSessionController(
 
     function applyStatus(nextStatus: ChumpStatus): void {
         state.status = nextStatus;
-        if (nextStatus.turn_running === true) {
-            state.isSending = true;
-        }
+        state.isSending = nextStatus.turn_running === true;
     }
 
     return {
         connectToServer,
         refreshSessionsList,
-        loadSessionsPage,
+        loadMoreSessions,
         selectSession,
         refreshSessionSnapshot,
         ensureSessionListed,

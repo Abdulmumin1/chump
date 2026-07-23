@@ -5,17 +5,14 @@
     import TranscriptPane from "$lib/TranscriptPane.svelte";
     import ChatComposer from "$lib/ChatComposer.svelte";
     import Toasts from "$lib/Toasts.svelte";
-    import WorkspaceState from "$lib/WorkspaceState.svelte";
     import ChatTopBar from "$lib/chat/ChatTopBar.svelte";
     import ConnectServerModal from "$lib/chat/ConnectServerModal.svelte";
     import ModelPickerModal from "$lib/chat/ModelPickerModal.svelte";
-    import GitActionModal, { type GitActionKind } from "$lib/chat/GitActionModal.svelte";
     import CommandPalette from "$lib/chat/CommandPalette.svelte";
     import { sidebarSwipe, type SidebarSwipeState } from "$lib/chat/sidebar-swipe";
     import {
         shortenModel,
         shortenWorkspacePath,
-        formatDate,
         toErrorMessage,
     } from "$lib/chat/helpers";
     import { reasoningSummary, buildTranscript } from "$lib/chat/transcript";
@@ -55,8 +52,6 @@
     } from "$lib/models";
     import {
         createDaemonProjectSession,
-        commitAndPushDaemonProjectChanges,
-        createDaemonProjectPullRequest,
         discoverLocalDaemon,
         getDaemonProjectRuntime,
         listDaemonProjects,
@@ -89,6 +84,7 @@
     let composerAttachments = $state<ChatAttachment[]>([]);
     let isConnecting = $state(false);
     let isSending = $state(false);
+    let workingSessionIds = $state<string[]>([]);
     let isCompacting = $state(false);
     let isLoadingSession = $state(false);
     let connectionError = $state("");
@@ -98,7 +94,9 @@
     let lastEventId = 0;
     let loadToken = 0;
     let streamToken = 0;
-    let activeRequestController: AbortController | null = null;
+    let activeRequest:
+        | { sessionId: string; controller: AbortController }
+        | null = null;
     let expandedBlocks = $state<Record<string, boolean>>({});
     let expandedReasoning = $state<Record<string, boolean>>({});
     let sidebarOpen = $state(false);
@@ -116,6 +114,18 @@
     >([]);
     let toastId = 0;
     let modelSearchQuery = $state("");
+
+    function setSessionWorking(sessionId: string, working: boolean): void {
+        if (!sessionId) return;
+        const isTracked = workingSessionIds.includes(sessionId);
+        if (working && !isTracked) {
+            workingSessionIds = [...workingSessionIds, sessionId];
+        } else if (!working && isTracked) {
+            workingSessionIds = workingSessionIds.filter(
+                (trackedSessionId) => trackedSessionId !== sessionId,
+            );
+        }
+    }
     let availableModels = $state<ModelChoice[]>([]);
     let contextUsageLabel = $state<string | null>(null);
     let daemonUrl = $state("");
@@ -127,16 +137,6 @@
     let runtimeActionProjectId = $state("");
     let isRegisteringProject = $state(false);
     let isPickingProjectDirectory = $state(false);
-    let gitActionModalOpen = $state(false);
-    let gitActionKind = $state<GitActionKind>("commit-push");
-    let gitActionMessage = $state("");
-    let gitActionPrTitle = $state("");
-    let gitActionPrBody = $state("");
-    let gitActionPrDraft = $state(true);
-    let gitActionResultUrl = $state("");
-    let gitActionSelectedFiles = $state<string[]>([]);
-    let isRunningGitAction = $state(false);
-    let gitActionError = $state("");
 
     let isDraggingSidebar = $state(false);
     let sidebarDragOffset = $state(0);
@@ -197,20 +197,6 @@
     );
     const currentGitBranch = $derived(
         status?.git_branch ?? health?.git_branch ?? "",
-    );
-    const workspaceChangeFiles = $derived(sessionState?.files_touched?.length ?? 0);
-    const workspaceTouchedFiles = $derived(sessionState?.files_touched ?? []);
-    const workspaceAddedLines = $derived.by(() =>
-        Object.values(sessionState?.file_diffs ?? {}).reduce(
-            (sum, diff) => sum + (diff.added ?? 0),
-            0,
-        ),
-    );
-    const workspaceRemovedLines = $derived.by(() =>
-        Object.values(sessionState?.file_diffs ?? {}).reduce(
-            (sum, diff) => sum + (diff.removed ?? 0),
-            0,
-        ),
     );
     const reasoningInfo = $derived.by(() => {
         const source = status?.reasoning ?? health?.reasoning;
@@ -325,6 +311,7 @@
         },
         set isSending(value: boolean) {
             isSending = value;
+            setSessionWorking(activeSessionId, value);
         },
         get isCompacting() {
             return isCompacting;
@@ -559,7 +546,12 @@
         }
 
         isSending = true;
-        activeRequestController = new AbortController();
+        setSessionWorking(sessionId, true);
+        const request = {
+            sessionId,
+            controller: new AbortController(),
+        };
+        activeRequest = request;
 
         try {
             await streamChat(
@@ -567,87 +559,21 @@
                 sessionId,
                 message,
                 attachments,
-                activeRequestController.signal,
+                request.controller.signal,
                 displayMessage,
             );
         } catch (error) {
-            if (!activeRequestController.signal.aborted) {
+            if (!request.controller.signal.aborted && activeSessionId === sessionId) {
                 connectionError = toErrorMessage(error);
             }
         } finally {
-            if (!activeRequestController.signal.aborted) {
+            setSessionWorking(sessionId, false);
+            if (!request.controller.signal.aborted && activeSessionId === sessionId) {
                 isSending = false;
             }
-            activeRequestController = null;
-        }
-    }
-
-    function openGitActionModal(action: GitActionKind): void {
-        gitActionKind = action;
-        gitActionError = "";
-        gitActionResultUrl = "";
-        if (action === "commit-push") {
-            gitActionMessage = "";
-            gitActionSelectedFiles = [...workspaceTouchedFiles];
-        } else {
-            gitActionPrTitle = "";
-            gitActionPrBody = "";
-            gitActionPrDraft = true;
-        }
-        gitActionModalOpen = true;
-    }
-
-    function closeGitActionModal(): void {
-        if (isRunningGitAction) return;
-        gitActionModalOpen = false;
-        gitActionError = "";
-        gitActionResultUrl = "";
-    }
-
-    function openGitActionResult(url: string): void {
-        window.open(url, "_blank", "noopener,noreferrer");
-    }
-
-    async function submitGitAction(): Promise<void> {
-        if (!apiTarget || apiTarget.kind !== "daemon" || !activeProjectId) {
-            gitActionError = "Git actions need a local daemon project.";
-            return;
-        }
-
-        const connection = { url: apiTarget.daemonUrl, token: apiTarget.token };
-        connectionError = "";
-        gitActionError = "";
-        isRunningGitAction = true;
-
-        try {
-            const result =
-                gitActionKind === "create-pr"
-                        ? await createDaemonProjectPullRequest(connection, activeProjectId, {
-                            title: gitActionPrTitle.trim() || undefined,
-                            body: gitActionPrBody.trim() || undefined,
-                            draft: gitActionPrDraft,
-                        })
-                        : await commitAndPushDaemonProjectChanges(
-                            connection,
-                            activeProjectId,
-                            gitActionMessage.trim(),
-                            gitActionSelectedFiles,
-                        );
-
-            if (gitActionKind === "create-pr") {
-                gitActionResultUrl = result.url ?? result.message;
-                pushToast("Pull request created", "success");
-            } else {
-                pushToast(result.message, "success");
-                gitActionModalOpen = false;
+            if (activeRequest === request) {
+                activeRequest = null;
             }
-            if (activeSessionId) {
-                await sessionController.refreshSessionSnapshot(activeSessionId);
-            }
-        } catch (error) {
-            gitActionError = toErrorMessage(error);
-        } finally {
-            isRunningGitAction = false;
         }
     }
 
@@ -685,7 +611,10 @@
         connectionError = "";
 
         try {
-            activeRequestController?.abort();
+            const request = activeRequest;
+            if (request !== null && request.sessionId === activeSessionId) {
+                request.controller.abort();
+            }
             await abortCurrentTurn(target, activeSessionId);
         } catch (error) {
             connectionError = toErrorMessage(error);
@@ -1076,6 +1005,9 @@
     }
 
     onMount(() => {
+        if (typeof window !== "undefined" && window.innerWidth >= 768) {
+            sidebarOpen = true;
+        }
         const handleOpenProjectShortcut = (event: KeyboardEvent) => {
             if (
                 event.key.toLowerCase() !== "o" ||
@@ -1154,7 +1086,7 @@
             window.removeEventListener("keydown", handleToggleSidebarShortcut);
             sessionController.destroy();
             stopQrScanner();
-            activeRequestController?.abort();
+            activeRequest?.controller.abort();
         };
     });
 </script>
@@ -1164,85 +1096,110 @@
 </svelte:head>
 
 <div
-    class="flex h-[100dvh] bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
-    use:sidebarSwipe={{
-        open: sidebarOpen,
-        onStateChange: handleSidebarSwipeStateChange,
-    }}
+    class="flex h-[100dvh] w-full bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
 >
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-        class="fixed inset-0 z-20 bg-black/10"
-        style:opacity={sidebarProgress}
-        style:backdrop-filter="blur({sidebarProgress * 1}px)"
-        style:pointer-events={sidebarOpen || sidebarProgress > 0 ? "auto" : "none"}
-        class:transition-all={!isDraggingSidebar}
-        class:duration-200={!isDraggingSidebar}
-        onclick={closeSidebar}
-    ></div>
-
-    <SessionsSidebar
-        {sessions}
-        {sessionPage}
-        {sessionTotalPages}
-        {sessionTotal}
-        {activeSessionId}
-        bind:sessionInput
-        {health}
-        {serverUrl}
-        {isConnecting}
-        {canConnect}
-        {isLoadingSession}
-        {projects}
-        {activeProjectId}
-        {isLoadingProject}
-        {projectRuntimes}
-        {runtimeActionProjectId}
-        {isRegisteringProject}
-        {isPickingProjectDirectory}
-        onSelectProject={(projectId) => void selectProject(projectId)}
-        onStartProject={(projectId) => void startProject(projectId)}
-        onStopProject={(projectId) => void stopProject(projectId)}
-        onRegisterProject={registerProject}
-        onPickProjectDirectory={pickProjectDirectory}
-        onCreateSession={() => void createProjectSession()}
-        onOpenSession={() => void sessionController.openTypedSession()}
-        onSelectSession={(id) => {
-            closeSidebar();
-            void sessionController.selectSession(id);
-        }}
-        onPreviousPage={() => void sessionController.loadSessionsPage(sessionPage - 1)}
-        onNextPage={() => void sessionController.loadSessionsPage(sessionPage + 1)}
-        onOpenConnectModal={openConnectModal}
-        onConnect={() => void connectDirectly()}
-        {sessionTitle}
-        {formatDate}
-        open={sidebarOpen}
-        {dragOffset}
-        isDragging={isDraggingSidebar}
-    />
-
-    <main
-        class="flex-1 flex flex-col bg-bg-surface relative min-w-0 h-[100dvh]"
-        class:transition-all={!isDraggingSidebar}
-        class:duration-200={!isDraggingSidebar}
-        class:ease-out={!isDraggingSidebar}
-        style:transform="translateX({sidebarProgress * 40}px)"
-        style:overflow={sidebarProgress > 0 ? "hidden" : ""}
-        style:border-radius="{sidebarProgress * 12}px"
-        style:box-shadow={sidebarProgress > 0
-            ? "0 0 0 1px var(--border-subtle)"
-            : ""}
+        class="hidden md:block h-full shrink-0 transition-[width,opacity] duration-200 ease-in-out {sidebarOpen
+            ? 'w-64 lg:w-72 border-r border-border-default'
+            : 'w-0 overflow-hidden border-none opacity-0'}"
     >
-        <div
-            class="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-bg-surface via-bg-surface/80 to-transparent z-10 pointer-events-none"
-        ></div>
-
-        <ChatTopBar
+        <SessionsSidebar
+            {sessions}
+            {sessionPage}
+            {sessionTotalPages}
             {activeSessionId}
-            onToggleSidebar={toggleSidebar}
+            bind:sessionInput
+            {health}
+            {serverUrl}
+            {workingSessionIds}
+            {projects}
+            {activeProjectId}
+            {isLoadingProject}
+            {projectRuntimes}
+            {runtimeActionProjectId}
+            {isRegisteringProject}
+            {isPickingProjectDirectory}
+            onSelectProject={(projectId) => void selectProject(projectId)}
+            onStartProject={(projectId) => void startProject(projectId)}
+            onStopProject={(projectId) => void stopProject(projectId)}
+            onRegisterProject={registerProject}
+            onPickProjectDirectory={pickProjectDirectory}
             onCreateSession={() => void createProjectSession()}
+            onOpenSession={() => void sessionController.openTypedSession()}
+            onSelectSession={(id) => void sessionController.selectSession(id)}
+            onLoadMore={() => sessionController.loadMoreSessions()}
+            {sessionTitle}
+            open={sidebarOpen}
+            onToggleSidebar={toggleSidebar}
+            user={data?.user}
+        />
+    </div>
+
+    {#if sidebarOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+            class="md:hidden fixed inset-0 z-40 bg-[var(--bg-overlay)] backdrop-blur-xs flex"
+            role="dialog"
+            aria-modal="true"
+        >
+            <div class="relative w-72 max-w-[80vw] h-full bg-bg-surface-alt border-r border-border-default">
+                <SessionsSidebar
+                    {sessions}
+                    {sessionPage}
+                    {sessionTotalPages}
+                    {activeSessionId}
+                    bind:sessionInput
+                    {health}
+                    {serverUrl}
+                    {workingSessionIds}
+                    {projects}
+                    {activeProjectId}
+                    {isLoadingProject}
+                    {projectRuntimes}
+                    {runtimeActionProjectId}
+                    {isRegisteringProject}
+                    {isPickingProjectDirectory}
+                    onSelectProject={(projectId) => void selectProject(projectId)}
+                    onStartProject={(projectId) => void startProject(projectId)}
+                    onStopProject={(projectId) => void stopProject(projectId)}
+                    onRegisterProject={registerProject}
+                    onPickProjectDirectory={pickProjectDirectory}
+                    onCreateSession={() => {
+                        closeSidebar();
+                        void createProjectSession();
+                    }}
+                    onOpenSession={() => {
+                        closeSidebar();
+                        void sessionController.openTypedSession();
+                    }}
+                    onSelectSession={(id) => {
+                        closeSidebar();
+                        void sessionController.selectSession(id);
+                    }}
+                    onLoadMore={() => sessionController.loadMoreSessions()}
+                    {sessionTitle}
+                    open={sidebarOpen}
+                    onToggleSidebar={toggleSidebar}
+                    user={data?.user}
+                />
+            </div>
+            <button
+                type="button"
+                class="flex-1 h-full cursor-default"
+                onclick={closeSidebar}
+                aria-label="Close backdrop"
+            ></button>
+        </div>
+    {/if}
+
+    <main class="flex-1 flex flex-col bg-bg-surface relative min-w-0 h-[100dvh] overflow-hidden">
+        <div
+            class="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-bg-surface via-bg-surface/80 to-transparent z-10 pointer-events-none"
+        ></div>
+        <ChatTopBar
+            {sidebarOpen}
+            onToggleSidebar={toggleSidebar}
         />
 
         <TranscriptPane
@@ -1315,12 +1272,12 @@
     </main>
 
     {#if sessionState}
-        <WorkspaceState
-            state={sessionState}
-            {sidebarOpen}
-            onRequestCommitPush={() => openGitActionModal("commit-push")}
-            onRequestCreatePr={() => openGitActionModal("create-pr")}
-        />
+        {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
+            <WorkspaceState
+                state={sessionState}
+                {sidebarOpen}
+            />
+        {/await}
     {/if}
 </div>
 
@@ -1354,27 +1311,6 @@
     onSelectModel={(provider, model) => {
         void handleCommand("model", `${provider}/${model}`);
     }}
-/>
-
-<GitActionModal
-    open={gitActionModalOpen}
-    action={gitActionKind}
-    branch={currentGitBranch}
-    changedFiles={workspaceChangeFiles}
-    added={workspaceAddedLines}
-    removed={workspaceRemovedLines}
-    files={workspaceTouchedFiles}
-    bind:selectedFiles={gitActionSelectedFiles}
-    busy={isRunningGitAction}
-    error={gitActionError}
-    bind:commitMessage={gitActionMessage}
-    bind:prTitle={gitActionPrTitle}
-    bind:prBody={gitActionPrBody}
-    bind:prDraft={gitActionPrDraft}
-    resultUrl={gitActionResultUrl}
-    onClose={closeGitActionModal}
-    onSubmit={() => void submitGitAction()}
-    onOpenResult={openGitActionResult}
 />
 
 <CommandPalette

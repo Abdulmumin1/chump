@@ -115,25 +115,21 @@
 
 <div
     use:closeOnOutsidePointer
-    class="relative border-b border-border-subtle p-1.5"
+    class="relative"
 >
     <!-- Trigger Button (Ultra-slim, No Shadows, No status labels/headers) -->
     <button
         type="button"
-        class="flex w-full items-center justify-between gap-2 rounded border border-border-subtle/60 bg-bg-surface px-2 py-1.5 text-left transition-colors hover:bg-bg-hover hover:border-border-default"
+        class="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-bg-hover min-w-0 max-w-full"
         aria-haspopup="listbox"
         aria-expanded={open}
         onclick={() => { open = !open; if (!open) searchQuery = ""; }}
     >
-        <span class="flex min-w-0 flex-1 flex-col">
-            <span class="truncate text-[12px] font-semibold text-text-primary">
-                {activeProject?.name ?? "Select project"}
-            </span>
-            {#if activeProject}
-                <span class="block truncate font-mono text-[8.5px] text-text-tertiary mt-0.5" title={activeProject.workspacePath}>
-                    {activeProject.workspacePath}
-                </span>
-            {/if}
+        <span class="grid size-5 shrink-0 place-items-center rounded bg-bg-input text-[11px] font-bold text-text-main font-mono uppercase border border-border-default/40">
+            {(activeProject?.name ?? "P").slice(0, 1)}
+        </span>
+        <span class="truncate text-xs font-semibold text-text-main max-w-[130px]">
+            {activeProject?.name ?? "Select project"}
         </span>
 
         {#if loading}

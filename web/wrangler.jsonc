@@ -9,6 +9,19 @@
     "directory": ".svelte-kit/cloudflare",
   },
 
+  "vars": {
+    "BETTER_AUTH_URL": "https://chump.yaqeen.me",
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chump-web-auth",
+      "database_id": "5f253f2f-c690-44b1-803e-a16885e23575",
+      "migrations_dir": "drizzle",
+    },
+  ],
+
   "observability": {
     "enabled": true,
   },

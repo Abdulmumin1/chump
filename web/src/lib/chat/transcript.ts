@@ -135,7 +135,51 @@ export function buildTranscript(source: StoredMessage[]): TranscriptMessage[] {
         });
     }
 
-    return items;
+    return coalesceAdjacentToolMessages(items);
+}
+
+function coalesceAdjacentToolMessages(
+    items: TranscriptMessage[],
+): TranscriptMessage[] {
+    const coalesced: TranscriptMessage[] = [];
+
+    for (const item of items) {
+        const toolBlocks = toolOnlyBlocks(item);
+        const previous = coalesced.at(-1);
+        const previousToolBlocks = previous ? toolOnlyBlocks(previous) : null;
+
+        if (toolBlocks && previous && previousToolBlocks) {
+            coalesced[coalesced.length - 1] = {
+                ...previous,
+                blocks: [...previousToolBlocks, ...toolBlocks],
+                live: previous.live || item.live,
+            };
+            continue;
+        }
+
+        coalesced.push(
+            toolBlocks && toolBlocks.length !== item.blocks.length
+                ? { ...item, blocks: toolBlocks }
+                : item,
+        );
+    }
+
+    return coalesced;
+}
+
+function toolOnlyBlocks(item: TranscriptMessage): TranscriptBlock[] | null {
+    if (item.role !== "assistant") return null;
+
+    const toolBlocks: TranscriptBlock[] = [];
+    for (const block of item.blocks) {
+        if (block.kind === "tool-call" || block.kind === "tool-result") {
+            toolBlocks.push(block);
+            continue;
+        }
+        if (block.kind !== "text" || block.text.trim()) return null;
+    }
+
+    return toolBlocks.length > 0 ? toolBlocks : null;
 }
 
 export function mergeReasoningText(existing: string, incoming: string): string {

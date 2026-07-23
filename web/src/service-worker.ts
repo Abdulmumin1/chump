@@ -44,22 +44,9 @@ self.addEventListener('fetch', (event: any) => {
 			if (cachedResponse) return cachedResponse;
 		}
 
-		// Otherwise, go network-first, fallback to cache
+		// HTML can contain user-scoped data. Never persist navigation responses.
 		try {
-			const response = await fetch(event.request);
-			if (
-				event.request.mode === 'navigate' &&
-				response.ok &&
-				response.type === 'basic' &&
-				response.headers.get('vary') !== '*'
-			) {
-				try {
-					await cache.put(event.request, response.clone());
-				} catch {
-					// A cache write must not fail an otherwise successful request.
-				}
-			}
-			return response;
+			return await fetch(event.request);
 		} catch {
 			const cachedResponse = await cache.match(event.request);
 			if (cachedResponse) return cachedResponse;

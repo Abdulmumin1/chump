@@ -312,7 +312,9 @@ describe("live tool lifecycle events", () => {
             },
         ];
 
-        const blocks = buildTranscript(messages).flatMap((item) => item.blocks);
+        const transcript = buildTranscript(messages);
+        const blocks = transcript.flatMap((item) => item.blocks);
+        expect(transcript).toHaveLength(1);
         expect(blocks).toHaveLength(2);
         expect(blocks[0]).toMatchObject({
             args: { command: "printf first" },
