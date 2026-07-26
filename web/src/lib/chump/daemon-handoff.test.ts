@@ -23,7 +23,7 @@ describe('consumeDaemonHandoff', () => {
 		const storage = createStorage();
 		const replaceUrl = vi.fn();
 		const connection = consumeDaemonHandoff(
-			'https://chump.yaqeen.me/auth?redirectTo=%2Fc#daemonUrl=http%3A%2F%2F127.0.0.1%3A9417&daemonToken=secret-token',
+			'https://chmp.dev/auth?redirectTo=%2Fc#daemonUrl=http%3A%2F%2F127.0.0.1%3A9417&daemonToken=secret-token',
 			storage,
 			replaceUrl
 		);
@@ -35,7 +35,7 @@ describe('consumeDaemonHandoff', () => {
 		);
 		expect(storage.setItem).toHaveBeenCalledWith(DAEMON_TOKEN_STORAGE_KEY, 'secret-token');
 		expect(replaceUrl).toHaveBeenCalledWith(
-			'https://chump.yaqeen.me/auth?redirectTo=%2Fc'
+			'https://chmp.dev/auth?redirectTo=%2Fc'
 		);
 	});
 
@@ -43,26 +43,26 @@ describe('consumeDaemonHandoff', () => {
 		const storage = createStorage();
 		const replaceUrl = vi.fn();
 		consumeDaemonHandoff(
-			'https://chump.yaqeen.me/c?theme=dark&daemonUrl=http%3A%2F%2Flocalhost%3A9417&daemonToken=token#panel=chat',
+			'https://chmp.dev/c?theme=dark&daemonUrl=http%3A%2F%2Flocalhost%3A9417&daemonToken=token#panel=chat',
 			storage,
 			replaceUrl
 		);
 
-		expect(replaceUrl).toHaveBeenCalledWith('https://chump.yaqeen.me/c?theme=dark#panel=chat');
+		expect(replaceUrl).toHaveBeenCalledWith('https://chmp.dev/c?theme=dark#panel=chat');
 	});
 
 	it('scrubs an incomplete handoff without storing it', () => {
 		const storage = createStorage();
 		const replaceUrl = vi.fn();
 		const connection = consumeDaemonHandoff(
-			'https://chump.yaqeen.me/auth#daemonToken=secret-token',
+			'https://chmp.dev/auth#daemonToken=secret-token',
 			storage,
 			replaceUrl
 		);
 
 		expect(connection).toBeNull();
 		expect(storage.setItem).not.toHaveBeenCalled();
-		expect(replaceUrl).toHaveBeenCalledWith('https://chump.yaqeen.me/auth');
+		expect(replaceUrl).toHaveBeenCalledWith('https://chmp.dev/auth');
 	});
 });
 
@@ -70,13 +70,13 @@ describe('prepareDaemonLaunchTarget', () => {
 	it('extracts a handoff and returns a credential-free navigation URL', () => {
 		const storage = createStorage();
 		const target = prepareDaemonLaunchTarget(
-			'https://chump.yaqeen.me/c#daemonUrl=http%3A%2F%2F127.0.0.1%3A9417&daemonToken=secret-token',
-			'https://chump.yaqeen.me',
+			'https://chmp.dev/c#daemonUrl=http%3A%2F%2F127.0.0.1%3A9417&daemonToken=secret-token',
+			'https://chmp.dev',
 			storage
 		);
 
 		expect(target).toEqual({
-			url: 'https://chump.yaqeen.me/c',
+			url: 'https://chmp.dev/c',
 			connection: { url: 'http://127.0.0.1:9417', token: 'secret-token' }
 		});
 		expect(storage.setItem).toHaveBeenCalledWith(
@@ -87,13 +87,13 @@ describe('prepareDaemonLaunchTarget', () => {
 
 	it('preserves same-origin launch targets without handoff credentials', () => {
 		const target = prepareDaemonLaunchTarget(
-			'https://chump.yaqeen.me/account?tab=profile',
-			'https://chump.yaqeen.me',
+			'https://chmp.dev/account?tab=profile',
+			'https://chmp.dev',
 			createStorage()
 		);
 
 		expect(target).toEqual({
-			url: 'https://chump.yaqeen.me/account?tab=profile',
+			url: 'https://chmp.dev/account?tab=profile',
 			connection: null
 		});
 	});
@@ -102,12 +102,12 @@ describe('prepareDaemonLaunchTarget', () => {
 		const storage = createStorage();
 
 		expect(
-			prepareDaemonLaunchTarget('not a URL', 'https://chump.yaqeen.me', storage)
+			prepareDaemonLaunchTarget('not a URL', 'https://chmp.dev', storage)
 		).toBeNull();
 		expect(
 			prepareDaemonLaunchTarget(
 				'https://example.com/c#daemonUrl=http://127.0.0.1:9417&daemonToken=secret-token',
-				'https://chump.yaqeen.me',
+				'https://chmp.dev',
 				storage
 			)
 		).toBeNull();

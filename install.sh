@@ -100,8 +100,8 @@ Options:
       --dry-run              Print what would happen without changing files
 
 Examples:
-  curl -fsSL https://chump.yaqeen.me/install.sh | bash
-  curl -fsSL https://chump.yaqeen.me/install.sh | bash -s -- --version v0.1.0
+  curl -fsSL https://chmp.dev/install.sh | bash
+  curl -fsSL https://chmp.dev/install.sh | bash -s -- --version v0.1.0
   ./install.sh --binary ./chump --install-dir /tmp/chump-bin --no-modify-path
   ./install.sh --uninstall
 EOF

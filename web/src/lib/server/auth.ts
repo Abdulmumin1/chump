@@ -41,6 +41,7 @@ export function createAuth(environment: AuthEnvironment) {
 	const options = {
 		appName: 'Chump',
 		baseURL: environment.BETTER_AUTH_URL,
+		trustedOrigins: [environment.BETTER_AUTH_URL, 'https://chump.yaqeen.me'],
 		secret: environment.BETTER_AUTH_SECRET,
 		database: drizzleAdapter(database, {
 			provider: 'sqlite',

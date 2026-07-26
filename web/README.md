@@ -64,8 +64,11 @@ URL in the GitHub OAuth app:
 
 ```text
 http://localhost:5173/api/auth/callback/github
-https://chump.yaqeen.me/api/auth/callback/github
+https://chmp.dev/api/auth/callback/github
 ```
+
+`https://chmp.dev` is the primary production origin. The legacy
+`https://chump.yaqeen.me` origin remains routed and trusted during migration.
 
 ### Create the production D1 database
 
@@ -111,7 +114,7 @@ enhanced when JavaScript is available.
 An invitation link has this form:
 
 ```text
-https://chump.yaqeen.me/organizations?invitationId=<invitation-id>
+https://chmp.dev/organizations?invitationId=<invitation-id>
 ```
 
 Unauthenticated recipients are sent through sign-in and returned to the same

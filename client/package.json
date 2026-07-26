@@ -1,6 +1,6 @@
 {
   "name": "chump-agent",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "private": false,
   "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",
@@ -10,7 +10,7 @@
     "url": "https://github.com/Abdulmumin1/chump",
     "directory": "client"
   },
-  "homepage": "https://github.com/Abdulmumin1/chump#readme",
+  "homepage": "https://chmp.dev",
   "bugs": {
     "url": "https://github.com/Abdulmumin1/chump/issues"
   },

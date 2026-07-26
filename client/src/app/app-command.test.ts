@@ -54,10 +54,18 @@ test("builds daemon web connect URLs for local development", () => {
   );
 });
 
-test("allows the trusted hosted chump web app", () => {
+test("allows the current and legacy hosted chump web apps", () => {
   assert.equal(
     buildDaemonConnectUrl(
       DEFAULT_CHUMP_WEB_URL,
+      "http://127.0.0.1:53080",
+      "secret-token",
+    ),
+    "https://chmp.dev/c#daemonUrl=http%3A%2F%2F127.0.0.1%3A53080&daemonToken=secret-token",
+  );
+  assert.equal(
+    buildDaemonConnectUrl(
+      "https://chump.yaqeen.me/c",
       "http://127.0.0.1:53080",
       "secret-token",
     ),

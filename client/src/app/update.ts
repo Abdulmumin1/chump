@@ -194,7 +194,7 @@ async function updateStandaloneBinary(info: UpdateInfo): Promise<void> {
 
   if (process.platform === "win32") {
     console.log("Windows cannot safely replace a running .exe in place.");
-    console.log("update with: powershell -ExecutionPolicy ByPass -c \"irm https://chump.yaqeen.me/install.ps1 | iex\"");
+    console.log("update with: powershell -ExecutionPolicy ByPass -c \"irm https://chmp.dev/install.ps1 | iex\"");
     return;
   }
 
@@ -205,7 +205,7 @@ async function updateStandaloneBinary(info: UpdateInfo): Promise<void> {
     console.log(`installing ${assetUrl}`);
     await runCommand("bash", [
       "-c",
-      "curl -fsSL https://chump.yaqeen.me/install.sh | bash -s -- --install-dir \"$CHUMP_INSTALL_DIR\" --no-modify-path",
+      "curl -fsSL https://chmp.dev/install.sh | bash -s -- --install-dir \"$CHUMP_INSTALL_DIR\" --no-modify-path",
     ], {
       CHUMP_INSTALL_DIR: installDir,
       VERSION: tag,

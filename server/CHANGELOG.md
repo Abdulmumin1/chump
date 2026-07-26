@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.11
+
+- Move the hosted web and Chump Cloud defaults to `chmp.dev` and `cloud.chmp.dev` while retaining the legacy hosted origins for backward compatibility.
+
 ## 0.1.10
 
 - Expose live MCP connection state, transport type, tool counts, and errors through agent status responses so clients can render accurate MCP diagnostics.

@@ -1,3 +1,4 @@
+import { DEFAULT_CHUMP_WEB_URL } from "./app-config.ts";
 import { startTunnel, type StartedTunnelHandle } from "./onlocal.ts";
 
 import type { ChumpConfig } from "../core/types.ts";
@@ -86,7 +87,7 @@ export class ShareManager {
 
 function buildConnectUrl(publicUrl: string, agentId: string): string | null {
   const base =
-    process.env.CHUMP_SHARE_WEB_URL?.trim() || "https://chump.yaqeen.me/c";
+    process.env.CHUMP_SHARE_WEB_URL?.trim() || DEFAULT_CHUMP_WEB_URL;
   if (!base) {
     return null;
   }
