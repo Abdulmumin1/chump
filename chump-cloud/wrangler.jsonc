@@ -3,16 +3,55 @@
   "name": "chump-cloud",
   "main": "src/index.ts",
   "compatibility_date": "2026-01-31",
+  "compatibility_flags": ["nodejs_compat"],
   "kv_namespaces": [
     {
       "binding": "CHUMP_CLOUD_RATE_LIMITS",
       "id": "84eb6499cab24cab8ff91e112e1f76ae",
     },
   ],
+  "r2_buckets": [
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "chump-sandbox-backups",
+    },
+  ],
+  "containers": [
+    {
+      "class_name": "ChumpSandbox",
+      "image": "./Dockerfile",
+      "instance_type": "lite",
+      "max_instances": 1,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "ChumpSandbox",
+        "name": "Sandbox",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChumpSandbox"],
+    },
+  ],
+  "vars": {
+    "CHUMP_SANDBOX_ENABLED": "1",
+    "SANDBOX_INSTANCE_TIMEOUT_MS": "5000",
+    "SANDBOX_PORT_TIMEOUT_MS": "10000",
+    "SANDBOX_POLL_INTERVAL_MS": "300",
+  },
   "observability": {
     "enabled": true,
   },
   "routes": [
+    {
+      "pattern": "cloud.chmp.dev",
+      "custom_domain": true,
+    },
     {
       "pattern": "chump-cloud.yaqeen.me",
       "custom_domain": true,

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { daemonSpawnCommand, parseDaemonCommand } from "./daemon-command.ts";
+import {
+  daemonSpawnCommand,
+  isCompatibleDaemonHealth,
+  parseDaemonCommand,
+} from "./daemon-command.ts";
+import { createDaemonMetadata } from "./daemon-metadata.ts";
 
 test("parses daemon commands with a strict grammar", () => {
   assert.equal(parseDaemonCommand([]), "status");
@@ -39,5 +44,25 @@ test("builds daemon spawn commands for source and standalone runtimes", () => {
   assert.throws(
     () => daemonSpawnCommand("/usr/local/bin/node", ["/usr/local/bin/node"]),
     /cannot determine Chump executable path/,
+  );
+});
+
+test("only reuses a daemon from the current client version", () => {
+  const metadata = createDaemonMetadata(123, 5740);
+  assert.equal(
+    isCompatibleDaemonHealth(metadata, {
+      service: "chump-daemon",
+      protocolVersion: metadata.protocolVersion,
+      version: "0.2.13",
+    }, "0.2.13"),
+    true,
+  );
+  assert.equal(
+    isCompatibleDaemonHealth(metadata, {
+      service: "chump-daemon",
+      protocolVersion: metadata.protocolVersion,
+      version: "0.2.12",
+    }, "0.2.13"),
+    false,
   );
 });

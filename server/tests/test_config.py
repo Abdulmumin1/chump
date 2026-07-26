@@ -3,6 +3,8 @@ import os
 import pytest
 
 from chump_server.config import (
+    DEFAULT_ALLOWED_ORIGINS,
+    DEFAULT_CHUMP_CLOUD_BASE_URL,
     DEFAULT_MAX_STEPS,
     DEFAULT_PROVIDER,
     apply_auth_environment,
@@ -19,6 +21,15 @@ def test_default_provider_is_chump_cloud():
 
 def test_default_max_steps_is_250():
     assert DEFAULT_MAX_STEPS == 250
+
+
+def test_default_allowed_origins_trust_current_and_legacy_web_apps():
+    assert "https://chmp.dev" in DEFAULT_ALLOWED_ORIGINS
+    assert "https://chump.yaqeen.me" in DEFAULT_ALLOWED_ORIGINS
+
+
+def test_default_chump_cloud_url_uses_the_primary_domain():
+    assert DEFAULT_CHUMP_CLOUD_BASE_URL == "https://cloud.chmp.dev/v1"
 
 
 def test_normalize_model_name_accepts_provider_model_pair():

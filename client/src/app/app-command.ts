@@ -3,7 +3,10 @@ import { spawn } from "node:child_process";
 import { DaemonAuthStore } from "./daemon-auth.ts";
 import { runDaemonCommand } from "./daemon-command.ts";
 import { DaemonMetadataStore } from "./daemon-metadata.ts";
-import { DEFAULT_CHUMP_WEB_URL } from "./app-config.ts";
+import {
+  DEFAULT_CHUMP_WEB_URL,
+  TRUSTED_CHUMP_WEB_ORIGINS,
+} from "./app-config.ts";
 
 export { DEFAULT_CHUMP_WEB_URL };
 
@@ -110,7 +113,7 @@ export function buildDaemonConnectUrl(
 function assertAllowedWebUrl(url: URL): void {
   if (
     url.protocol === "https:" &&
-    url.origin === new URL(DEFAULT_CHUMP_WEB_URL).origin
+    TRUSTED_CHUMP_WEB_ORIGINS.some((origin) => origin === url.origin)
   ) {
     return;
   }
@@ -123,7 +126,7 @@ function assertAllowedWebUrl(url: URL): void {
   }
 
   throw new Error(
-    `app web URL must be ${DEFAULT_CHUMP_WEB_URL} or a loopback URL`,
+    `app web URL must be ${DEFAULT_CHUMP_WEB_URL}, its legacy hosted URL, or a loopback URL`,
   );
 }
 

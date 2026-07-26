@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://chump.dev/protocol/chump-events-v1.schema.json",
+  "$id": "https://chmp.dev/protocol/chump-events-v1.schema.json",
   "title": "Chump collaboration event v1",
   "description": "Durable Chump-owned collaboration events. Transient model and tool lifecycle events use ai-query's TurnEvent contract.",
   "oneOf": [

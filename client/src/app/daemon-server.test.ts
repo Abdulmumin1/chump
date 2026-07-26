@@ -151,11 +151,21 @@ test("enforces browser origins and supports approved project mutations", async (
 
   const hostedPreflight = await fetch(`${daemon.url}/projects`, {
     method: "OPTIONS",
-    headers: { origin: "https://chump.yaqeen.me" },
+    headers: { origin: "https://chmp.dev" },
   });
   assert.equal(hostedPreflight.status, 204);
   assert.equal(
     hostedPreflight.headers.get("access-control-allow-origin"),
+    "https://chmp.dev",
+  );
+
+  const legacyHostedPreflight = await fetch(`${daemon.url}/projects`, {
+    method: "OPTIONS",
+    headers: { origin: "https://chump.yaqeen.me" },
+  });
+  assert.equal(legacyHostedPreflight.status, 204);
+  assert.equal(
+    legacyHostedPreflight.headers.get("access-control-allow-origin"),
     "https://chump.yaqeen.me",
   );
 

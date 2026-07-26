@@ -17,8 +17,9 @@ DEFAULT_PROVIDER = "chump_cloud"
 DEFAULT_MAX_STEPS = 250
 DEFAULT_COMPACTION_TOKENS = 200_000
 DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000
-DEFAULT_CHUMP_CLOUD_BASE_URL = "https://chump-cloud.yaqeen.me/v1"
+DEFAULT_CHUMP_CLOUD_BASE_URL = "https://cloud.chmp.dev/v1"
 DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
+    "https://chmp.dev",
     "https://chump.yaqeen.me",
     # Local dev for the Svelte web client (Vite default port).
     "http://localhost:5173",

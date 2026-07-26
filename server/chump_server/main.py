@@ -37,7 +37,8 @@ class ChumpServer(AgentServer):
         # for any origin, which is fine when the server is only reachable on
         # loopback. As soon as it's exposed via an onlocal share the wildcard
         # gets unreliable in practice — pin to a known list so the web client
-        # at chump.yaqeen.me always gets a precise Allow-Origin echo back.
+        # at the current and legacy hosted domains gets a precise Allow-Origin
+        # echo back.
         agent_config = (
             AgentServerConfig(allowed_origins=list(config.allowed_origins))
             if config.allowed_origins

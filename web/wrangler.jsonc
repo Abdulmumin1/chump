@@ -10,7 +10,7 @@
   },
 
   "vars": {
-    "BETTER_AUTH_URL": "https://chump.yaqeen.me",
+    "BETTER_AUTH_URL": "https://chmp.dev",
   },
 
   "d1_databases": [
@@ -27,6 +27,10 @@
   },
 
   "routes": [
+    {
+      "pattern": "chmp.dev",
+      "custom_domain": true,
+    },
     {
       "pattern": "chump.yaqeen.me",
       "custom_domain": true,

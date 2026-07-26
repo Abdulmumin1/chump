@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 
 import { DaemonMetadataStore, type DaemonMetadata } from "./daemon-metadata.ts";
 import { getGlobalStatePaths } from "./state-paths.ts";
+import { currentClientVersion } from "./update.ts";
 
 const DAEMON_START_TIMEOUT_MS = 10_000;
 const DAEMON_STOP_TIMEOUT_MS = 5_000;
@@ -42,9 +43,12 @@ export function daemonCommandUsage(): string {
 
 async function startDaemonProcess(): Promise<string> {
   return await withDaemonLock(async () => {
-    const existing = await readHealthyDaemon();
+    const existing = await new DaemonMetadataStore().readActive();
     if (existing) {
-      return `daemon already running at ${existing.url} (pid ${existing.pid})`;
+      if (await daemonIsHealthy(existing)) {
+        return `daemon already running at ${existing.url} (pid ${existing.pid})`;
+      }
+      await stopDaemonProcess();
     }
 
     const paths = getGlobalStatePaths();
@@ -110,14 +114,25 @@ async function daemonIsHealthy(metadata: DaemonMetadata): Promise<boolean> {
       signal: AbortSignal.timeout(750),
     });
     if (!response.ok) return false;
-    const health = await response.json() as Record<string, unknown>;
-    return (
-      health.service === "chump-daemon" &&
-      health.protocolVersion === metadata.protocolVersion
-    );
+    const health: unknown = await response.json();
+    return isCompatibleDaemonHealth(metadata, health, currentClientVersion());
   } catch {
     return false;
   }
+}
+
+export function isCompatibleDaemonHealth(
+  metadata: DaemonMetadata,
+  health: unknown,
+  expectedVersion: string,
+): boolean {
+  if (!health || typeof health !== "object") return false;
+  const value = health as Record<string, unknown>;
+  return (
+    value.service === "chump-daemon" &&
+    value.protocolVersion === metadata.protocolVersion &&
+    value.version === expectedVersion
+  );
 }
 
 async function waitForHealthyDaemon(timeoutMs: number): Promise<DaemonMetadata> {

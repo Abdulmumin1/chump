@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.13
+
+### Patch Changes
+
+- Use `https://chmp.dev` for the hosted web app, daemon handoffs, shared-session links, and standalone installer updates while retaining the legacy hosted origin. Restart stale daemons when the client version changes so both trusted origins are accepted immediately after an update.
+
 ## 0.2.12
 
 ### Patch Changes

@@ -8,7 +8,7 @@ import { once } from "node:events";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { DEFAULT_CHUMP_WEB_URL } from "./app-config.ts";
+import { TRUSTED_CHUMP_WEB_ORIGINS } from "./app-config.ts";
 import { currentClientVersion } from "./update.ts";
 import { authorizeBearerHeader, DaemonAuthStore } from "./daemon-auth.ts";
 import { DAEMON_PROTOCOL_VERSION } from "./daemon-metadata.ts";
@@ -557,7 +557,7 @@ function isAllowedBrowserOrigin(origin: string): boolean {
     const url = new URL(origin);
     if (
       url.protocol === "https:" &&
-      url.origin === new URL(DEFAULT_CHUMP_WEB_URL).origin
+      TRUSTED_CHUMP_WEB_ORIGINS.some((allowedOrigin) => allowedOrigin === url.origin)
     ) {
       return true;
     }
