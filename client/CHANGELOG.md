@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.17
+
+### Patch Changes
+
+- Fix startup crash when stdout is detached from terminal. Terminal theme detection now only initializes during interactive mode, and a clear error is shown when stdout is redirected away.
+
 ## 0.2.16
 
 ### Patch Changes

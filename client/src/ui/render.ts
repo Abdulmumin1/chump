@@ -78,12 +78,21 @@ const lightTuiPalette = {
   code: "#5d7800",
 };
 
-// Theme detection may issue a synchronous OSC 11 query. Compute it once at
-// startup; doing this from frequently-called style helpers made every input
-// redraw block for up to 100ms on terminals that do not answer the query.
-const lightTerminal = isLightTerminal();
-const palette = lightTerminal ? lightPalette : darkPalette;
-const tuiPalette = lightTerminal ? lightTuiPalette : darkTuiPalette;
+// Non-interactive commands such as `chump --version` must not initialize TTY
+// streams. Bun can reject unusual stdout descriptors while constructing its
+// TTY wrapper, so interactive startup initializes the theme explicitly after
+// validating stdout.
+let palette = darkPalette;
+let tuiPalette = darkTuiPalette;
+let terminalThemeInitialized = false;
+
+export function initializeTerminalTheme(): void {
+  if (terminalThemeInitialized) return;
+  terminalThemeInitialized = true;
+  const lightTerminal = isLightTerminal();
+  palette = lightTerminal ? lightPalette : darkPalette;
+  tuiPalette = lightTerminal ? lightTuiPalette : darkTuiPalette;
+}
 
 type MarkdownRenderState = {
   inCodeBlock: boolean;
@@ -1189,13 +1198,15 @@ function isLightTerminal(): boolean {
   // OSC 11 query: ask the terminal for its background color synchronously.
   // Some terminals split the answer between /dev/tty and stdin, so stdin-side
   // filtering also strips bare rgb:R/G/B response fragments while armed.
-  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
-
   try {
-    const wasRaw = process.stdin.isRaw;
-    process.stdin.setRawMode(true);
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+    if (!stdin?.isTTY || !stdout?.isTTY) return false;
+
+    const wasRaw = stdin.isRaw;
+    stdin.setRawMode(true);
     armOsc11ResponseFilter(1_000);
-    process.stdout.write("\x1b]11;?\x1b\\");
+    stdout.write("\x1b]11;?\x1b\\");
 
     const ttyFd = fs.openSync(
       "/dev/tty",
@@ -1222,7 +1233,7 @@ function isLightTerminal(): boolean {
       fs.closeSync(ttyFd);
     }
 
-    process.stdin.setRawMode(wasRaw);
+    stdin.setRawMode(wasRaw);
 
     const match = /rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/.exec(
       response,

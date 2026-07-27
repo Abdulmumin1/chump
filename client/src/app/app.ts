@@ -68,6 +68,7 @@ import {
 } from "../ui/output.ts";
 import {
   createMarkdownStream,
+  initializeTerminalTheme,
   renderAccent,
   renderError,
   renderMuted,
@@ -269,6 +270,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   if (options.mode === "print") {
     await runPrintPrompt(workspaceRoot, options);
     return;
+  }
+
+  if (options.mode === "interactive" || options.mode === "client") {
+    assertInteractiveOutput();
+    initializeTerminalTheme();
   }
 
   // Refresh on every interactive launch so a recently published release is
@@ -723,6 +729,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     }
     parts.push(`force stop: chump stop`);
     writeOutput(`${renderMuted(parts.join(" · "))}\n`);
+  }
+}
+
+function assertInteractiveOutput(): void {
+  if (input?.isTTY && !output?.isTTY) {
+    throw new Error(
+      "Interactive Chump requires stdout to be attached to the terminal. " +
+        "Open a new terminal, or run `exec 1>&2` to restore stdout from the working stderr stream.",
+    );
   }
 }
 
