@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.15
+
+### Patch Changes
+
+- Fix chump_cloud model catalog routing so Gemini models appear in the model selector
+
 ## 0.2.14
 
 ### Patch Changes

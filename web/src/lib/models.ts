@@ -227,7 +227,7 @@ function modelCatalogProviderId(provider: string): string {
     return "openai";
   }
   if (provider === "chump_cloud") {
-    return "deepseek";
+    return "chump_cloud";
   }
   if (provider === "workers_ai") {
     return "cloudflare-workers-ai";

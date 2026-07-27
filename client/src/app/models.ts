@@ -785,7 +785,7 @@ function modelCatalogProviderId(provider: string): string {
     return "github-copilot";
   }
   if (provider === "chump_cloud") {
-    return "deepseek";
+    return "chump_cloud";
   }
   if (provider === "opencode_go") {
     return "opencode-go";
