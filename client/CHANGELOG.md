@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.14
+
+### Patch Changes
+
+- Add Gemini 3.6 Flash to Chump Cloud and bundle the tool-call metadata fix needed for multi-step Gemini tool use. Route hosted DeepSeek and Gemini inference through Cloudflare AI Gateway with provider keys retained in Gateway's Secrets Store.
+
 ## 0.2.13
 
 ### Patch Changes

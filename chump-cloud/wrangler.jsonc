@@ -4,12 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-01-31",
   "compatibility_flags": ["nodejs_compat"],
-  "kv_namespaces": [
-    {
-      "binding": "CHUMP_CLOUD_RATE_LIMITS",
-      "id": "84eb6499cab24cab8ff91e112e1f76ae",
-    },
-  ],
+  "ai": {
+    "binding": "AI",
+  },
   "r2_buckets": [
     {
       "binding": "BACKUP_BUCKET",

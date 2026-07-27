@@ -5,28 +5,25 @@ import {
   proxyToSandbox,
   Sandbox as CloudflareSandbox,
 } from "@cloudflare/sandbox";
+import {
+  AI_GATEWAY_ID,
+  buildGatewayRequest,
+  type ChatCompletionRequest,
+  isRecord,
+  normalizeGeminiChoices,
+  normalizeGeminiSseLine,
+  SUPPORTED_MODELS,
+} from "./ai-gateway";
 
 type Bindings = {
-  DEEPSEEK_API_KEY?: string;
   CHUMP_SANDBOX_ADMIN_TOKEN?: string;
   CHUMP_SANDBOX_ENABLED?: string;
-  CHUMP_CLOUD_RATE_LIMITS: KVNamespace;
+  AI: Ai;
   BACKUP_BUCKET?: R2Bucket;
   Sandbox: DurableObjectNamespace<ChumpSandbox>;
 };
 
 export class ChumpSandbox extends CloudflareSandbox<Bindings> {}
-
-type UpstreamTarget = {
-  provider: "deepseek";
-  baseUrl: string;
-  envKeys: Array<keyof Bindings>;
-};
-
-type ChatCompletionRequest = {
-  model?: unknown;
-  stream?: unknown;
-};
 
 type OpenAIStyleError = {
   error: {
@@ -68,8 +65,6 @@ const SANDBOX_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/;
 const DEFAULT_SANDBOX_ID = "phase1";
 const AUTO_BACKUP_MIN_INTERVAL_MS = 5 * 60 * 1_000;
 
-const CHAT_COMPLETIONS_RATE_LIMIT = 150;
-const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const WORKSPACE_BACKUP_EXCLUDES = [
   // Logs and process output
   "*.log",
@@ -161,19 +156,6 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-const SUPPORTED_MODELS: Record<string, UpstreamTarget> = {
-  "deepseek-v4-flash": {
-    provider: "deepseek",
-    baseUrl: "https://api.deepseek.com",
-    envKeys: ["DEEPSEEK_API_KEY"],
-  },
-  "deepseek-v4-pro": {
-    provider: "deepseek",
-    baseUrl: "https://api.deepseek.com",
-    envKeys: ["DEEPSEEK_API_KEY"],
-  },
-};
-
 app.use("*", async (c, next) => {
   if (c.req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders() });
@@ -187,7 +169,7 @@ app.get("/", (c) =>
     {
       name: "chump-cloud",
       object: "service",
-      providers: ["deepseek"],
+      providers: [...new Set(Object.values(SUPPORTED_MODELS).map((target) => target.provider))],
       models: Object.keys(SUPPORTED_MODELS),
       sandbox: {
         phase1: c.env.CHUMP_SANDBOX_ENABLED === "1" ? "enabled" : "disabled",
@@ -472,12 +454,16 @@ app.get("/v1/models", () =>
 );
 
 app.post("/v1/chat/completions", async (c) => {
-  const rateLimit = await reserveRateLimit(c.env.CHUMP_CLOUD_RATE_LIMITS, c.req.raw);
-  if (!rateLimit.allowed) {
-    return rateLimitError(rateLimit.retryAfterSeconds);
+  let parsedBody: unknown;
+  try {
+    parsedBody = await c.req.json();
+  } catch {
+    return jsonError(400, "invalid_request", "Request body must be valid JSON");
   }
-
-  const body = (await c.req.json()) as ChatCompletionRequest;
+  if (!isRecord(parsedBody)) {
+    return jsonError(400, "invalid_request", "Request body must be a JSON object");
+  }
+  const body: ChatCompletionRequest = parsedBody;
   const model = typeof body.model === "string" ? body.model.trim() : "";
   const target = SUPPORTED_MODELS[model];
   if (!target) {
@@ -488,42 +474,21 @@ app.post("/v1/chat/completions", async (c) => {
     );
   }
 
-  const upstreamKey = readFirstEnv(c.env, target.envKeys);
-  if (!upstreamKey) {
-    return jsonError(
-      500,
-      "upstream_not_configured",
-      `${target.envKeys.join(" or ")} is not configured`,
-    );
-  }
-
-  const upstream = await fetch(`${target.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${upstreamKey}`,
-      "content-type": "application/json",
+  const upstream = await c.env.AI.gateway(AI_GATEWAY_ID).run(
+    buildGatewayRequest(body, target),
+    {
+      gateway: {
+        id: AI_GATEWAY_ID,
+        skipCache: true,
+        collectLog: false,
+      },
     },
-    body: JSON.stringify(body),
-  });
+  );
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: forwardHeaders(upstream.headers, body.stream === true),
-  });
+  return target.gatewayProvider === "google-ai-studio"
+    ? normalizeGeminiChatCompletion(upstream, body.stream === true)
+    : forwardUpstreamResponse(upstream, body.stream === true);
 });
-
-function readFirstEnv(
-  env: Bindings,
-  keys: Array<keyof Bindings>,
-): string | null {
-  for (const key of keys) {
-    const value = env[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-  return null;
-}
 
 function authorizeSandboxRequest(request: Request, env: Bindings): Response | null {
   if (env.CHUMP_SANDBOX_ENABLED !== "1") {
@@ -1044,42 +1009,65 @@ function unknownErrorMessage(error: unknown): string {
   }
 }
 
-function requesterKey(request: Request): string {
-  const ipAddress = request.headers.get("cf-connecting-ip")?.trim();
-  const hourBucket = Math.floor(Date.now() / (RATE_LIMIT_WINDOW_SECONDS * 1000));
-  if (ipAddress) {
-    return `chat:${hourBucket}:${ipAddress}`;
-  }
-  return `chat:${hourBucket}:anonymous`;
-}
-
-async function reserveRateLimit(
-  namespace: KVNamespace,
-  request: Request,
-): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }> {
-  const key = requesterKey(request);
-  const now = Date.now();
-  const resetAt = nextWindowStart(now);
-  const retryAfterSeconds = Math.max(1, Math.ceil((resetAt - now) / 1000));
-  const current = await namespace.get(key);
-  const count = current ? Number.parseInt(current, 10) : 0;
-
-  if (Number.isFinite(count) && count >= CHAT_COMPLETIONS_RATE_LIMIT) {
-    return { allowed: false, retryAfterSeconds };
-  }
-
-  await namespace.put(key, String(Number.isFinite(count) ? count + 1 : 1), {
-    expirationTtl: retryAfterSeconds + 60,
+function forwardUpstreamResponse(upstream: Response, streaming: boolean): Response {
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: forwardHeaders(upstream.headers, streaming),
   });
-  return { allowed: true };
 }
 
-function nextWindowStart(now: number): number {
-  return (
-    (Math.floor(now / (RATE_LIMIT_WINDOW_SECONDS * 1000)) + 1) *
-    RATE_LIMIT_WINDOW_SECONDS *
-    1000
-  );
+async function normalizeGeminiChatCompletion(
+  upstream: Response,
+  streaming: boolean,
+): Promise<Response> {
+  if (!upstream.ok || !upstream.body) {
+    return forwardUpstreamResponse(upstream, streaming);
+  }
+
+  const headers = forwardHeaders(upstream.headers, streaming);
+  if (streaming) {
+    return new Response(upstream.body.pipeThrough(geminiSseNormalizer()), {
+      status: upstream.status,
+      headers,
+    });
+  }
+
+  const rawBody = await upstream.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return new Response(rawBody, { status: upstream.status, headers });
+  }
+
+  normalizeGeminiChoices(body);
+  return new Response(JSON.stringify(body), { status: upstream.status, headers });
+}
+
+function geminiSseNormalizer(): TransformStream<Uint8Array, Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const choicesWithToolCalls = new Set<number>();
+  let buffer = "";
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
+        buffer = buffer.slice(newlineIndex + 1);
+        controller.enqueue(encoder.encode(`${normalizeGeminiSseLine(line, choicesWithToolCalls)}\n`));
+        newlineIndex = buffer.indexOf("\n");
+      }
+    },
+    flush(controller) {
+      buffer += decoder.decode();
+      if (buffer) {
+        controller.enqueue(encoder.encode(normalizeGeminiSseLine(buffer, choicesWithToolCalls)));
+      }
+    },
+  });
 }
 
 function forwardHeaders(headers: Headers, streaming: boolean): Headers {
@@ -1112,22 +1100,6 @@ function jsonError(status: number, type: string, message: string): Response {
     },
   };
   return Response.json(body, { status, headers: corsHeaders() });
-}
-
-function rateLimitError(retryAfterSeconds: number): Response {
-  const headers = new Headers(corsHeaders());
-  headers.set("retry-after", String(retryAfterSeconds));
-  headers.set("x-ratelimit-limit", String(CHAT_COMPLETIONS_RATE_LIMIT));
-  headers.set("x-ratelimit-remaining", "0");
-  return Response.json(
-    {
-      error: {
-        message: `Rate limit exceeded. Try again in ${retryAfterSeconds} seconds.`,
-        type: "rate_limit_exceeded",
-      },
-    },
-    { status: 429, headers },
-  );
 }
 
 export default app;
