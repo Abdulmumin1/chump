@@ -1,12 +1,27 @@
 # Chump Cloud
 
 A standalone Cloudflare Worker for the free Chump Agent trial path, backed by
-DeepSeek and built with Hono.
+Cloudflare AI Gateway and built with Hono.
 
 ## Supported models
 
 - `deepseek-v4-flash`
 - `deepseek-v4-pro`
+- `gemini-3.6-flash`
+
+All model requests use the Worker's `AI` binding and the
+`chump_cloud_ai_gateway` gateway. The gateway must have active stored provider
+keys using the `default` alias for DeepSeek and the `default2` alias for Google
+AI Studio. The Worker selects both provider aliases explicitly. It uses the
+binding's pre-authenticated gateway runner, so it does not need provider or AI
+Gateway API tokens. AI Gateway caching and request/response logging are disabled
+for these requests.
+
+The binding's gateway runner uses Cloudflare's deprecated Universal Endpoint
+internally. It is currently the only Worker binding path that supports stored
+provider keys without a separate AI Gateway token. Revisit this boundary when
+Cloudflare provides a nondeprecated binding method for BYOK provider-native
+requests.
 
 The Worker exposes an OpenAI-style API:
 
@@ -15,29 +30,22 @@ The Worker exposes an OpenAI-style API:
 
 ## Rate Limiting
 
-`POST /v1/chat/completions` is limited to `150` requests per hour per requester
-using Cloudflare KV. Create the namespace and put its id in `wrangler.jsonc`:
-
-```bash
-cd chump-cloud
-wrangler kv namespace create CHUMP_CLOUD_RATE_LIMITS
-```
+Rate limiting is owned by Cloudflare's edge configuration rather than Worker
+code. Configure a rate-limiting rule for `POST /v1/chat/completions` on both
+custom domains before exposing the endpoint publicly.
 
 ## Secrets
 
-```bash
-cd chump-cloud
-wrangler secret put DEEPSEEK_API_KEY
-```
-
-Chump Cloud does not require a client API key right now. Keep `DEEPSEEK_API_KEY`
-private in the Worker environment.
+Model inference does not require Worker secrets. Provider keys stay in AI
+Gateway's Secrets Store, and the `AI` binding authenticates to the gateway within
+the same account. The sandbox administration endpoints still require
+`CHUMP_SANDBOX_ADMIN_TOKEN`, as described below.
 
 ## Sandbox phase 1 scaffold
 
 `chump-cloud` includes an opt-in Cloudflare Sandbox proof-of-concept for running
-`chump-server` in an isolated container while keeping provider credentials in the
-Worker environment.
+`chump-server` in an isolated container while keeping inference and billing at
+the Worker boundary.
 
 The scaffold adds:
 
@@ -88,7 +96,7 @@ sandbox-local agent/session config files. Running processes are not snapshotted;
 
 Phase 1 intentionally uses `CHUMP_PROVIDER=chump_cloud`; the sandbox receives no
 DeepSeek/OpenAI/Anthropic/etc. API key and reads an empty auth file at
-`/workspace/.empty-auth.json`. Durable provider credentials stay in the Worker.
+`/workspace/.empty-auth.json`. The Worker calls models through its `AI` binding.
 Private repository credentials are not handled in this phase; use public repos or
 empty workspaces only.
 

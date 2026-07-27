@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.12
+
+- Add Gemini 3.6 Flash to the Chump Cloud model allowlist and upgrade to `ai-query==1.9.5` so Gemini thought signatures survive streamed tool-call loops.
+
 ## 0.1.11
 
 - Move the hosted web and Chump Cloud defaults to `chmp.dev` and `cloud.chmp.dev` while retaining the legacy hosted origins for backward compatibility.
