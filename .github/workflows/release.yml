@@ -176,10 +176,30 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Build server runtime archive
-        run: python server/scripts/build_binary.py --mode onedir --archive
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/work" \
+              -w /work \
+              python:3.13-bullseye \
+              bash -lc 'pip install --disable-pip-version-check -q uv && python server/scripts/build_binary.py --mode onedir --archive'
+          else
+            python server/scripts/build_binary.py --mode onedir --archive
+          fi
 
       - name: Build legacy server binary
-        run: python server/scripts/build_binary.py --mode onefile
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/work" \
+              -w /work \
+              python:3.13-bullseye \
+              bash -lc 'pip install --disable-pip-version-check -q uv && python server/scripts/build_binary.py --mode onefile'
+          else
+            python server/scripts/build_binary.py --mode onefile
+          fi
 
       - name: Upload server runtime archive
         uses: softprops/action-gh-release@v2
@@ -193,13 +213,14 @@ jobs:
 
   npm:
     name: npm
-    needs: [server-tag, pypi]
+    needs: [server-tag, pypi, server-binaries]
     runs-on: ubuntu-latest
     if: >-
       always() &&
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       needs.server-tag.result == 'success' &&
-      (needs.pypi.result == 'success' || needs.pypi.result == 'skipped')
+      (needs.pypi.result == 'success' || needs.pypi.result == 'skipped') &&
+      (needs.server-binaries.result == 'success' || needs.server-binaries.result == 'skipped')
     outputs:
       published: ${{ steps.changesets.outputs.published }}
       tag: ${{ steps.get_version.outputs.tag }}
@@ -318,7 +339,15 @@ jobs:
           git clone --depth 1 --branch "$server_tag" "https://github.com/$GITHUB_REPOSITORY.git" server-release
           git clone --depth 1 https://github.com/Abdulmumin1/ai-query.git server-release/ai-query
           cp server/scripts/build_binary.py server-release/server/scripts/build_binary.py
-          python server-release/server/scripts/build_binary.py --mode onedir
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/work" \
+              -w /work \
+              python:3.13-bullseye \
+              bash -lc 'pip install --disable-pip-version-check -q uv && python server-release/server/scripts/build_binary.py --mode onedir'
+          else
+            python server-release/server/scripts/build_binary.py --mode onedir
+          fi
 
           runtime="server-release/server/dist/bin/chump-server-$PLATFORM"
           if [[ ! -d "$runtime" ]]; then

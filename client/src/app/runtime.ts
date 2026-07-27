@@ -23,6 +23,12 @@ import type {
 import { getWorkspaceStatePaths } from "./state-paths.ts";
 import { getResolvedConfig } from "./config.ts";
 import { ensureDaemonProjectTarget } from "./daemon-client.ts";
+import {
+  canInstallServerRuntime,
+  installServerRuntime,
+  installedServerRuntimePath,
+  prepareNpmServerRuntime,
+} from "./server-runtime-install.ts";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
@@ -222,6 +228,7 @@ export async function ensureServerTarget(
   }
 
   if (options.autoStartServer) {
+    await prepareNpmServerRuntime();
     try {
       const daemonTarget = await ensureDaemonProjectTarget(workspaceRoot);
       return {
@@ -462,7 +469,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
 
     const port = await findAvailablePort();
     const paths = getWorkspaceStatePaths(workspaceRoot);
-    const command = resolveServerCommand();
+    const command = await resolveServerCommand();
     await mkdir(paths.dataDir, { recursive: true });
 
     const child = spawn(command.file, command.args, {
@@ -528,7 +535,7 @@ async function spawnManagedServer(
 ): Promise<ManagedServerMetadata> {
   const resolved = getResolvedConfig(workspaceRoot);
   const port = await resolveManagedServerPort(preferredPort ?? resolved.port ?? null);
-  const command = resolveServerCommand();
+  const command = await resolveServerCommand();
   const paths = getWorkspaceStatePaths(workspaceRoot);
   await mkdir(paths.dataDir, { recursive: true });
 
@@ -706,7 +713,7 @@ type ServerCommand = {
   source: "env" | "local" | "bundled";
 };
 
-function resolveServerCommand(): ServerCommand {
+async function resolveServerCommand(): Promise<ServerCommand> {
   const override = resolveServerCommandOverride();
   if (override) {
     return override;
@@ -737,9 +744,14 @@ function resolveServerCommand(): ServerCommand {
     return command;
   }
 
+  if (canInstallServerRuntime()) {
+    const file = await installServerRuntime();
+    return { file, args: [], source: "bundled" };
+  }
+
   throw new Error(
-    "No bundled chump-server binary was found.\n\n" +
-      "Install Chump from the platform archive, or set CHUMP_SERVER_BIN to a server executable for development.",
+    "No chump-server runtime was found.\n\n" +
+      "Reinstall Chump, or set CHUMP_SERVER_BIN to a server executable for development.",
   );
 }
 
@@ -784,6 +796,8 @@ function bundledServerCandidates(): string[] {
     path.join(packageRoot, "dist", "server"),
   ];
   const candidates: string[] = [];
+  const installedRuntime = canInstallServerRuntime() ? installedServerRuntimePath() : null;
+  if (installedRuntime) candidates.push(installedRuntime);
   for (const root of roots) {
     for (const name of names) {
       candidates.push(path.join(root, name));
@@ -1157,12 +1171,12 @@ async function managedServerMatchesEnvironment(url: string, workspaceRoot: strin
 }
 
 async function managedServerIsReusable(metadata: ManagedServerMetadata, workspaceRoot: string): Promise<boolean> {
-  return managedServerMatchesCommand(metadata) &&
+  return await managedServerMatchesCommand(metadata) &&
     await managedServerMatchesEnvironment(metadata.url, workspaceRoot);
 }
 
-function managedServerMatchesCommand(metadata: ManagedServerMetadata): boolean {
-  const expected = resolveServerCommand();
+async function managedServerMatchesCommand(metadata: ManagedServerMetadata): Promise<boolean> {
+  const expected = await resolveServerCommand();
   return metadata.command === expected.file &&
     metadata.command_source === expected.source &&
     JSON.stringify(metadata.command_args) === JSON.stringify(expected.args);

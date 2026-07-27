@@ -738,17 +738,17 @@ finish() {
         success "chump is installed"
     fi
     say ""
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+        warn "one step left for this terminal:"
+        say "  ${ACCENT}export PATH=\"$INSTALL_DIR:\$PATH\"; hash -r 2>/dev/null || true${NC}"
+        say ""
+    fi
+
     info "next moves:"
     say "  ${ACCENT}cd <project>${NC}     ${MUTED}# open a repo${NC}"
     say "  ${ACCENT}chump${NC}            ${MUTED}# start the interactive agent${NC}"
     say "  ${ACCENT}chump -p \"hi\"${NC}   ${MUTED}# run one prompt${NC}"
     say ""
-
-    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-        info "for this terminal, run:"
-        say "  ${ACCENT}export PATH=\"$INSTALL_DIR:\$PATH\"${NC}"
-        say ""
-    fi
 }
 
 banner

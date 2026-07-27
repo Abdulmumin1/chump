@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { DaemonMetadataStore, type DaemonMetadata } from "./daemon-metadata.ts";
 import { getGlobalStatePaths } from "./state-paths.ts";
 import { currentClientVersion } from "./update.ts";
+import { prepareNpmServerRuntime } from "./server-runtime-install.ts";
 
 const DAEMON_START_TIMEOUT_MS = 10_000;
 const DAEMON_STOP_TIMEOUT_MS = 5_000;
@@ -50,6 +51,8 @@ async function startDaemonProcess(): Promise<string> {
       }
       await stopDaemonProcess();
     }
+
+    await prepareNpmServerRuntime();
 
     const paths = getGlobalStatePaths();
     await mkdir(paths.dataDir, { recursive: true });
