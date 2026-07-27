@@ -18,12 +18,10 @@ chump
 chump -p "summarize this repo"
 ```
 
-Standalone release archives include both `chump` and the matching
-`chump-server` backend binary. The CLI starts that bundled backend directly;
-`uv` is not required for normal installs.
-
-Use the platform archives or installer scripts for the no-`uv` path. The npm
-package is still useful for development and JS-package consumers.
+On first use, the npm-installed CLI downloads the matching `chump-server`
+runtime for the current platform. Standalone release archives include the same
+runtime directly. The CLI starts that backend; `uv` is not required for normal
+installs.
 
 Use `chump -p "prompt"` for one-shot, non-interactive prompts. Piped stdin is
 merged into the prompt, and stdout is reserved for the assistant response. Add

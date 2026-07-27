@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.16
+
+### Patch Changes
+
+- Download the matching chump-server runtime on first use for npm installations, and improve installer PATH activation guidance
+
 ## 0.2.15
 
 ### Patch Changes
