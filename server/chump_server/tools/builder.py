@@ -58,6 +58,7 @@ def build_tools(
                 preview=preview,
                 metadata=metadata,
                 result=result,
+                display_output=result if name == "bash" else None,
             )
             log(f"ok {name}: {_preview(result, 240)}")
             return result
@@ -78,6 +79,7 @@ def build_tools(
                 preview=error_preview,
                 metadata=metadata,
                 result=f"Error: {exc}",
+                display_output=str(exc) if name == "bash" else None,
                 error=str(exc),
             )
             log(f"error {name}: {exc}")

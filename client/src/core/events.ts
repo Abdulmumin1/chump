@@ -47,6 +47,7 @@ export type ToolResultPayload = VersionedEventPayload & {
   index: number;
   duration?: number | null;
   error?: string;
+  display_output?: string;
 };
 export type AgentStatusPayload = VersionedEventPayload & {
   agent_id: string;
@@ -143,6 +144,7 @@ export function parseChumpEvent(type: string, data: unknown): ChumpEvent | null 
           typeof data.ok === "boolean" &&
           (data.status === "ok" || data.status === "error") &&
           isString(data.preview) &&
+          (data.display_output === undefined || isString(data.display_output)) &&
           isInteger(data.step) &&
           isInteger(data.index)
         ? { type, data: versioned as ToolResultPayload }

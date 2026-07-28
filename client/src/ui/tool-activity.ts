@@ -9,10 +9,21 @@ import {
   type FileEditDiff,
   renderMuted,
 } from "./render.ts";
+import {
+  type CommandActivity,
+  formatCommandOutput,
+} from "./command-activity.ts";
+
+type ToolActivityEmission =
+  | { type: "line"; value: string }
+  | { type: "command"; activity: CommandActivity };
 
 export class ToolActivityRenderer {
   private readonly writeLine: (value?: string) => void;
-  private capturedOutput: string[] | null = null;
+  private readonly writeCommandActivity:
+    | ((activity: CommandActivity) => boolean)
+    | null;
+  private capturedOutput: ToolActivityEmission[] | null = null;
 
   private pendingTools: Array<{
     name: string;
@@ -24,7 +35,7 @@ export class ToolActivityRenderer {
   }> = [];
   private readonly bufferedParallelResults = new Map<
     number,
-    Array<{ index: number; output: string[] }>
+    Array<{ index: number; output: ToolActivityEmission[] }>
   >();
   private readonly completedTools = new Set<string>();
   private readonly streamingCalls = new Map<
@@ -35,8 +46,12 @@ export class ToolActivityRenderer {
   private activity = false;
   private compactToolRunActive = false;
 
-  constructor(writeLine: (value?: string) => void) {
+  constructor(
+    writeLine: (value?: string) => void,
+    writeCommandActivity: ((activity: CommandActivity) => boolean) | null = null,
+  ) {
     this.writeLine = writeLine;
+    this.writeCommandActivity = writeCommandActivity;
   }
 
   consumeActivity(): boolean {
@@ -171,7 +186,7 @@ export class ToolActivityRenderer {
 
     const previousCompactState = this.compactToolRunActive;
     this.compactToolRunActive = false;
-    const output: string[] = [];
+    const output: ToolActivityEmission[] = [];
     this.capturedOutput = output;
     try {
       this.renderToolResultOnce(payload);
@@ -198,11 +213,9 @@ export class ToolActivityRenderer {
     for (const [resultIndex, result] of batch
       .sort((a, b) => a.index - b.index)
       .entries()) {
-      for (const [lineIndex, line] of result.output.entries()) {
-        const value = resultIndex > 0 && lineIndex === 0 && line.startsWith("\n")
-          ? line.slice(1)
-          : line;
-        this.writeLine(value);
+      for (const [emissionIndex, emission] of result.output.entries()) {
+        const suppressLeadingGap = resultIndex > 0 && emissionIndex === 0;
+        this.writeEmission(emission, suppressLeadingGap);
       }
     }
   }
@@ -224,18 +237,15 @@ export class ToolActivityRenderer {
     if (toolName === "bash") {
       this.compactToolRunActive = false;
       const pending = this.takePendingTool(toolName, payload);
-      this.emit(`\n${renderCommand(stripHtmlSpans(pending?.args || "command"))}`);
-      this.emit(
-        renderCommandOutput(
-          ok,
-          truncateMultilinePreview(
-            visiblePreview,
-            commandOutputPreviewLimit(),
-            5,
-          ),
-        ),
-      );
-      this.emit("");
+      this.emitCommand({
+        command: stripHtmlSpans(pending?.args || "command"),
+        status: ok,
+        preview: visiblePreview,
+        displayOutput:
+          typeof payload.display_output === "string"
+            ? payload.display_output
+            : null,
+      });
       this.activity = true;
       return;
     }
@@ -365,10 +375,50 @@ export class ToolActivityRenderer {
 
   private emit(value = ""): void {
     if (this.capturedOutput) {
-      this.capturedOutput.push(value);
+      this.capturedOutput.push({ type: "line", value });
       return;
     }
     this.writeLine(value);
+  }
+
+  private emitCommand(activity: CommandActivity): void {
+    if (this.capturedOutput) {
+      this.capturedOutput.push({ type: "command", activity });
+      return;
+    }
+    this.writeCommand(activity, false);
+  }
+
+  private writeEmission(
+    emission: ToolActivityEmission,
+    suppressLeadingGap: boolean,
+  ): void {
+    if (emission.type === "command") {
+      this.writeCommand(emission.activity, suppressLeadingGap);
+      return;
+    }
+    const value = suppressLeadingGap && emission.value.startsWith("\n")
+      ? emission.value.slice(1)
+      : emission.value;
+    this.writeLine(value);
+  }
+
+  private writeCommand(
+    activity: CommandActivity,
+    suppressLeadingGap: boolean,
+  ): void {
+    if (this.writeCommandActivity?.(activity)) {
+      return;
+    }
+    const prefix = suppressLeadingGap ? "" : "\n";
+    this.writeLine(`${prefix}${renderCommand(activity.command)}`);
+    this.writeLine(
+      renderCommandOutput(
+        activity.status,
+        formatCommandOutput(activity.preview, commandOutputPreviewLimit(), 5),
+      ),
+    );
+    this.writeLine("");
   }
 }
 
@@ -1050,73 +1100,11 @@ function skillDisplayName(value: string): string {
   return match?.[1]?.trim() || value;
 }
 
-function truncateMultilinePreview(
-  value: string,
-  limit: number,
-  maxLines: number,
-): string {
-  const normalized = value.replace(/\r\n/g, "\n");
-  let rawLines = normalized.split("\n");
-  let serverTruncatedCount = 0;
-
-  if (rawLines.length > 0 && rawLines[0].startsWith("...[command output truncated")) {
-    const noticeLine = rawLines[0];
-    rawLines.shift();
-    if (rawLines.length > 0 && rawLines[0] === "") {
-      rawLines.shift();
-    }
-    const match = /showing last (\d+) of (\d+) lines/u.exec(noticeLine);
-    if (match) {
-      const shown = Number.parseInt(match[1], 10);
-      const total = Number.parseInt(match[2], 10);
-      serverTruncatedCount = total - shown;
-    }
-  }
-
-  if (rawLines.length > 0 && rawLines[rawLines.length - 1].includes("[truncated]")) {
-    rawLines.pop();
-  }
-
-  const lines = rawLines.map((line) => {
-    const cleaned = stripHtmlSpans(line);
-    const lineMatch = /^(\d+):\s?(.*)/u.exec(cleaned);
-    if (lineMatch) {
-      const lineNum = lineMatch[1];
-      const content = lineMatch[2];
-      return content ? `${lineNum}  ${content}` : lineNum;
-    }
-    return cleaned;
-  });
-
-  const lineLimit = maxLines;
-  const totalLinesLength = lines.length;
-  const lineTruncated = totalLinesLength > lineLimit;
-  let visibleLines = lines.slice(0, lineLimit);
-
-  let truncatedCount = serverTruncatedCount;
-  if (lineTruncated) {
-    truncatedCount += totalLinesLength - lineLimit;
-  }
-
-  const joinedVisible = visibleLines.join("\n");
-  if (joinedVisible.length > limit) {
-    return joinedVisible.slice(0, limit - 16) + " ...[truncated]";
-  }
-
-  if (truncatedCount > 0) {
-    visibleLines.push("");
-    visibleLines.push(`... +${truncatedCount.toLocaleString()} lines truncated`);
-  }
-
-  return visibleLines.join("\n");
-}
-
 function stripHtmlSpans(value: string): string {
   return value.replace(/<\/?span\b[^>]*>/giu, "");
 }
 
-function commandOutputPreviewLimit(): number {
-  const columns = process.stdout.columns ?? 80;
+function commandOutputPreviewLimit(columns = process.stdout.columns ?? 80): number {
   const treeIndentWidth = 5;
   return Math.max(240, Math.min(1200, (columns - treeIndentWidth) * 5));
 }

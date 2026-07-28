@@ -5,7 +5,9 @@ import {
   clearTerminal,
   createLiveMarkdownStream,
   setTerminalOutputSink,
+  writeCommandActivity,
   writeOutput,
+  writeReasoning,
 } from "./terminal.ts";
 
 test("routes output and clears through an active Pi TUI sink", () => {
@@ -50,6 +52,31 @@ test("routes assistant deltas through the live Pi Markdown stream", () => {
     assert.deepEqual(chunks, ["smooth", " stream"]);
     stream.end();
     assert.equal(ended, true);
+  } finally {
+    setTerminalOutputSink(null);
+  }
+});
+
+test("routes semantic command and reasoning blocks through the Pi TUI sink", () => {
+  const commands: string[] = [];
+  const reasoning: string[] = [];
+  setTerminalOutputSink({
+    write: () => {},
+    clear: () => {},
+    writeCommandActivity: (activity) => commands.push(activity.command),
+    writeReasoning: (content) => reasoning.push(content),
+  });
+
+  try {
+    assert.equal(writeCommandActivity({
+      command: "printf done",
+      status: "ok",
+      preview: "done",
+      displayOutput: "done",
+    }), true);
+    assert.equal(writeReasoning("checking the result"), true);
+    assert.deepEqual(commands, ["printf done"]);
+    assert.deepEqual(reasoning, ["checking the result"]);
   } finally {
     setTerminalOutputSink(null);
   }

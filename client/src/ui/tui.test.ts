@@ -20,6 +20,7 @@ import {
   registerTuiExtension,
   resolveTuiExtensions,
 } from "./tui/extensions.ts";
+import { handleTranscriptToggleKey } from "./tui/shell.ts";
 
 test("Pi TUI streaming text wraps output without losing blank lines", () => {
   const output = new StreamingText();
@@ -103,6 +104,104 @@ test("Pi TUI input gap does not stack with a transcript blank", () => {
 
   transcript.append("※ question\n");
   assert.deepEqual(gap.render(80), [""]);
+});
+
+test("Pi TUI command activities expand globally and new commands inherit the state", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  transcript.appendCommandActivity({
+    command: "printf output",
+    status: "ok",
+    preview: "line 1\n...[truncated]",
+    displayOutput: Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n"),
+  });
+
+  const collapsed = stripTestAnsi(transcript.render(80).join("\n"));
+  assert.match(collapsed, /line 1/u);
+  assert.doesNotMatch(collapsed, /line 12/u);
+  assert.match(collapsed, /ctrl\+o to expand/u);
+
+  transcript.setToolsExpanded(true);
+  const expanded = stripTestAnsi(transcript.render(80).join("\n"));
+  assert.match(expanded, /line 12/u);
+  assert.doesNotMatch(expanded, /ctrl\+o to expand/u);
+
+  transcript.appendCommandActivity({
+    command: "printf inherited",
+    status: "ok",
+    preview: "done",
+    displayOutput: "done",
+  });
+  assert.match(stripTestAnsi(transcript.render(80).join("\n")), /printf inherited/u);
+  assert.equal(transcript.areToolsExpanded(), true);
+});
+
+test("Pi TUI expansion restores wrapped single-line commands and output", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  const commandTail = "command-tail";
+  const outputTail = "output-tail";
+  transcript.appendCommandActivity({
+    command: `${"echo very-long ".repeat(20)}${commandTail}`,
+    status: "ok",
+    preview: `${"result ".repeat(80)}${outputTail}`,
+    displayOutput: `${"result ".repeat(80)}${outputTail}`,
+  });
+
+  const collapsed = stripTestAnsi(transcript.render(24).join("\n"));
+  assert.doesNotMatch(collapsed, new RegExp(commandTail, "u"));
+  assert.doesNotMatch(collapsed, new RegExp(outputTail, "u"));
+
+  transcript.setToolsExpanded(true);
+  const expanded = stripTestAnsi(transcript.render(24).join("\n"));
+  assert.match(expanded, new RegExp(commandTail, "u"));
+  assert.match(expanded, new RegExp(outputTail, "u"));
+});
+
+test("Pi TUI expansion preserves byte-only server truncation warnings", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  transcript.appendCommandActivity({
+    command: "printf large-line",
+    status: "ok",
+    preview: "tail ...[truncated]",
+    displayOutput:
+      "...[command output truncated: showing last 1 of 1 lines; showing last 51200 of 60000 bytes]\n\ntail",
+  });
+
+  transcript.setToolsExpanded(true);
+  const expanded = stripTestAnsi(transcript.render(80).join("\n"));
+  assert.match(expanded, /8,800 bytes unavailable \(server limit\)/u);
+});
+
+test("Pi TUI thinking blocks toggle globally and inherit hidden state", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  transcript.appendReasoning("first private thought");
+  assert.match(stripTestAnsi(transcript.render(80).join("\n")), /first private thought/u);
+
+  transcript.setThinkingVisible(false);
+  assert.doesNotMatch(stripTestAnsi(transcript.render(80).join("\n")), /first private thought/u);
+
+  transcript.appendReasoning("second private thought");
+  assert.doesNotMatch(stripTestAnsi(transcript.render(80).join("\n")), /second private thought/u);
+
+  transcript.setThinkingVisible(true);
+  const visible = stripTestAnsi(transcript.render(80).join("\n"));
+  assert.match(visible, /first private thought/u);
+  assert.match(visible, /second private thought/u);
+});
+
+test("Pi TUI transcript shortcuts are consumed without affecting other input", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  let renders = 0;
+  const handle = (data: string) =>
+    handleTranscriptToggleKey(data, transcript, () => {
+      renders += 1;
+    });
+
+  assert.equal(handle("\x0f"), true);
+  assert.equal(transcript.areToolsExpanded(), true);
+  assert.equal(handle("\x14"), true);
+  assert.equal(transcript.isThinkingVisible(), false);
+  assert.equal(handle("typed text"), false);
+  assert.equal(renders, 2);
 });
 
 test("Pi TUI muted colors do not use terminal-dependent SGR dim", () => {

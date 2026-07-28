@@ -14,6 +14,10 @@ events, and ignore unknown future versions. Extra fields are additive within a
 version; removing, renaming, or changing the meaning of a field requires a new
 schema version.
 
+`tool_result.display_output`, when present, contains bounded multiline output
+for interactive display. It can still include a server-limit truncation notice;
+clients must not present it as complete output when that notice is present.
+
 When changing the contract, update these together:
 
 1. `chump-events-v1.schema.json`;

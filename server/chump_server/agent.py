@@ -894,6 +894,11 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 "metadata": detail.get("metadata", {}),
                 "duration": detail.get("duration"),
             }
+            display_output = detail.get("display_output")
+            if not isinstance(display_output, str) and call.name == "bash":
+                display_output = str(result.result)
+            if isinstance(display_output, str):
+                payload["display_output"] = display_output
             if result.is_error:
                 payload["error"] = str(result.result)
             await self.emit("tool_result", payload)
@@ -949,6 +954,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
                         "metadata": detail.get("metadata", {}),
                     }
                 )
+                display_output = detail.get("display_output")
+                if isinstance(display_output, str):
+                    payload["display_output"] = display_output
         await self.emit(event.type, payload, replay=False)
 
     def capture_tool_result_detail(
@@ -959,18 +967,20 @@ class ChumpAgent(Agent[dict[str, Any]]):
         preview: str,
         metadata: dict[str, object],
         result: object,
+        display_output: str | None = None,
         error: str | None = None,
     ) -> None:
-        self._pending_tool_result_details[tool_name].append(
-            {
-                "ok": ok,
-                "status": "ok" if ok else "error",
-                "preview": preview,
-                "metadata": metadata,
-                "error": error,
-                "result_fingerprint": self._tool_result_fingerprint(result),
-            }
-        )
+        detail: dict[str, object] = {
+            "ok": ok,
+            "status": "ok" if ok else "error",
+            "preview": preview,
+            "metadata": metadata,
+            "error": error,
+            "result_fingerprint": self._tool_result_fingerprint(result),
+        }
+        if display_output is not None:
+            detail["display_output"] = display_output
+        self._pending_tool_result_details[tool_name].append(detail)
 
     def _take_tool_result_detail(
         self,
