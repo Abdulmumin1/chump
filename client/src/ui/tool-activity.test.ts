@@ -574,6 +574,41 @@ test("keeps each concurrent bash result with its originating command", () => {
   assert.match(output[4] ?? "", /second output/);
 });
 
+test("passes bounded command output to the semantic TUI renderer", () => {
+  const activities: Array<{
+    command: string;
+    displayOutput: string | null;
+  }> = [];
+  const renderer = new ToolActivityRenderer(
+    () => {},
+    (activity) => {
+      activities.push({
+        command: activity.command,
+        displayOutput: activity.displayOutput,
+      });
+      return true;
+    },
+  );
+
+  renderer.renderToolCall({
+    name: "bash",
+    args: { command: "printf full" },
+    call_id: "call_full",
+  });
+  renderer.renderToolResult({
+    name: "bash",
+    status: "ok",
+    preview: "line 1\n...[truncated]",
+    display_output: "line 1\nline 2\nline 3",
+    call_id: "call_full",
+  });
+
+  assert.deepEqual(activities, [{
+    command: "printf full",
+    displayOutput: "line 1\nline 2\nline 3",
+  }]);
+});
+
 test("caps long commands to five terminal rows", () => {
   const command = [
     "python3 -c '",

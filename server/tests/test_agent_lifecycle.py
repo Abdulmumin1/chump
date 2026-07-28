@@ -289,6 +289,7 @@ def test_same_name_parallel_results_keep_call_id_and_completion_metadata():
         preview="second output",
         metadata={"command": "second"},
         result="second output",
+        display_output="second output\nsecond detail",
     )
     agent.capture_tool_result_detail(
         "bash",
@@ -296,6 +297,7 @@ def test_same_name_parallel_results_keep_call_id_and_completion_metadata():
         preview="first output",
         metadata={"command": "first"},
         result="first output",
+        display_output="first output\nfirst detail",
     )
 
     # Both same-name calls may record their details before lifecycle events are
@@ -355,4 +357,8 @@ def test_same_name_parallel_results_keep_call_id_and_completion_metadata():
     assert [event.args[1]["preview"] for event in final_events] == [
         "first output",
         "second output",
+    ]
+    assert [event.args[1]["display_output"] for event in final_events] == [
+        "first output\nfirst detail",
+        "second output\nsecond detail",
     ]

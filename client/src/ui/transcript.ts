@@ -8,6 +8,7 @@ import {
 import { LiveReasoningStream, ReasoningRenderer } from "./reasoning.ts";
 import {
   createLiveMarkdownStream,
+  writeCommandActivity,
   writeOutput,
   writeOutputLine,
 } from "./terminal.ts";
@@ -36,7 +37,10 @@ export type TranscriptRendererHooks = {
 };
 
 export class TranscriptRenderer {
-  private readonly toolActivityRenderer = new ToolActivityRenderer(writeOutputLine);
+  private readonly toolActivityRenderer = new ToolActivityRenderer(
+    writeOutputLine,
+    writeCommandActivity,
+  );
   private readonly reasoningRenderer: LiveReasoningStream | ReasoningRenderer;
   private readonly hooks: TranscriptRendererHooks;
   private assistantStream: ReturnType<typeof createMarkdownStream> | null = null;
@@ -349,6 +353,9 @@ function transcriptEventsFromAssistantContent(content: unknown): TranscriptEvent
           ok: !toolResult.isError,
           status: toolResult.isError ? "error" : "ok",
           preview,
+          ...(toolResult.toolName === "bash"
+            ? { display_output: toolResult.result }
+            : {}),
           call_id: toolResult.callId,
           step: toolResult.step,
           index: toolResult.index,

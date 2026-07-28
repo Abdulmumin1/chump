@@ -9,6 +9,11 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
+import {
+  type CommandActivity,
+  renderCommandActivityLines,
+} from "../command-activity.ts";
+import { renderThinkingLabel } from "../render.ts";
 import type { TerminalMarkdownStream } from "../terminal.ts";
 
 export class StreamingText implements Component {
@@ -70,7 +75,12 @@ export class StreamingText implements Component {
 export class TuiTranscript extends Container {
   private currentText: StreamingText | null = null;
   private readonly markdownTheme: MarkdownTheme;
+  private readonly commandActivities: ExpandableCommandActivity[] = [];
+  private readonly reasoningBlocks: ToggleableReasoning[] = [];
   private hasContent = false;
+  private trailingGap = false;
+  private toolsExpanded = false;
+  private thinkingVisible = true;
 
   constructor(markdownTheme: MarkdownTheme) {
     super();
@@ -87,6 +97,58 @@ export class TuiTranscript extends Container {
     }
     this.currentText.append(value);
     this.hasContent = true;
+    this.trailingGap = this.currentText.endsWithBlankLine();
+  }
+
+  appendCommandActivity(activity: CommandActivity): void {
+    this.currentText = null;
+    const component = new ExpandableCommandActivity(
+      activity,
+      this.toolsExpanded,
+    );
+    this.commandActivities.push(component);
+    this.addChild(component);
+    this.hasContent = true;
+    this.trailingGap = false;
+  }
+
+  appendReasoning(content: string): void {
+    const normalized = content.trim();
+    if (!normalized) {
+      return;
+    }
+    this.currentText = null;
+    const component = new ToggleableReasoning(
+      normalized,
+      this.markdownTheme,
+      this.thinkingVisible,
+    );
+    this.reasoningBlocks.push(component);
+    this.addChild(component);
+    this.hasContent = true;
+    this.trailingGap = false;
+  }
+
+  setToolsExpanded(expanded: boolean): void {
+    this.toolsExpanded = expanded;
+    for (const activity of this.commandActivities) {
+      activity.setExpanded(expanded);
+    }
+  }
+
+  areToolsExpanded(): boolean {
+    return this.toolsExpanded;
+  }
+
+  setThinkingVisible(visible: boolean): void {
+    this.thinkingVisible = visible;
+    for (const reasoning of this.reasoningBlocks) {
+      reasoning.setVisible(visible);
+    }
+  }
+
+  isThinkingVisible(): boolean {
+    return this.thinkingVisible;
   }
 
   createMarkdownStream(
@@ -110,6 +172,7 @@ export class TuiTranscript extends Container {
         value += transform(chunk);
         markdown.setText(value);
         this.hasContent = true;
+        this.trailingGap = false;
         onChange();
       },
       end: () => {
@@ -123,11 +186,78 @@ export class TuiTranscript extends Container {
     super.clear();
     this.currentText = null;
     this.hasContent = false;
+    this.trailingGap = false;
+    this.commandActivities.length = 0;
+    this.reasoningBlocks.length = 0;
   }
 
   hasTrailingGap(): boolean {
-    return this.currentText?.endsWithBlankLine() === true;
+    return this.trailingGap;
   }
+}
+
+export class ExpandableCommandActivity implements Component {
+  private readonly activity: CommandActivity;
+  private expanded: boolean;
+
+  constructor(activity: CommandActivity, expanded = false) {
+    this.activity = activity;
+    this.expanded = expanded;
+  }
+
+  setExpanded(expanded: boolean): void {
+    this.expanded = expanded;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    return renderCommandActivityLines(
+      this.activity,
+      Math.max(1, width),
+      this.expanded,
+    );
+  }
+}
+
+export class ToggleableReasoning implements Component {
+  private readonly markdown: Markdown;
+  private visible: boolean;
+
+  constructor(
+    content: string,
+    markdownTheme: MarkdownTheme,
+    visible = true,
+  ) {
+    this.markdown = new Markdown(asMarkdownQuote(content), 0, 0, markdownTheme);
+    this.visible = visible;
+  }
+
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+  }
+
+  invalidate(): void {
+    this.markdown.invalidate();
+  }
+
+  render(width: number): string[] {
+    if (!this.visible) {
+      return [];
+    }
+    return [
+      "",
+      renderThinkingLabel(),
+      ...this.markdown.render(Math.max(1, width)),
+    ];
+  }
+}
+
+function asMarkdownQuote(content: string): string {
+  return content
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
 }
 
 class CachedAnsiLine {

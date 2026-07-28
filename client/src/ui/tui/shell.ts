@@ -1,6 +1,7 @@
 import {
   type AutocompleteProvider,
   Container,
+  matchesKey,
   ProcessTerminal,
   type Component,
   TUI,
@@ -12,6 +13,7 @@ import type {
   SessionSummary,
   SlashCommandMenuContext,
 } from "../../core/types.ts";
+import type { CommandActivity } from "../command-activity.ts";
 import {
   createTuiMarkdownTheme,
   renderError,
@@ -72,6 +74,24 @@ export function createPiPromptReader(): PiPromptReader {
   return new PiTuiShell();
 }
 
+export function handleTranscriptToggleKey(
+  data: string,
+  transcript: TuiTranscript,
+  requestRender: () => void,
+): boolean {
+  if (matchesKey(data, "ctrl+o")) {
+    transcript.setToolsExpanded(!transcript.areToolsExpanded());
+    requestRender();
+    return true;
+  }
+  if (matchesKey(data, "ctrl+t")) {
+    transcript.setThinkingVisible(!transcript.isThinkingVisible());
+    requestRender();
+    return true;
+  }
+  return false;
+}
+
 class PiTuiShell implements PiPromptReader {
   private readonly tui = new TUI(new ProcessTerminal());
   private readonly slots: Record<ChumpTuiSlot, Container> = {
@@ -121,6 +141,13 @@ class PiTuiShell implements PiPromptReader {
   private closed = false;
 
   constructor() {
+    this.keyHandlers.push((data) =>
+      handleTranscriptToggleKey(
+        data,
+        this.transcript,
+        () => this.tui.requestRender(),
+      )
+    );
     this.autocompleteProviders.push(this.autocomplete);
     this.refreshAutocomplete();
     this.editor.onSubmit = (text) => {
@@ -193,6 +220,16 @@ class PiTuiShell implements PiPromptReader {
     (value) => this.transformOutput(value),
     () => this.tui.requestRender(),
   );
+
+  writeCommandActivity = (activity: CommandActivity): void => {
+    this.transcript.appendCommandActivity(activity);
+    this.tui.requestRender();
+  };
+
+  writeReasoning = (content: string): void => {
+    this.transcript.appendReasoning(content);
+    this.tui.requestRender();
+  };
 
   async read(): Promise<PromptSubmission | null> {
     await this.extensionReady;

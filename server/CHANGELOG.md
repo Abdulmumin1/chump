@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.14
+
+- Preserve bounded multiline Bash output in durable tool-result events so interactive clients can expand command transcripts while retaining the 300-line and 50 KiB server safety limits.
+
 ## 0.1.13
 
 - Build Linux standalone runtimes on glibc 2.31 so npm first-run downloads and platform archives work on Debian 11, Debian 12, and other compatible distributions instead of requiring Ubuntu 24.04's newer glibc.

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.18
+
+### Patch Changes
+
+- Add Pi-style transcript controls: Ctrl+O expands or collapses bounded Bash command output, while Ctrl+T shows or hides reasoning blocks. Live and replayed blocks inherit the global state, and server-limited output remains explicitly marked.
+
 ## 0.2.17
 
 ### Patch Changes

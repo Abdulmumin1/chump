@@ -1,3 +1,5 @@
+import type { CommandActivity } from "./command-activity.ts";
+
 export type TerminalMarkdownStream = {
   write: (value: string) => void;
   end: () => void;
@@ -7,6 +9,8 @@ export type TerminalOutputSink = {
   write: (value: string) => void;
   clear: () => void;
   createMarkdownStream?: () => TerminalMarkdownStream;
+  writeCommandActivity?: (activity: CommandActivity) => void;
+  writeReasoning?: (content: string) => void;
 };
 
 let activeOutputSink: TerminalOutputSink | null = null;
@@ -37,6 +41,22 @@ export function clearTerminal(): void {
 
 export function createLiveMarkdownStream(): TerminalMarkdownStream | null {
   return activeOutputSink?.createMarkdownStream?.() ?? null;
+}
+
+export function writeCommandActivity(activity: CommandActivity): boolean {
+  if (!activeOutputSink?.writeCommandActivity) {
+    return false;
+  }
+  activeOutputSink.writeCommandActivity(activity);
+  return true;
+}
+
+export function writeReasoning(content: string): boolean {
+  if (!activeOutputSink?.writeReasoning) {
+    return false;
+  }
+  activeOutputSink.writeReasoning(content);
+  return true;
 }
 
 // Retained for callers that synchronously print a menu in non-interactive

@@ -3,7 +3,11 @@ import {
   renderMuted,
   renderThinkingLabel,
 } from "./render.ts";
-import { createLiveMarkdownStream, writeOutput } from "./terminal.ts";
+import {
+  createLiveMarkdownStream,
+  writeOutput,
+  writeReasoning,
+} from "./terminal.ts";
 
 export class LiveReasoningTokenCounter {
   private buffer = "";
@@ -154,6 +158,9 @@ export class LiveReasoningStream {
 }
 
 function writeReasoningMarkdown(content: string): void {
+  if (writeReasoning(content)) {
+    return;
+  }
   writeOutput(`\n${renderThinkingLabel()}\n`);
   const stream = createLiveMarkdownStream() ?? createMarkdownStream();
   stream.write(asMarkdownQuote(content));

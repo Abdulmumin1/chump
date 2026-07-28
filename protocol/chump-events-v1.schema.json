@@ -76,7 +76,8 @@
         "step": { "type": "integer", "minimum": 1 },
         "index": { "type": "integer", "minimum": 0 },
         "duration": { "type": ["number", "null"] },
-        "error": { "type": "string" }
+        "error": { "type": "string" },
+        "display_output": { "type": "string" }
       },
       "additionalProperties": true
     },

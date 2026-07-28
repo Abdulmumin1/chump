@@ -69,6 +69,7 @@ class ToolResultPayload(VersionedEventPayload):
     index: int
     duration: NotRequired[float | None]
     error: NotRequired[str]
+    display_output: NotRequired[str]
 
 
 class AgentStatusPayload(VersionedEventPayload):
@@ -195,6 +196,12 @@ def version_chump_event_payload(
             raise ValueError(
                 f"Invalid {event_type} event field {field!r}: "
                 f"expected {expected_name}"
+            )
+
+    if event_type == "tool_result" and "display_output" in payload:
+        if not isinstance(payload["display_output"], str):
+            raise ValueError(
+                "Invalid tool_result event field 'display_output': expected str"
             )
 
     if event_type == "status" and payload["phase"] not in {
