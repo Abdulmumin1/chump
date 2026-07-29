@@ -34,6 +34,18 @@ test("zsh completion passes array names to _describe", () => {
   assert.doesNotMatch(script, /_describe[^\n]*\$global_options/u);
 });
 
+test("print-only options are hidden unless -p/--print is already present", () => {
+  for (const shell of ["bash", "fish", "powershell", "zsh"] as const) {
+    const script = renderShellCompletion(shell);
+    assert.match(script, /verbose/u);
+  }
+  // Each shell must gate --verbose behind a -p/--print guard.
+  assert.match(renderShellCompletion("bash"), /has_print/u);
+  assert.match(renderShellCompletion("fish"), /seen_argument.*-s p.*-l print/u);
+  assert.match(renderShellCompletion("powershell"), /-p.*--print/u);
+  assert.match(renderShellCompletion("zsh"), /has_print/u);
+});
+
 test("completion usage names every supported shell", () => {
   assert.equal(completionCommandUsage(), "chump completion <bash|fish|powershell|zsh>");
 });
