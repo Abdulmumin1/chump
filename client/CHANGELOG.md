@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- Fix picker autocomplete dismissal: dropdowns auto-close when backspacing past their trigger, and /share start submits correctly instead of reopening the picker
+- Fix picker autocomplete dismissal, `/share start` selection, and broken shell command completion
 
 ## 0.2.18
 
