@@ -127,7 +127,8 @@ _chump_completion() {
   cword="$COMP_CWORD"
 
   local commands="app client completion connect daemon projects providers server status stop update version"
-  local global_options="-h --help -v --version -c --connect -s --session -p --print --verbose -m --model -t --thinking"
+  local global_options="-h --help -v --version -c --connect -s --session -p --print"
+  local print_options="--verbose -m --model -t --thinking"
 
   case "\${COMP_WORDS[1]}" in
     daemon)
@@ -175,6 +176,19 @@ _chump_completion() {
       ;;
   esac
 
+  # Restrict print-only options to command lines that already include -p/--print.
+  local has_print=false
+  local word
+  for word in "\${COMP_WORDS[@]}"; do
+    if [[ "\$word" == "-p" || "\$word" == "--print" ]]; then
+      has_print=true
+      break
+    fi
+  done
+  if \$has_print; then
+    global_options="\$global_options \$print_options"
+  fi
+
   COMPREPLY=( $(compgen -W "$commands $global_options" -- "$cur") )
 }
 complete -F _chump_completion chump
@@ -203,9 +217,9 @@ complete -c chump -s v -l version -d 'Print the version'
 complete -c chump -s c -l connect -r -d 'Connect to a server URL'
 complete -c chump -s s -l session -r -d 'Resume a session'
 complete -c chump -s p -l print -d 'Run one prompt without the TUI'
-complete -c chump -l verbose -d 'Show diagnostics with --print'
-complete -c chump -s m -l model -r -d 'Select a model with --print'
-complete -c chump -s t -l thinking -r -a 'none low high xhigh' -d 'Set thinking level with --print'
+complete -c chump -n '__fish_seen_argument -s p -l print' -l verbose -d 'Show diagnostics with --print'
+complete -c chump -n '__fish_seen_argument -s p -l print' -s m -l model -r -d 'Select a model with --print'
+complete -c chump -n '__fish_seen_argument -s p -l print' -s t -l thinking -r -a 'none low high xhigh' -d 'Set thinking level with --print'
 
 complete -c chump -n '__fish_seen_subcommand_from daemon' -a 'start status stop'
 complete -c chump -n '__fish_seen_subcommand_from projects; and not __fish_seen_subcommand_from list add remove' -a 'list add remove'
@@ -238,9 +252,14 @@ Register-ArgumentCompleter -Native -CommandName chump -ScriptBlock {
                 'app', 'client', 'completion', 'connect', 'daemon', 'projects', 'providers',
                 'server', 'status', 'stop', 'update', 'version',
                 '-h', '--help', '-v', '--version', '-c', '--connect', '-s', '--session',
-                '-p', '--print', '--verbose', '-m', '--model', '-t', '--thinking'
+                '-p', '--print'
             )
         }
+    }
+
+    # Print-only options are only offered after -p/--print is already present.
+    if ($words -match '^(-p|--print)$') {
+        $candidates += @('--verbose', '-m', '--model', '-t', '--thinking')
     }
 
     if ($words.Count -gt 1 -and $words[$words.Count - 2] -in @('-t', '--thinking')) {
@@ -282,14 +301,29 @@ _chump() {
     '(-c --connect)'{-c,--connect}'[connect to a server URL]:server URL'
     '(-s --session)'{-s,--session}'[resume a session]:session ID'
     '(-p --print)'{-p,--print}'[run one prompt without the TUI]'
+  )
+
+  local -a print_options
+  print_options=(
     '--verbose[show diagnostics with --print]'
     '(-m --model)'{-m,--model}'[select a model with --print]:provider/model'
     '(-t --thinking)'{-t,--thinking}'[set thinking level with --print]:(none low high xhigh)'
   )
 
+  local word has_print=false
+  for word in "\$words[@]"; do
+    if [[ "\$word" == "-p" || "\$word" == "--print" ]]; then
+      has_print=true
+      break
+    fi
+  done
+
   if (( CURRENT == 2 )); then
     _describe -t commands command commands
     _describe -t options option global_options
+    if \$has_print; then
+      _describe -t 'print options' option print_options
+    fi
     return
   fi
 
@@ -311,7 +345,11 @@ _chump() {
       _values 'shell' bash fish powershell zsh
       ;;
     *)
-      _arguments -S "\${global_options[@]}"
+      if \$has_print; then
+        _arguments -S "\${global_options[@]}" "\${print_options[@]}"
+      else
+        _arguments -S "\${global_options[@]}"
+      fi
       ;;
   esac
 }
