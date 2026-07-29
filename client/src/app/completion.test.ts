@@ -26,6 +26,14 @@ test("renders static completion scripts without invoking the CLI", () => {
   }
 });
 
+test("zsh completion passes array names to _describe", () => {
+  const script = renderShellCompletion("zsh");
+  assert.match(script, /_describe -t commands command commands/u);
+  assert.match(script, /_describe -t options option global_options/u);
+  assert.doesNotMatch(script, /_describe[^\n]*\$commands/u);
+  assert.doesNotMatch(script, /_describe[^\n]*\$global_options/u);
+});
+
 test("completion usage names every supported shell", () => {
   assert.equal(completionCommandUsage(), "chump completion <bash|fish|powershell|zsh>");
 });

@@ -288,8 +288,8 @@ _chump() {
   )
 
   if (( CURRENT == 2 )); then
-    _describe -t commands command "$commands"
-    _describe -t options option "$global_options"
+    _describe -t commands command commands
+    _describe -t options option global_options
     return
   fi
 

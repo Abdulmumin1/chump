@@ -1,6 +1,7 @@
 import {
   Editor,
   matchesKey,
+  type AutocompleteProvider,
   type EditorTheme,
   type TUI,
 } from "@earendil-works/pi-tui";
@@ -27,6 +28,9 @@ export class ChumpEditor extends Editor {
   private lastEscapeAt = 0;
   private submittedAttachments: ChatAttachment[] | null = null;
   private readonly keyHandlers: ChumpTuiKeyHandler[];
+  private activeAutocompleteProvider: AutocompleteProvider | null = null;
+  private forcedAutocompleteOpen = false;
+  private forcedAutocompleteGeneration = 0;
 
   onExit?: () => void;
   onAbort?: () => void;
@@ -55,6 +59,12 @@ export class ChumpEditor extends Editor {
     return [...attachments];
   }
 
+  override setAutocompleteProvider(provider: AutocompleteProvider): void {
+    this.activeAutocompleteProvider = provider;
+    this.forcedAutocompleteOpen = false;
+    super.setAutocompleteProvider(provider);
+  }
+
   restoreFillCompletion(value: string): void {
     this.submittedAttachments = null;
     this.setText(`${value.trimEnd()} `);
@@ -62,6 +72,8 @@ export class ChumpEditor extends Editor {
 
   openPicker(value: string): void {
     this.restoreFillCompletion(value);
+    this.forcedAutocompleteOpen = true;
+    this.forcedAutocompleteGeneration += 1;
     // Pi treats Tab as an explicit autocomplete request. Issuing it after
     // restoring the command makes Enter on an exact picker command reliably
     // open its options even when autocomplete loses a race with Enter.
@@ -129,14 +141,31 @@ export class ChumpEditor extends Editor {
       return;
     }
 
+    // onSubmit runs inside super.handleInput() and may call openPicker(). Keep
+    // that newly-started request active until its async suggestions arrive.
+    const forcedAutocompleteGeneration = this.forcedAutocompleteGeneration;
     const maySubmit = matchesKey(data, "enter");
     if (maySubmit) {
       this.submittedAttachments = [...this.attachments];
     }
+    const opensForcedAutocomplete = !this.isShowingAutocomplete() &&
+      matchesKey(data, "tab") && this.shouldOpenForcedAutocomplete();
+    if (opensForcedAutocomplete) {
+      this.forcedAutocompleteOpen = true;
+      this.forcedAutocompleteGeneration += 1;
+    }
     super.handleInput(data);
+    if (this.forcedAutocompleteGeneration === forcedAutocompleteGeneration) {
+      this.dismissInvalidForcedAutocomplete();
+    }
     if (maySubmit && this.getText().length > 0) {
       this.submittedAttachments = null;
     }
+  }
+
+  override setText(text: string): void {
+    super.setText(text);
+    this.dismissInvalidForcedAutocomplete();
   }
 
   private async insertPaste(value: string): Promise<void> {
@@ -175,6 +204,31 @@ export class ChumpEditor extends Editor {
     this.insertTextAtCursor(`${label} `);
     this.tui.requestRender();
   }
+
+  private shouldOpenForcedAutocomplete(): boolean {
+    const { line, col } = this.getCursor();
+    const beforeCursor = (this.getLines()[line] ?? "").slice(0, col);
+    return !isRootSlashCommand(beforeCursor);
+  }
+
+  private dismissInvalidForcedAutocomplete(): void {
+    if (!this.forcedAutocompleteOpen) {
+      return;
+    }
+    if (!this.isShowingAutocomplete()) {
+      this.forcedAutocompleteOpen = false;
+      return;
+    }
+    const { line, col } = this.getCursor();
+    const stillMatches = this.activeAutocompleteProvider
+      ?.shouldTriggerFileCompletion?.(this.getLines(), line, col) ?? true;
+    if (stillMatches) {
+      return;
+    }
+    super.handleInput("\x1b");
+    this.forcedAutocompleteOpen = false;
+    this.tui.requestRender();
+  }
 }
 
 export function attachmentsForDraft(
@@ -202,6 +256,10 @@ function isPopQueuedInput(data: string): boolean {
     "\x1b[1;8A",
     "\x1b[1;9A",
   ].includes(data);
+}
+
+function isRootSlashCommand(beforeCursor: string): boolean {
+  return /^\/[\w:-]*$/u.test(beforeCursor);
 }
 
 function formatSubmissionPreview(submission: PromptSubmission): string {

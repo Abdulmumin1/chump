@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.19
+
+### Patch Changes
+
+- Fix picker autocomplete dismissal, `/share start` selection, and broken shell command completion
+
 ## 0.2.18
 
 ### Patch Changes
