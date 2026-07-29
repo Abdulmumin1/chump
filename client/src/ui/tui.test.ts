@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+  type AutocompleteProvider,
+  type EditorTheme,
+  TUI,
+  type Terminal,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 
 import type { SessionSummary } from "../core/types.ts";
 import { ChumpAutocompleteProvider } from "./tui/autocomplete.ts";
@@ -20,6 +26,7 @@ import {
   registerTuiExtension,
   resolveTuiExtensions,
 } from "./tui/extensions.ts";
+import { ChumpEditor } from "./tui/editor.ts";
 import { handleTranscriptToggleKey } from "./tui/shell.ts";
 
 test("Pi TUI streaming text wraps output without losing blank lines", () => {
@@ -336,12 +343,139 @@ test("exact picker commands expand before their option suggestions", async () =>
   );
   assert.deepEqual(
     shareOptions?.items.map((item) => item.value),
-    ["/share", "/share status", "/share stop"],
+    ["/share start", "/share status", "/share stop"],
   );
   assert.equal(
     provider.shouldTriggerFileCompletion(["/share "], 0, 7),
     true,
   );
+});
+
+test("share picker submits start instead of reopening itself", async () => {
+  const provider = new ChumpAutocompleteProvider();
+  provider.setContext({ sessions: [], models: [], skills: [], mcps: [] });
+  const editor = createTestEditor(provider);
+  const submissions: string[] = [];
+  editor.onSubmit = (value) => {
+    if (provider.shouldOpenPicker(value)) {
+      editor.openPicker(value);
+      return;
+    }
+    submissions.push(value);
+  };
+
+  editor.setText("/share");
+  editor.handleInput("\r");
+  await flushAutocomplete();
+  assert.equal(editor.isShowingAutocomplete(), true);
+
+  editor.handleInput("\r");
+  await flushAutocomplete();
+  assert.deepEqual(submissions, ["/share start"]);
+  assert.equal(editor.isShowingAutocomplete(), false);
+});
+
+test("submitted picker autocomplete closes when its trigger no longer matches", async () => {
+  const provider = new ChumpAutocompleteProvider();
+  provider.setContext({
+    sessions: [
+      sessionSummary("recent", "Recent conversation", 20),
+      sessionSummary("older", "Older conversation", 10),
+    ],
+    models: [{
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      label: "codex/gpt-5.6-sol",
+      description: "Codex",
+    }, {
+      provider: "openai",
+      model: "gpt-5.6",
+      label: "openai/gpt-5.6",
+      description: "OpenAI",
+    }],
+    skills: [],
+    mcps: [{
+      name: "github",
+      type: "stdio",
+      status: "connected",
+      tools: 2,
+    }, {
+      name: "linear",
+      type: "http",
+      status: "connected",
+      tools: 3,
+    }],
+  });
+
+  for (const command of [
+    "/model",
+    "/session",
+    "/share",
+    "/thinking",
+    "/mcps",
+    "/mcp",
+  ]) {
+    const editor = createTestEditor(provider);
+    editor.onSubmit = (value) => editor.openPicker(value);
+
+    editor.setText(command);
+    editor.handleInput("\r");
+    await flushAutocomplete();
+    assert.equal(
+      editor.isShowingAutocomplete(),
+      true,
+      `${command} picker should open`,
+    );
+
+    editor.handleInput("\x7f");
+    assert.equal(editor.getText(), command);
+    assert.equal(
+      editor.isShowingAutocomplete(),
+      false,
+      `${command} picker should close after removing its trigger space`,
+    );
+  }
+});
+
+test("forced file autocomplete closes when its mention is removed", async () => {
+  const provider: AutocompleteProvider = {
+    triggerCharacters: ["@"],
+    getSuggestions: async (lines, cursorLine, cursorCol) => {
+      const beforeCursor = (lines[cursorLine] ?? "").slice(0, cursorCol);
+      return beforeCursor.startsWith("@")
+        ? {
+          prefix: beforeCursor,
+          items: [
+            { value: "@file.ts", label: "file.ts" },
+            { value: "@folder.ts", label: "folder.ts" },
+          ],
+        }
+        : null;
+    },
+    applyCompletion: (lines, cursorLine, cursorCol, item, prefix) => {
+      const line = lines[cursorLine] ?? "";
+      const start = cursorCol - prefix.length;
+      return {
+        lines: [line.slice(0, start) + item.value + line.slice(cursorCol)],
+        cursorLine,
+        cursorCol: start + item.value.length,
+      };
+    },
+    shouldTriggerFileCompletion: (lines, cursorLine, cursorCol) => {
+      return (lines[cursorLine] ?? "").slice(0, cursorCol).startsWith("@");
+    },
+  };
+  const editor = createTestEditor(provider);
+  editor.setText("@a");
+
+  editor.handleInput("\t");
+  await flushAutocomplete();
+  assert.equal(editor.isShowingAutocomplete(), true);
+
+  editor.handleInput("\x7f");
+  editor.handleInput("\x7f");
+  assert.equal(editor.getText(), "");
+  assert.equal(editor.isShowingAutocomplete(), false);
 });
 
 test("session picker lazily loads and searches every session page", async () => {
@@ -401,6 +535,46 @@ test("in-process Pi TUI extensions can be registered and removed", async () => {
 
 function stripTestAnsi(value: string): string {
   return value.replace(/\x1b\[[0-9;]*m/gu, "");
+}
+
+const testEditorTheme: EditorTheme = {
+  borderColor: (value) => value,
+  selectList: {
+    selectedPrefix: (value) => value,
+    selectedText: (value) => value,
+    description: (value) => value,
+    scrollInfo: (value) => value,
+    noMatch: (value) => value,
+  },
+};
+
+const testTerminal: Terminal = {
+  columns: 80,
+  rows: 24,
+  kittyProtocolActive: false,
+  start: () => {},
+  stop: () => {},
+  drainInput: async () => {},
+  write: () => {},
+  moveBy: () => {},
+  hideCursor: () => {},
+  showCursor: () => {},
+  clearLine: () => {},
+  clearFromCursor: () => {},
+  clearScreen: () => {},
+  setTitle: () => {},
+  setProgress: () => {},
+};
+
+function createTestEditor(provider: AutocompleteProvider): ChumpEditor {
+  const editor = new ChumpEditor(new TUI(testTerminal), testEditorTheme, []);
+  editor.setAutocompleteProvider(provider);
+  return editor;
+}
+
+async function flushAutocomplete(): Promise<void> {
+  await Promise.resolve();
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 function sessionSummary(

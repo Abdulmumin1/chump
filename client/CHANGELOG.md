@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.19
+
+### Patch Changes
+
+- Fix picker autocomplete dismissal: dropdowns auto-close when backspacing past their trigger, and /share start submits correctly instead of reopening the picker
+
 ## 0.2.18
 
 ### Patch Changes

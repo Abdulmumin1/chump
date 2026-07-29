@@ -226,7 +226,7 @@ function completeShareCommand(line: string): SlashCommandSuggestion[] {
   const items = [
     {
       label: "start",
-      command: "/share",
+      command: "/share start",
       description: "open a public Onlocal URL for this local server",
     },
     {
