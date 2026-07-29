@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.20
+
+### Patch Changes
+
+- bbd7ac2: Hide print-only shell completion options (--verbose, --model, --thinking) unless -p/--print is already on the command line
+
 ## 0.2.19
 
 ### Patch Changes
