@@ -4,6 +4,7 @@ import {
   Spacer,
   type Component,
   type MarkdownTheme,
+  sliceByColumn,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
@@ -13,7 +14,7 @@ import {
   type CommandActivity,
   renderCommandActivityLines,
 } from "../command-activity.ts";
-import { renderThinkingLabel } from "../render.ts";
+import { renderThinkingLabel, renderTuiMuted } from "../render.ts";
 import type { TerminalMarkdownStream } from "../terminal.ts";
 
 export class StreamingText implements Component {
@@ -281,6 +282,11 @@ class CachedAnsiLine {
 
 export class MutableLines implements Component {
   private values: string[] = [];
+  private readonly showHiddenCharacterCount: boolean;
+
+  constructor(options: { showHiddenCharacterCount?: boolean } = {}) {
+    this.showHiddenCharacterCount = options.showHiddenCharacterCount ?? false;
+  }
 
   set(values: string[]): void {
     this.values = values;
@@ -291,7 +297,9 @@ export class MutableLines implements Component {
   render(width: number): string[] {
     const renderWidth = Math.max(1, width);
     return this.values.map((value) =>
-      truncateToWidth(singleTerminalLine(value), renderWidth)
+      this.showHiddenCharacterCount
+        ? truncateWithHiddenCharacterCount(singleTerminalLine(value), renderWidth)
+        : truncateToWidth(singleTerminalLine(value), renderWidth)
     );
   }
 }
@@ -301,6 +309,72 @@ function singleTerminalLine(value: string): string {
     .replace(/\r\n|\r|\n/gu, " ↵ ")
     .replace(/\t/gu, " ");
 }
+
+function truncateWithHiddenCharacterCount(value: string, width: number): string {
+  if (visibleWidth(value) <= width) {
+    return value;
+  }
+
+  const fileChangeSuffix = readFileChangeSuffix(value);
+  if (fileChangeSuffix && fileChangeSuffix.width < width) {
+    const ellipsis = renderTuiMuted("…");
+    const prefixWidth = Math.max(0, width - fileChangeSuffix.width - 1);
+    return `${truncateToWidth(value, prefixWidth, "")}${ellipsis}${fileChangeSuffix.value}`;
+  }
+
+  const totalCharacters = countVisibleCharacters(value);
+  let hiddenCharacters = totalCharacters;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const suffix = `… (+${hiddenCharacters.toLocaleString()} chars)`;
+    if (visibleWidth(suffix) >= width) {
+      return truncateToWidth(value, width);
+    }
+
+    const prefix = truncateToWidth(value, width - visibleWidth(suffix), "");
+    const nextHiddenCharacters = Math.max(
+      0,
+      totalCharacters - countVisibleCharacters(prefix),
+    );
+    if (nextHiddenCharacters === hiddenCharacters) {
+      return `${prefix}${renderTuiMuted(suffix)}`;
+    }
+    hiddenCharacters = nextHiddenCharacters;
+  }
+
+  const suffix = `… (+${hiddenCharacters.toLocaleString()} chars)`;
+  return visibleWidth(suffix) < width
+    ? `${truncateToWidth(value, width - visibleWidth(suffix), "")}${renderTuiMuted(suffix)}`
+    : truncateToWidth(value, width);
+}
+
+function readFileChangeSuffix(
+  value: string,
+): { value: string; width: number } | null {
+  const plainText = stripAnsi(value);
+  const match = /\s\+\d[\d,]*\s-\d[\d,]*$/u.exec(plainText);
+  if (!match || match.index === undefined) {
+    return null;
+  }
+
+  const startColumn = visibleWidth(plainText.slice(0, match.index));
+  const width = visibleWidth(match[0]);
+  return {
+    value: sliceByColumn(value, startColumn, width, true),
+    width,
+  };
+}
+
+function countVisibleCharacters(value: string): number {
+  const plainText = stripAnsi(value);
+  return [...graphemeSegmenter.segment(plainText)].length;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(ANSI_ESCAPE_SEQUENCE, "");
+}
+
+const ANSI_ESCAPE_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/gu;
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 export class TranscriptGap implements Component {
   private readonly transcript: TuiTranscript;

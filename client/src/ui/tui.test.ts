@@ -19,6 +19,7 @@ import {
 } from "./tui/components.ts";
 import {
   createTuiMarkdownTheme,
+  renderFileChangeSummary,
   renderTuiMuted,
   renderUserMessage,
 } from "./render.ts";
@@ -59,6 +60,40 @@ test("Pi TUI mutable lines flatten streamed command newlines", () => {
     rendered[0],
     "Writing command python3 -c ' ↵ import os ↵ print(1)'",
   );
+});
+
+test("Pi TUI status lines count characters hidden by a narrow viewport", () => {
+  const lines = new MutableLines({ showHiddenCharacterCount: true });
+  const command = "Writing command printf 'abcdefghijklmnopqrstuvwxyz'";
+  lines.set([command]);
+
+  const short = stripTestAnsi(lines.render(30)[0] ?? "");
+  assert.equal(visibleWidth(short), 30);
+  assert.match(short, /… \(\+34 chars\)$/u);
+
+  lines.set([`${command} --with-more-arguments`]);
+  const longer = stripTestAnsi(lines.render(30)[0] ?? "");
+  assert.match(longer, /… \(\+(\d+) chars\)$/u);
+  const shortCount = Number(/\+(\d+) chars/.exec(short)?.[1]);
+  const longerCount = Number(/\+(\d+) chars/.exec(longer)?.[1]);
+  assert.ok(longerCount > shortCount);
+});
+
+test("Pi TUI status lines preserve file change counts when paths overflow", () => {
+  const lines = new MutableLines({ showHiddenCharacterCount: true });
+  lines.set([
+    renderFileChangeSummary(
+      "Writing file",
+      "client/src/ui/a-very-long-directory/a-very-long-file-name.ts",
+      142,
+      7,
+    ),
+  ]);
+
+  const rendered = stripTestAnsi(lines.render(36)[0] ?? "");
+  assert.equal(visibleWidth(rendered), 36);
+  assert.match(rendered, /… \+142 -7$/u);
+  assert.doesNotMatch(rendered, /chars/u);
 });
 
 test("Chump footer gives location, context, and session metadata their own rows", () => {

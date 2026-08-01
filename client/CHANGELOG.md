@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.2.21
+
+### Patch Changes
+
+- Preserve file change counts in narrow CLI tool status rows and display workspace file paths relative to the active workspace.
+
 ## 0.2.20
 
 ### Patch Changes

@@ -115,6 +115,7 @@ export async function startEventStream(
     onConnectionError?: (error: Error) => void | Promise<void>;
   } = {},
 ): Promise<(() => void) | null> {
+  transcriptRenderer.setWorkspaceRoot(config.workspaceRoot);
   try {
     return await openEventStream(config, {
       onEvent: (event) => logEvent(event),

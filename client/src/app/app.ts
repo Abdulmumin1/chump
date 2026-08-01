@@ -926,9 +926,13 @@ async function createPrintVerboseEventLogger(config: ChumpConfig): Promise<{
   close: () => void;
   replayMissed: () => Promise<void>;
 }> {
-  const renderer = new ToolActivityRenderer((value = "") => {
-    process.stderr.write(`${value}\n`);
-  });
+  const renderer = new ToolActivityRenderer(
+    (value = "") => {
+      process.stderr.write(`${value}\n`);
+    },
+    null,
+    config.workspaceRoot,
+  );
   const renderedEventIds = new Set<number>();
   const eventLog = await getEventLog(config).catch(() => ({ events: [] }));
   const baselineEventId = Math.max(0, ...eventLog.events.map((event) => event.id));
@@ -1088,7 +1092,7 @@ async function runChatTurn(
     void runServerRequest(config, abortCurrentTurn).catch(() => {});
     activityStatus.showAborting();
   };
-  const localTranscript = new TranscriptRenderer();
+  const localTranscript = new TranscriptRenderer({ workspaceRoot: config.workspaceRoot });
   const pendingSteeringSubmissions: PromptSubmission[] = [];
   const popPendingSteeringSubmission = (): void => {
     const pending = pendingSteeringSubmissions.pop() ?? null;
@@ -1865,7 +1869,7 @@ async function renderSwitchedSession(
   if (options.skipEmptyTranscript && response.messages.length === 0) {
     return status;
   }
-  renderSessionTranscript(response.messages);
+  renderSessionTranscript(response.messages, config.workspaceRoot);
   return status;
 }
 
