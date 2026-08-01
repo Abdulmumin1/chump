@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   renderCommand,
   renderCommandOutput,
@@ -23,6 +25,7 @@ export class ToolActivityRenderer {
   private readonly writeCommandActivity:
     | ((activity: CommandActivity) => boolean)
     | null;
+  private workspaceRoot: string;
   private capturedOutput: ToolActivityEmission[] | null = null;
 
   private pendingTools: Array<{
@@ -49,9 +52,15 @@ export class ToolActivityRenderer {
   constructor(
     writeLine: (value?: string) => void,
     writeCommandActivity: ((activity: CommandActivity) => boolean) | null = null,
+    workspaceRoot = process.cwd(),
   ) {
     this.writeLine = writeLine;
     this.writeCommandActivity = writeCommandActivity;
+    this.workspaceRoot = path.resolve(workspaceRoot);
+  }
+
+  setWorkspaceRoot(workspaceRoot: string): void {
+    this.workspaceRoot = path.resolve(workspaceRoot);
   }
 
   consumeActivity(): boolean {
@@ -76,6 +85,7 @@ export class ToolActivityRenderer {
     const renderedArgs = formatToolArgs(
       toolName,
       payload.args ?? payload.payload,
+      this.workspaceRoot,
     );
     if (toolName === "bash") {
       // Keep the permanent command and its output together when the result
@@ -83,7 +93,11 @@ export class ToolActivityRenderer {
       // arguments stream and while it executes.
       this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
       this.activity = true;
-      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
+      return formatReadyToolPreview(
+        toolName,
+        payload.args ?? payload.payload,
+        this.workspaceRoot,
+      );
     }
     if (
       toolName === "read_file" ||
@@ -95,19 +109,31 @@ export class ToolActivityRenderer {
       // of looking like one successful call followed by a second failed call.
       this.activity = true;
       this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
-      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
+      return formatReadyToolPreview(
+        toolName,
+        payload.args ?? payload.payload,
+        this.workspaceRoot,
+      );
     }
     if (toolName === "search") {
       // Defer to result — no call line rendered.
       this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
-      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
+      return formatReadyToolPreview(
+        toolName,
+        payload.args ?? payload.payload,
+        this.workspaceRoot,
+      );
     }
     this.compactToolRunActive = false;
     // For apply_patch and write_file/create_file, keep the diff from args
     // available for replay when result metadata is absent, but do not render it
     // until the result is known to be successful. Failed edits should not leave
     // success-looking diffs in the transcript.
-    const argsDiff = readArgsDiffs(toolName, payload.args ?? payload.payload);
+    const argsDiff = readArgsDiffs(
+      toolName,
+      payload.args ?? payload.payload,
+      this.workspaceRoot,
+    );
     if (argsDiff.length > 0) {
       this.pendingTools.push({
         name: toolName,
@@ -117,10 +143,18 @@ export class ToolActivityRenderer {
         index: finiteNumber(payload.index),
         deferredDiffs: argsDiff,
       });
-      return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
+      return formatReadyToolPreview(
+        toolName,
+        payload.args ?? payload.payload,
+        this.workspaceRoot,
+      );
     }
     this.pendingTools.push(pendingTool(toolName, renderedArgs, key, payload));
-    return formatReadyToolPreview(toolName, payload.args ?? payload.payload);
+    return formatReadyToolPreview(
+      toolName,
+      payload.args ?? payload.payload,
+      this.workspaceRoot,
+    );
   }
 
   renderToolCallStream(payload: Record<string, unknown>): string | null {
@@ -145,7 +179,7 @@ export class ToolActivityRenderer {
     this.streamingCalls.set(key, current);
 
     const args = parseToolArguments(current.argumentsText) ?? {};
-    return formatStreamingToolPreview(current.name, args);
+    return formatStreamingToolPreview(current.name, args, this.workspaceRoot);
   }
 
   renderToolResult(payload: Record<string, unknown>): boolean {
@@ -286,7 +320,7 @@ export class ToolActivityRenderer {
       return;
     }
 
-    const diffs = readFileEditDiffs(payload);
+    const diffs = readFileEditDiffs(payload, this.workspaceRoot);
     if (
       ok === "ok" &&
       diffs.length > 0 &&
@@ -475,17 +509,21 @@ function finiteNumber(value: unknown): number | null {
 function formatStreamingToolPreview(
   toolName: string,
   args: Record<string, unknown>,
+  workspaceRoot: string,
 ): string {
   if (toolName === "bash") {
     const command = typeof args.command === "string" ? args.command : "";
     return renderLiveActivity("Writing command", command || "…");
   }
   if (toolName === "write_file" || toolName === "create_file") {
-    const path = stringArgument(args, "path", "file_path") || "…";
+    const filePath = displayWorkspacePath(
+      stringArgument(args, "path", "file_path"),
+      workspaceRoot,
+    ) || "…";
     const content = stringArgument(args, "content");
     return renderFileChangeSummary(
       toolName === "create_file" ? "Creating file" : "Writing file",
-      path,
+      filePath,
       countContentLines(content),
       0,
     );
@@ -505,15 +543,22 @@ function formatStreamingToolPreview(
     const counts = countPatchChanges(patch);
     return renderFileChangeSummary(
       "Editing file",
-      patchPath(patch) || stringArgument(args, "path", "file_path") || "…",
+      displayWorkspacePath(
+        patchPath(patch) || stringArgument(args, "path", "file_path"),
+        workspaceRoot,
+      ) || "…",
       counts.added,
       counts.removed,
     );
   }
-  return formatSemanticToolPreview(toolName, args);
+  return formatSemanticToolPreview(toolName, args, workspaceRoot);
 }
 
-function formatReadyToolPreview(toolName: string, value: unknown): string {
+function formatReadyToolPreview(
+  toolName: string,
+  value: unknown,
+  workspaceRoot: string,
+): string {
   const args = value && typeof value === "object"
     ? value as Record<string, unknown>
     : {};
@@ -523,17 +568,18 @@ function formatReadyToolPreview(toolName: string, value: unknown): string {
       stringArgument(args, "command") || "…",
     );
   }
-  return formatStreamingToolPreview(toolName, args);
+  return formatStreamingToolPreview(toolName, args, workspaceRoot);
 }
 
 function formatSemanticToolPreview(
   toolName: string,
   args: Record<string, unknown>,
+  workspaceRoot: string,
 ): string {
   if (toolName === "mcp") {
     return renderLiveActivity("MCP", mcpActivityLabel(args));
   }
-  const renderedArgs = formatToolArgs(toolName, args) || "…";
+  const renderedArgs = formatToolArgs(toolName, args, workspaceRoot) || "…";
   const label = semanticToolLabel(toolName);
   return renderLiveActivity(label, renderedArgs);
 }
@@ -725,7 +771,11 @@ function displayToolName(name: string): string {
     : "Tool";
 }
 
-export function formatToolArgs(toolName: string, value: unknown): string {
+export function formatToolArgs(
+  toolName: string,
+  value: unknown,
+  workspaceRoot = process.cwd(),
+): string {
   if (!value || typeof value !== "object") {
     return "";
   }
@@ -735,7 +785,9 @@ export function formatToolArgs(toolName: string, value: unknown): string {
     return mcpActivityLabel(args);
   }
   if (toolName === "read_file") {
-    const path = typeof args.path === "string" ? args.path : "";
+    const filePath = typeof args.path === "string"
+      ? displayWorkspacePath(args.path, workspaceRoot)
+      : "";
     const limit = typeof args.limit === "number" ? args.limit : undefined;
     const offset = typeof args.offset === "number" ? args.offset : undefined;
     const range = [
@@ -744,11 +796,13 @@ export function formatToolArgs(toolName: string, value: unknown): string {
     ]
       .filter(Boolean)
       .join(" ");
-    return [path, range].filter(Boolean).join(" ");
+    return [filePath, range].filter(Boolean).join(" ");
   }
 
   if (toolName === "view_image") {
-    return typeof args.path === "string" ? args.path : "";
+    return typeof args.path === "string"
+      ? displayWorkspacePath(args.path, workspaceRoot)
+      : "";
   }
 
   if (toolName === "bash") {
@@ -779,10 +833,12 @@ export function formatToolArgs(toolName: string, value: unknown): string {
 
   if (toolName === "search") {
     const query = typeof args.query === "string" ? args.query : "";
-    const path = typeof args.path === "string" && args.path ? args.path : null;
+    const searchPath = typeof args.path === "string" && args.path
+      ? displayWorkspacePath(args.path, workspaceRoot)
+      : null;
     const parts = [
       query ? `"${query}"` : null,
-      path ? `in ${path}` : null,
+      searchPath ? `in ${searchPath}` : null,
     ].filter(Boolean);
     return parts.join(" ");
   }
@@ -808,6 +864,23 @@ export function formatToolArgs(toolName: string, value: unknown): string {
   }
 
   return compactJson(value);
+}
+
+function displayWorkspacePath(value: string, workspaceRoot: string): string {
+  if (!value || !path.isAbsolute(value)) {
+    return value;
+  }
+
+  const relativePath = path.relative(path.resolve(workspaceRoot), path.resolve(value));
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    return relativePath === "" ? "." : value;
+  }
+  return relativePath;
 }
 
 function mcpActivityLabel(args: Record<string, unknown>): string {
@@ -858,7 +931,10 @@ type FileEditDiffPayload = {
   totalChanges?: number;
 };
 
-function readFileEditDiff(value: unknown): FileEditDiffPayload | null {
+function readFileEditDiff(
+  value: unknown,
+  workspaceRoot: string,
+): FileEditDiffPayload | null {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -877,7 +953,7 @@ function readFileEditDiff(value: unknown): FileEditDiffPayload | null {
     ? diff.lines.filter((line): line is string => typeof line === "string")
     : undefined;
   return {
-    path: diff.path,
+    path: displayWorkspacePath(diff.path, workspaceRoot),
     kind:
       diff.kind === "add" ||
       diff.kind === "update" ||
@@ -885,7 +961,9 @@ function readFileEditDiff(value: unknown): FileEditDiffPayload | null {
       diff.kind === "move"
         ? diff.kind
         : undefined,
-    sourcePath: typeof diff.source_path === "string" ? diff.source_path : null,
+    sourcePath: typeof diff.source_path === "string"
+      ? displayWorkspacePath(diff.source_path, workspaceRoot)
+      : null,
     added: diff.added,
     removed: diff.removed,
     changes,
@@ -924,6 +1002,7 @@ function readFileEditChange(value: unknown): {
 
 function readFileEditDiffs(
   payload: Record<string, unknown>,
+  workspaceRoot: string,
 ): FileEditDiffPayload[] {
   const metadata = payload.metadata;
   if (!metadata || typeof metadata !== "object") {
@@ -932,13 +1011,15 @@ function readFileEditDiffs(
 
   const value = metadata as Record<string, unknown>;
   const files = Array.isArray(value.files)
-    ? value.files.map(readFileEditDiff).filter((diff) => diff !== null)
+    ? value.files
+      .map((file) => readFileEditDiff(file, workspaceRoot))
+      .filter((diff) => diff !== null)
     : [];
   if (files.length > 0) {
     return files;
   }
 
-  const diff = readFileEditDiff(value.diff);
+  const diff = readFileEditDiff(value.diff, workspaceRoot);
   return diff ? [diff] : [];
 }
 
@@ -949,7 +1030,11 @@ function readFileEditDiffs(
  * - apply_patch: parse patch_text as a unified diff, one entry per "*** Update/Add/Delete File:" section
  * - write_file / create_file: synthesize an "add" diff from path + content
  */
-function readArgsDiffs(toolName: string, args: unknown): FileEditDiff[] {
+function readArgsDiffs(
+  toolName: string,
+  args: unknown,
+  workspaceRoot: string,
+): FileEditDiff[] {
   if (!args || typeof args !== "object") {
     return [];
   }
@@ -957,7 +1042,7 @@ function readArgsDiffs(toolName: string, args: unknown): FileEditDiff[] {
 
   const patchText = stringArgument(a, "patch_text", "patchText", "patch");
   if (toolName === "apply_patch" && patchText) {
-    return parsePatchTextDiffs(patchText);
+    return parsePatchTextDiffs(patchText, workspaceRoot);
   }
 
   if (
@@ -968,7 +1053,7 @@ function readArgsDiffs(toolName: string, args: unknown): FileEditDiff[] {
     const lines = a.content.split("\n").map((l) => `+${l}`);
     return [
       {
-        path: a.path,
+        path: displayWorkspacePath(a.path, workspaceRoot),
         kind: "add",
         added: lines.length,
         removed: 0,
@@ -986,7 +1071,10 @@ function readArgsDiffs(toolName: string, args: unknown): FileEditDiff[] {
  * `lines` format (raw unified-diff lines starting with +/-/@@).
  * Handles "*** Update File:", "*** Add File:", "*** Delete File:" sections.
  */
-function parsePatchTextDiffs(patchText: string): FileEditDiff[] {
+function parsePatchTextDiffs(
+  patchText: string,
+  workspaceRoot: string,
+): FileEditDiff[] {
   const diffs: FileEditDiff[] = [];
   const sectionRe = /^\*{3}\s+(Update|Add|Delete)\s+File:\s*(.+)$/i;
 
@@ -1019,7 +1107,10 @@ function parsePatchTextDiffs(patchText: string): FileEditDiff[] {
           : sectionMatch[1]?.toLowerCase() === "delete"
             ? "delete"
             : "update";
-      currentPath = (sectionMatch[2] ?? "").trim();
+      currentPath = displayWorkspacePath(
+        (sectionMatch[2] ?? "").trim(),
+        workspaceRoot,
+      );
       currentRawLines = [];
       continue;
     }

@@ -66,23 +66,25 @@ export function renderMcpServers(
 }
 export function renderSessionTranscript(
   messages: Array<{ role: string; content: unknown }>,
+  workspaceRoot = process.cwd(),
 ): void {
   // Pause the input draft during transcript rendering to prevent
   // input box borders/controls from mixing with the session content
   withDraftPaused(() => {
-    renderApproximateTranscript(recentMessages(messages));
+    renderApproximateTranscript(recentMessages(messages), workspaceRoot);
   });
 }
 
 function renderApproximateTranscript(
   messages: Array<{ role: string; content: unknown }>,
+  workspaceRoot: string,
 ): void {
   if (messages.length === 0) {
     writeOutputLine(renderMuted("(no messages in session)"));
     return;
   }
 
-  const renderer = new TranscriptRenderer({ liveReasoning: false });
+  const renderer = new TranscriptRenderer({ liveReasoning: false, workspaceRoot });
   const events = transcriptEventsFromStoredMessages(messages);
   for (const event of events) {
     if (event.type === "assistant_text" && renderer.consumeToolActivity()) {

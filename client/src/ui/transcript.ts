@@ -37,10 +37,7 @@ export type TranscriptRendererHooks = {
 };
 
 export class TranscriptRenderer {
-  private readonly toolActivityRenderer = new ToolActivityRenderer(
-    writeOutputLine,
-    writeCommandActivity,
-  );
+  private readonly toolActivityRenderer: ToolActivityRenderer;
   private readonly reasoningRenderer: LiveReasoningStream | ReasoningRenderer;
   private readonly hooks: TranscriptRendererHooks;
   private assistantStream: ReturnType<typeof createMarkdownStream> | null = null;
@@ -49,11 +46,21 @@ export class TranscriptRenderer {
     hooks?: TranscriptRendererHooks;
     liveReasoning?: boolean;
     onReasoningPreview?: ((preview: string | null) => void) | null;
+    workspaceRoot?: string;
   } = {}) {
+    this.toolActivityRenderer = new ToolActivityRenderer(
+      writeOutputLine,
+      writeCommandActivity,
+      options.workspaceRoot,
+    );
     this.hooks = options.hooks ?? {};
     this.reasoningRenderer = options.liveReasoning === false
       ? new ReasoningRenderer()
       : new LiveReasoningStream({ onPreview: options.onReasoningPreview ?? null });
+  }
+
+  setWorkspaceRoot(workspaceRoot: string): void {
+    this.toolActivityRenderer.setWorkspaceRoot(workspaceRoot);
   }
 
   render(event: TranscriptEvent): void {

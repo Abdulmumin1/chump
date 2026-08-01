@@ -102,7 +102,10 @@ class PiTuiShell implements PiPromptReader {
   };
   private readonly transcript = new TuiTranscript(createTuiMarkdownTheme());
   private readonly queue = new MutableLines();
-  private readonly status = new MutableLines();
+  // Tool-call arguments stream into this narrow, single-line status area.
+  // Preserve the fact that a command continues beyond the viewport rather
+  // than silently replacing its tail with an anonymous ellipsis.
+  private readonly status = new MutableLines({ showHiddenCharacterCount: true });
   private readonly footer = new SessionFooter(renderTuiDim);
   private readonly keyHandlers: ChumpTuiKeyHandler[] = [];
   private readonly autocompleteProviders: AutocompleteProvider[] = [];

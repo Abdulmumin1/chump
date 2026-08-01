@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ToolActivityRenderer } from "./tool-activity.ts";
+import { formatToolArgs, ToolActivityRenderer } from "./tool-activity.ts";
 import { renderCommand, renderCommandOutput } from "./render.ts";
 import {
   TranscriptRenderer,
@@ -70,6 +70,70 @@ test("title-cases built-in and fallback tool labels", () => {
   const rendered = stripTestAnsi(output.join("\n"));
   assert.match(rendered, /Custom tool/u);
   assert.doesNotMatch(rendered, /custom_tool/u);
+});
+
+test("renders workspace file operations with relative paths", () => {
+  const workspaceRoot = "/workspace/chump";
+  const absolutePath = "/workspace/chump/client/src/ui/tool-activity.ts";
+  assert.equal(
+    formatToolArgs(
+      "read_file",
+      { path: absolutePath, offset: 1, limit: 18 },
+      workspaceRoot,
+    ),
+    "client/src/ui/tool-activity.ts offset=1 limit=18",
+  );
+  assert.equal(
+    formatToolArgs("view_image", { path: "/tmp/screenshot.png" }, workspaceRoot),
+    "/tmp/screenshot.png",
+  );
+
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer(
+    (value = "") => output.push(value),
+    null,
+    workspaceRoot,
+  );
+  const writePreview = renderer.renderToolCall({
+    name: "write_file",
+    args: { path: absolutePath, content: "export const ok = true;\n" },
+    call_id: "call_write_relative",
+  });
+  assert.match(
+    stripTestAnsi(writePreview),
+    /Writing file client\/src\/ui\/tool-activity\.ts \+1 -0/u,
+  );
+
+  renderer.renderToolResult({
+    name: "write_file",
+    status: "ok",
+    call_id: "call_write_relative",
+    metadata: {
+      diff: {
+        path: absolutePath,
+        added: 1,
+        removed: 0,
+        lines: ["+export const ok = true;"],
+        truncated: false,
+      },
+    },
+  });
+  const renderedDiff = stripTestAnsi(output.join("\n"));
+  assert.match(renderedDiff, /client\/src\/ui\/tool-activity\.ts/u);
+  assert.doesNotMatch(renderedDiff, /\/workspace\/chump/u);
+
+  const patchPreview = renderer.renderToolCall({
+    name: "apply_patch",
+    args: {
+      patch_text:
+        `*** Update File: ${absolutePath}\n@@\n-old\n+new`,
+    },
+    call_id: "call_patch_relative",
+  });
+  assert.match(
+    stripTestAnsi(patchPreview),
+    /Editing file client\/src\/ui\/tool-activity\.ts \+1 -1/u,
+  );
 });
 
 test("renders MCP calls with an uppercase label and readable target", () => {
