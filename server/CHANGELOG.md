@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.1.15
+
+- Route Chump Cloud Gemini requests through its native API so image-bearing tool results reach Gemini without lossy chat-completions serialization.
+- Upgrade to `ai-query==1.10.0` and declare model input modalities centrally so switching to text-only models omits unsupported images explicitly while preserving canonical rich history for switching back to vision models.
+
 ## 0.1.14
 
 - Preserve bounded multiline Bash output in durable tool-result events so interactive clients can expand command transcripts while retaining the 300-line and 50 KiB server safety limits.

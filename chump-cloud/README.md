@@ -23,16 +23,19 @@ provider keys without a separate AI Gateway token. Revisit this boundary when
 Cloudflare provides a nondeprecated binding method for BYOK provider-native
 requests.
 
-The Worker exposes an OpenAI-style API:
+The Worker exposes an OpenAI-style API plus a native Gemini route used by
+`chump-server` to preserve multimodal tool results:
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
+- `POST /v1/google/v1beta/models/{model}:generateContent`
+- `POST /v1/google/v1beta/models/{model}:streamGenerateContent`
 
 ## Rate Limiting
 
 Rate limiting is owned by Cloudflare's edge configuration rather than Worker
-code. Configure a rate-limiting rule for `POST /v1/chat/completions` on both
-custom domains before exposing the endpoint publicly.
+code. Configure rate-limiting rules for the inference routes on both custom
+domains before exposing them publicly.
 
 ## Secrets
 

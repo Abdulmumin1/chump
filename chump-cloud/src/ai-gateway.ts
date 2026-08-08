@@ -11,6 +11,8 @@ export type ChatCompletionRequest = Record<string, unknown> & {
   stream?: unknown;
 };
 
+export type GeminiOperation = "generateContent" | "streamGenerateContent";
+
 export const AI_GATEWAY_ID = "chump_cloud_ai_gateway";
 
 export const SUPPORTED_MODELS: Record<string, UpstreamTarget> = {
@@ -46,6 +48,23 @@ export function buildGatewayRequest(body: ChatCompletionRequest, target: Upstrea
       "cf-aig-byok-alias": target.byokAlias,
     },
     query: { ...body, model: target.model },
+  };
+}
+
+export function buildGeminiGatewayRequest(
+  body: Record<string, unknown>,
+  target: UpstreamTarget,
+  operation: GeminiOperation,
+) {
+  const streaming = operation === "streamGenerateContent";
+  return {
+    provider: target.gatewayProvider,
+    endpoint: `v1beta/models/${target.model}:${operation}${streaming ? "?alt=sse" : ""}`,
+    headers: {
+      "Content-Type": "application/json",
+      "cf-aig-byok-alias": target.byokAlias,
+    },
+    query: body,
   };
 }
 
