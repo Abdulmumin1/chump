@@ -23,8 +23,13 @@ provider keys without a separate AI Gateway token. Revisit this boundary when
 Cloudflare provides a nondeprecated binding method for BYOK provider-native
 requests.
 
-The Worker exposes an OpenAI-style API plus a native Gemini route used by
-`chump-server` to preserve multimodal tool results:
+`chump-server` sends every hosted model through the same OpenAI-compatible
+gateway endpoint. The Worker owns model-to-provider routing; vision-capable
+models receive tool-result images as standard multimodal user content after the
+corresponding tool messages.
+
+The native Gemini routes remain temporarily available for compatibility with
+`chump-server` 0.1.15:
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`

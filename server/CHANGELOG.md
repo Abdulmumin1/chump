@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.16
+
+- Send every Chump Cloud model through the same OpenAI-compatible gateway endpoint, leaving provider routing inside the Worker while preserving image visibility for vision-capable models.
+
 ## 0.1.15
 
 - Route Chump Cloud Gemini requests through its native API so image-bearing tool results reach Gemini without lossy chat-completions serialization.
