@@ -8,7 +8,9 @@ import {
 import {
   AI_GATEWAY_ID,
   buildGatewayRequest,
+  buildGeminiGatewayRequest,
   type ChatCompletionRequest,
+  type GeminiOperation,
   isRecord,
   normalizeGeminiChoices,
   normalizeGeminiSseLine,
@@ -488,6 +490,45 @@ app.post("/v1/chat/completions", async (c) => {
   return target.gatewayProvider === "google-ai-studio"
     ? normalizeGeminiChatCompletion(upstream, body.stream === true)
     : forwardUpstreamResponse(upstream, body.stream === true);
+});
+
+app.post("/v1/google/v1beta/models/*", async (c) => {
+  const match = c.req.path.match(
+    /^\/v1\/google\/v1beta\/models\/([a-zA-Z0-9._-]+):(generateContent|streamGenerateContent)$/,
+  );
+  if (!match) {
+    return jsonError(404, "unsupported_endpoint", "Unsupported Google model endpoint");
+  }
+
+  const [, model, rawOperation] = match;
+  const target = SUPPORTED_MODELS[model];
+  if (!target || target.gatewayProvider !== "google-ai-studio") {
+    return jsonError(400, "unsupported_model", `Unsupported Google model: ${model}`);
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = await c.req.json();
+  } catch {
+    return jsonError(400, "invalid_request", "Request body must be valid JSON");
+  }
+  if (!isRecord(parsedBody)) {
+    return jsonError(400, "invalid_request", "Request body must be a JSON object");
+  }
+
+  const operation = rawOperation as GeminiOperation;
+  const upstream = await c.env.AI.gateway(AI_GATEWAY_ID).run(
+    buildGeminiGatewayRequest(parsedBody, target, operation),
+    {
+      gateway: {
+        id: AI_GATEWAY_ID,
+        skipCache: true,
+        collectLog: false,
+      },
+    },
+  );
+
+  return forwardUpstreamResponse(upstream, operation === "streamGenerateContent");
 });
 
 function authorizeSandboxRequest(request: Request, env: Bindings): Response | null {

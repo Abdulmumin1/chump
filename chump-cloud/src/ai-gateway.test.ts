@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildGatewayRequest,
+  buildGeminiGatewayRequest,
   normalizeGeminiChoices,
   normalizeGeminiSseLine,
   SUPPORTED_MODELS,
@@ -41,6 +42,33 @@ test("builds Gemini requests with the explicit Google BYOK alias", () => {
   assert.equal(request.endpoint, "v1beta/openai/chat/completions");
   assert.equal(request.headers["cf-aig-byok-alias"], "default2");
   assert.equal(request.query.model, "gemini-3.6-flash");
+});
+
+test("builds native streaming Gemini requests without changing the body", () => {
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ functionResponse: { name: "view_image", response: { result: "loaded" } } }],
+      },
+    ],
+  };
+
+  const request = buildGeminiGatewayRequest(
+    body,
+    SUPPORTED_MODELS["gemini-3.6-flash"],
+    "streamGenerateContent",
+  );
+
+  assert.deepEqual(request, {
+    provider: "google-ai-studio",
+    endpoint: "v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse",
+    headers: {
+      "Content-Type": "application/json",
+      "cf-aig-byok-alias": "default2",
+    },
+    query: body,
+  });
 });
 
 test("normalizes non-streaming Gemini tool calls without losing extension metadata", () => {
