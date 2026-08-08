@@ -65,16 +65,64 @@ def test_codex_generate_uses_required_streaming_responses_api_for_compaction(tmp
     assert result.text == "summary text"
     assert calls == [
         (
-            f"{CODEX_API_BASE_URL}/responses",
-            {
-                "model": "gpt-5.5",
-                "input": [{"role": "user", "content": "summarize this transcript"}],
-                "include": ["reasoning.encrypted_content"],
-                "store": False,
-                "stream": True,
+           f"{CODEX_API_BASE_URL}/responses",
+           {
+               "model": "gpt-5.5",
+               "input": [{"role": "user", "content": "summarize this transcript"}],
+               "include": ["reasoning.encrypted_content"],
+               "store": False,
+               "stream": True,
+           },
+       )
+   ]
+
+
+def test_codex_cache_key_appears_as_prompt_cache_key_in_request_body(tmp_path):
+    provider = CodexProvider(
+        auth_path=tmp_path / "auth.json",
+        auth_config={
+            "credentials": {
+                "codex": {
+                    "access": "access-token",
+                    "refresh": "refresh-token",
+                    "expires": 9_999_999_999_999,
+                }
+            }
+        },
+    )
+    provider.cache_key = "test-session-affinity"
+
+    captured: dict = {}
+
+    events = [
+        {
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "output": [],
+                "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
             },
-        )
+        },
     ]
+    stream_bytes = "".join(
+        f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events
+    ).encode()
+
+    class DummyTransport:
+        async def stream(self, url, json, headers=None):
+            captured.update(json)
+            yield stream_bytes
+
+    provider._transport = DummyTransport()
+
+    asyncio.run(
+        provider.generate(
+            model="gpt-5.4",
+            messages=[Message(role="user", content="hello")],
+        )
+    )
+
+    assert captured["prompt_cache_key"] == "test-session-affinity"
 
 
 def test_codex_stream_forwards_tool_call_argument_deltas(tmp_path):

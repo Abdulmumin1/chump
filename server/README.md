@@ -68,3 +68,21 @@ attached so older clients can update across the runtime archive transition.
 - `CHUMP_REASONING_EFFORT`: optional OpenAI-compatible reasoning effort
 - `CHUMP_REASONING_BUDGET`: optional Gemini-compatible thinking budget
 - `CHUMP_VERBOSE`: default `1`
+
+## Prompt-cache benchmark
+
+Chump persists provider-reported token usage for every model step. Report the
+observed cache hit rate across local sessions, grouped by provider and model:
+
+```bash
+uv run --project server python server/scripts/benchmark_prompt_cache.py
+```
+
+The report includes two different rates:
+
+- **Request hit:** model calls where `cached_tokens > 0`.
+- **Token hit:** cached input tokens divided by all input tokens.
+
+Use `--provider google` (repeatable), `--min-calls 10`, `--json`, or
+`--state-root <path>` to filter or automate the report. This benchmark reads
+local telemetry without making model requests or spending provider credits.
