@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.1.17
+
+- Pin the provider's prefix-cache affinity to each session so repeated steps route to the same inference server, improving cache hit rates across providers (Codex `prompt_cache_key`, Workers AI `x-session-affinity`).
+- Upgrade to `ai-query==1.11.0` to add the unified `cache_key` attribute on `BaseProvider` that each adapter translates to its native cache-affinity mechanism.
+
 ## 0.1.16
 
 - Send every Chump Cloud model through the same OpenAI-compatible gateway endpoint, leaving provider routing inside the Worker while preserving image visibility for vision-capable models.

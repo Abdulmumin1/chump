@@ -1116,6 +1116,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
     def _ensure_model(self) -> None:
         if self.model is None:
             self.model = resolve_model(self._config)
+            # Pin the provider's prefix-cache affinity to this session so
+            # repeated steps route to the same inference server.  Each
+            # adapter translates this into its own mechanism (OpenAI uses
+            # ``prompt_cache_key``, Workers AI uses ``x-session-affinity``,
+            # providers without explicit affinity ignore it).
+            self.model.provider.cache_key = self.id
 
     async def _build_empty_response_fallback(self, result) -> str:
         result_steps = getattr(result, "steps", None)
