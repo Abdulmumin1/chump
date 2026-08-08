@@ -33,8 +33,21 @@ test("builds DeepSeek requests with the explicit default BYOK alias", () => {
 });
 
 test("builds Gemini requests with the explicit Google BYOK alias", () => {
+  const messages = [
+    { role: "tool", tool_call_id: "call_1", content: "Image loaded." },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Attached image(s) from tool result:" },
+        {
+          type: "image_url",
+          image_url: { url: "data:image/png;base64,cG5n" },
+        },
+      ],
+    },
+  ];
   const request = buildGatewayRequest(
-    { model: "gemini-3.6-flash", messages: [] },
+    { model: "gemini-3.6-flash", messages },
     SUPPORTED_MODELS["gemini-3.6-flash"],
   );
 
@@ -42,6 +55,10 @@ test("builds Gemini requests with the explicit Google BYOK alias", () => {
   assert.equal(request.endpoint, "v1beta/openai/chat/completions");
   assert.equal(request.headers["cf-aig-byok-alias"], "default2");
   assert.equal(request.query.model, "gemini-3.6-flash");
+  assert.deepEqual(
+    (request.query as Record<string, unknown>).messages,
+    messages,
+  );
 });
 
 test("builds native streaming Gemini requests without changing the body", () => {

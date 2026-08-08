@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from ai_query.model import InputModality, LanguageModel
 from ai_query.providers import (
@@ -11,7 +12,8 @@ from ai_query.providers import (
     openrouter,
     workers_ai,
 )
-from ai_query.providers.deepseek.provider import DeepSeekProvider
+from ai_query.providers.openai.provider import OpenAIProvider
+from ai_query.types import Message
 
 from ..config import (
     DEFAULT_CHUMP_CLOUD_BASE_URL,
@@ -21,7 +23,7 @@ from ..config import (
 )
 from ..providers.codex import codex_model
 from ..providers.github_copilot import github_copilot_model
-from ..providers.google import ChumpGoogleProvider, google_model
+from ..providers.google import google_model
 from ..providers.openai_compatible import (
     opencode_go_model,
     opencode_model,
@@ -93,8 +95,6 @@ FILE_INPUT_MODELS = {
     for provider in ("anthropic", "chump_cloud", "google", "openai")
 }
 
-CHUMP_CLOUD_GOOGLE_MODELS = frozenset({"gemini-3.6-flash"})
-
 
 def model_input_modalities(provider: str, model: str) -> tuple[InputModality, ...]:
     modalities: list[InputModality] = ["text"]
@@ -133,14 +133,6 @@ def _create_model(config: ChumpConfig, provider_name: str) -> LanguageModel:
             or os.environ.get("OPENAI_BASE_URL")
             or DEFAULT_CHUMP_CLOUD_BASE_URL
         ).rstrip("/")
-        if config.model in CHUMP_CLOUD_GOOGLE_MODELS:
-            return LanguageModel(
-                provider=ChumpCloudGoogleProvider(
-                    api_key="chump-cloud",
-                    base_url=f"{base_url}/google/v1beta",
-                ),
-                model_id=config.model,
-            )
         return LanguageModel(
             provider=ChumpCloudProvider(
                 api_key="chump-cloud",
@@ -181,17 +173,22 @@ def _create_model(config: ChumpConfig, provider_name: str) -> LanguageModel:
     raise ValueError(f"unsupported provider: {config.provider}")
 
 
-class ChumpCloudProvider(DeepSeekProvider):
+class ChumpCloudProvider(OpenAIProvider):
     name = "chump_cloud"
+    _upstream_max_tokens_param = "max_tokens"
 
     def __init__(self, *, api_key: str, base_url: str) -> None:
-        super().__init__(api_key=api_key)
-        self.base_url = base_url
+        super().__init__(api_key=api_key, base_url=base_url)
 
-
-class ChumpCloudGoogleProvider(ChumpGoogleProvider):
-    name = "chump_cloud"
-
-    def __init__(self, *, api_key: str, base_url: str) -> None:
-        super().__init__(api_key=api_key)
-        self.base_url = base_url
+    async def _convert_messages(
+        self, messages: list[Message]
+    ) -> list[dict[str, Any]]:
+        converted: list[dict[str, Any]] = []
+        for message in messages:
+            message_items = await super()._convert_messages([message])
+            if message.role == "assistant":
+                for item in message_items:
+                    if item.get("role") == "assistant":
+                        item["reasoning_content"] = self.reasoning_text(message)
+            converted.extend(message_items)
+        return converted
