@@ -82,6 +82,10 @@ class ChumpAgent(Agent[dict[str, Any]]):
             storage=SQLiteStorage(str(config.data_dir / "chump.sqlite3")),
             initial_state={
                 "workspace_root": str(config.workspace_root),
+                "provider": config.provider,
+                "model": config.model,
+                "max_steps": config.max_steps,
+                "reasoning": config.reasoning,
                 "title": None,
                 "created_at": now,
                 "updated_at": now,
@@ -102,13 +106,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._config = config
         self._resources = resources
         self._refresh_mcp_tool_bindings = None
-        self.tools = build_tools(
-            self,
-            config,
-            resources,
-            self._server_search,
-            self._server_mcp,
-        )
+        self._rebuild_tools()
         self._last_step_records: list[dict[str, Any]] = []
         self._current_turn: AgentTurn | None = None
         self._pending_steering_events: list[dict[str, Any]] = []
@@ -125,6 +123,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
         ] = {}
 
     async def on_start(self) -> None:
+        if self._restore_session_runtime():
+            self._rebuild_tools()
         self._usage_summary = normalize_usage_summary(self.state.get("usage_summary"))
         if self._server_mcp is not None:
             await self._server_mcp.start()
@@ -165,6 +165,98 @@ class ChumpAgent(Agent[dict[str, Any]]):
             ],
             "mcp": self._server_mcp.status() if self._server_mcp else [],
             "usage": self._usage_summary,
+        }
+
+    @action
+    async def run_delegated_task(
+        self,
+        prompt: str,
+        provider: str,
+        model: str,
+        reasoning: dict[str, Any] | None,
+        max_steps: int,
+    ) -> dict[str, Any]:
+        """Run a newly routed delegated task inside this managed agent."""
+        if self.messages or self.state.get("delegated_task_status") is not None:
+            raise ValueError(f"delegated session already initialized: {self.id}")
+
+        from .config import (
+            apply_auth_environment,
+            load_auth_config,
+            normalize_model_name,
+            normalize_provider_name,
+            normalize_reasoning_config,
+        )
+
+        provider_name = normalize_provider_name(provider)
+        connected_providers = {
+            *self._config.available_providers,
+            self._config.provider,
+        }
+        if provider_name not in connected_providers:
+            raise ValueError(f"provider is not connected: {provider_name}")
+        model_name = normalize_model_name(provider_name, model)
+        reasoning_config = normalize_reasoning_config(reasoning, provider_name)
+        if (
+            not isinstance(max_steps, int)
+            or isinstance(max_steps, bool)
+            or not 1 <= max_steps <= 1_000
+        ):
+            raise ValueError("max_steps must be between 1 and 1000")
+        apply_auth_environment(load_auth_config(), provider_name)
+
+        self._config = replace(
+            self._config,
+            provider=provider_name,
+            model=model_name,
+            reasoning=reasoning_config,
+            max_steps=max_steps,
+        )
+        self.model = None
+        self.stop_when = step_count_is(max_steps)
+        self.reasoning = reasoning_config
+        self._rebuild_tools()
+        now = time.time()
+        await self.update_state(
+            provider=provider_name,
+            model=model_name,
+            reasoning=reasoning_config,
+            max_steps=max_steps,
+            delegated_task_status="running",
+            delegated_task_error=None,
+            updated_at=now,
+        )
+
+        try:
+            response = await self.chat(prompt, signal=self.context.signal)
+        except (AbortError, asyncio.CancelledError) as error:
+            await self.update_state(
+                delegated_task_status="aborted",
+                delegated_task_error=str(error) or "delegated task was cancelled",
+                updated_at=time.time(),
+            )
+            raise
+        except Exception as error:
+            await self.update_state(
+                delegated_task_status="failed",
+                delegated_task_error=str(error),
+                updated_at=time.time(),
+            )
+            raise
+
+        await self.update_state(
+            delegated_task_status="completed",
+            delegated_task_error=None,
+            updated_at=time.time(),
+        )
+        return {
+            "session_id": self.id,
+            "title": self.state.get("title") or build_session_title(prompt),
+            "response": response,
+            "provider": provider_name,
+            "model": model_name,
+            "reasoning": reasoning_config,
+            "max_steps": max_steps,
         }
 
     @action
@@ -294,7 +386,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
             reasoning=reasoning,
         )
         self.model = resolve_model(self._config)
+        self.model.provider.cache_key = self.id
         self.reasoning = reasoning
+        await self.update_state(
+            provider=provider_name,
+            model=model_name,
+            reasoning=reasoning,
+        )
         status = await self.status()
         await self.emit("agent_status", status)
         return status
@@ -308,6 +406,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             reasoning=normalize_reasoning_config({"mode": mode}, self._config.provider),
         )
         self.reasoning = self._config.reasoning
+        await self.update_state(reasoning=self._config.reasoning)
         status = await self.status()
         await self.emit("agent_status", status)
         return status
@@ -1112,6 +1211,67 @@ class ChumpAgent(Agent[dict[str, Any]]):
     async def _persist_usage_summary(self) -> None:
         self.state["usage_summary"] = normalize_usage_summary(self._usage_summary)
         await self.save_state()
+
+    def _rebuild_tools(self) -> None:
+        self.tools = build_tools(
+            self,
+            self._config,
+            self._resources,
+            self._server_search,
+            self._server_mcp,
+        )
+
+    def _restore_session_runtime(self) -> bool:
+        from .config import (
+            normalize_model_name,
+            normalize_provider_name,
+            normalize_reasoning_config,
+        )
+
+        provider_value = self.state.get("provider")
+        model_value = self.state.get("model")
+        max_steps_value = self.state.get("max_steps")
+        reasoning_value = self.state.get("reasoning")
+
+        if provider_value == self._config.provider:
+            provider = self._config.provider
+        elif isinstance(provider_value, str):
+            provider = normalize_provider_name(provider_value)
+        else:
+            provider = self._config.provider
+
+        if provider == self._config.provider and model_value == self._config.model:
+            model = self._config.model
+        elif isinstance(model_value, str):
+            model = normalize_model_name(provider, model_value)
+        else:
+            model = self._config.model
+        max_steps = (
+            max_steps_value
+            if isinstance(max_steps_value, int)
+            and not isinstance(max_steps_value, bool)
+            and max_steps_value > 0
+            else self._config.max_steps
+        )
+        if isinstance(reasoning_value, dict):
+            reasoning = normalize_reasoning_config(reasoning_value, provider)
+        elif "reasoning" in self.state:
+            reasoning = None
+        else:
+            reasoning = self._config.reasoning
+
+        restored_config = replace(
+            self._config,
+            provider=provider,
+            model=model,
+            max_steps=max_steps,
+            reasoning=reasoning,
+        )
+        changed = restored_config != self._config
+        self._config = restored_config
+        self.stop_when = step_count_is(max_steps)
+        self.reasoning = reasoning
+        return changed
 
     def _ensure_model(self) -> None:
         if self.model is None:

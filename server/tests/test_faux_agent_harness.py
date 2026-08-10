@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+import json
 from pathlib import Path
 
 import pytest
 
-from ai_query import AbortError, Field, tool
+from ai_query import AbortController, AbortError, Field, tool
+from ai_query.agents import AgentServer
 from ai_query.providers import FauxProvider, FauxResponse, faux
 from ai_query.types import ImagePart, TextPart, ToolCall, ToolResultPart
 
 from chump_server.agent import ChumpAgent
 from chump_server.config import ChumpConfig
 from chump_server.resources import ResourceCatalog
+from chump_server.tools.sessions import inspect_session_payload
 
 
 def _test_config(workspace_root: Path) -> ChumpConfig:
@@ -37,6 +41,258 @@ def _test_config(workspace_root: Path) -> ChumpConfig:
         allowed_origins=(),
         available_providers=("faux",),
     )
+
+
+@pytest.mark.asyncio
+async def test_session_runtime_configuration_survives_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    default_config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        max_steps=250,
+        reasoning={"effort": "high"},
+        available_providers=("codex",),
+    )
+    monkeypatch.setattr(ChumpAgent, "_server_config", default_config)
+    monkeypatch.setattr(
+        ChumpAgent,
+        "_server_resources",
+        ResourceCatalog(tmp_path),
+    )
+
+    configured = ChumpAgent("configured-session")
+    async with configured:
+        await configured.update_state(
+            title="Configured session",
+            model="gpt-5.6",
+            max_steps=40,
+            reasoning={"effort": "low"},
+        )
+
+    reloaded = ChumpAgent("configured-session")
+    async with reloaded:
+        status = await reloaded.status()
+        model_search = json.loads(
+            await reloaded.tools["search_models"].run(
+                query="gpt-5.6",
+                provider="codex",
+            )
+        )
+
+    assert status["provider"] == "codex"
+    assert status["model"] == "gpt-5.6"
+    assert status["max_steps"] == 40
+    assert status["reasoning"] == {"effort": "low"}
+    assert any(model["current"] for model in model_search["models"])
+
+
+@pytest.mark.asyncio
+async def test_start_session_persists_configured_child_final_answer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        max_steps=250,
+        reasoning={"effort": "high"},
+        available_providers=("codex",),
+    )
+    resources = ResourceCatalog(tmp_path)
+    child_model = faux(
+        responses=[
+            FauxResponse(
+                text="Delegated work complete.",
+                chunks=["Delegated work ", "complete."],
+            )
+        ]
+    )
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
+    monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
+    monkeypatch.setattr(
+        "chump_server.tools.sessions.load_auth_config",
+        lambda: {},
+    )
+    monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
+
+    server = AgentServer(ChumpAgent)
+    parent = server.get_or_create("parent-session")
+    await parent.start()
+    try:
+        raw_result = await parent.tools["start_session"].run(
+            prompt="Complete delegated work",
+            session_id="configured-child",
+            provider="codex",
+            model="gpt-5.6",
+            reasoning="none",
+            max_steps=40,
+        )
+        assert server.list_agents() == ["parent-session", "configured-child"]
+        await server.evict("configured-child")
+    finally:
+        await server.evict("parent-session")
+
+    result = json.loads(raw_result)
+    inspected = inspect_session_payload(
+        config.data_dir / "chump.sqlite3",
+        session_id="configured-child",
+        include_messages=True,
+        message_limit=10,
+    )
+
+    assert result["response"] == "Delegated work complete."
+    assert result["model"] == "gpt-5.6"
+    assert inspected["provider"] == "codex"
+    assert inspected["model"] == "gpt-5.6"
+    assert inspected["reasoning"] is None
+    assert inspected["max_steps"] == 40
+    assert inspected["delegated_task_status"] == "completed"
+    assert inspected["delegated_task_error"] is None
+    assert inspected["messages"][-1] == {
+        "index": 1,
+        "role": "assistant",
+        "text": "Delegated work complete.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_delegated_session_persists_failure_after_tool_step(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        available_providers=("codex",),
+    )
+    resources = ResourceCatalog(tmp_path)
+    child_model = faux(
+        responses=[
+            FauxResponse(
+                tool_calls=[
+                    ToolCall(
+                        "call-list-sessions",
+                        "list_sessions",
+                        {"page": 1, "limit": 1},
+                    )
+                ],
+                finish_reason="tool_use",
+            ),
+            FauxResponse(error=RuntimeError("provider overloaded")),
+        ]
+    )
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
+    monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
+    monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
+    monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
+
+    server = AgentServer(ChumpAgent)
+    parent = server.get_or_create("parent-session")
+    await parent.start()
+    try:
+        with pytest.raises(RuntimeError, match="provider overloaded"):
+            await parent.tools["start_session"].run(
+                prompt="Investigate before reporting",
+                session_id="failed-child",
+                provider="codex",
+                model="gpt-5.4",
+                max_steps=4,
+            )
+        await server.evict("failed-child")
+    finally:
+        await server.evict("parent-session")
+
+    inspected = inspect_session_payload(
+        config.data_dir / "chump.sqlite3",
+        session_id="failed-child",
+        include_messages=True,
+        message_limit=10,
+        include_events=True,
+        event_limit=20,
+    )
+
+    assert inspected["delegated_task_status"] == "failed"
+    assert inspected["delegated_task_error"] == "provider overloaded"
+    assert inspected["last_error"]["message"] == "provider overloaded"
+    assert [message["role"] for message in inspected["messages"]] == [
+        "user",
+        "assistant",
+        "tool",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delegated_session_persists_abort_before_call_returns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        available_providers=("codex",),
+    )
+    resources = ResourceCatalog(tmp_path)
+    started = asyncio.Event()
+
+    async def wait_for_abort(self, prompt, *, signal=None, **kwargs):
+        assert prompt == "Wait for cancellation"
+        assert signal is not None
+        started.set()
+        await signal.wait()
+        signal.throw_if_aborted()
+
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
+    monkeypatch.setattr(ChumpAgent, "chat", wait_for_abort)
+    monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
+
+    server = AgentServer(ChumpAgent)
+    parent = server.get_or_create("parent-session")
+    await parent.start()
+    controller = AbortController()
+    call = asyncio.create_task(
+        parent.call(
+            "aborted-child",
+            agent_cls=ChumpAgent,
+            timeout=None,
+            signal=controller.signal,
+        ).run_delegated_task(
+            prompt="Wait for cancellation",
+            provider="codex",
+            model="gpt-5.4",
+            reasoning=None,
+            max_steps=4,
+        )
+    )
+    try:
+        await started.wait()
+        controller.abort("parent turn aborted")
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+        assert server.get_or_create("aborted-child").state[
+            "delegated_task_status"
+        ] == "aborted"
+        await server.evict("aborted-child")
+    finally:
+        await server.evict("parent-session")
+
+    inspected = inspect_session_payload(
+        config.data_dir / "chump.sqlite3",
+        session_id="aborted-child",
+        include_messages=False,
+        message_limit=10,
+    )
+    assert inspected["delegated_task_status"] == "aborted"
+    assert inspected["delegated_task_error"] == "parent turn aborted"
 
 
 @pytest.mark.asyncio

@@ -20,8 +20,8 @@ debugging, and direct backend runs:
 uv run chump-server
 ```
 
-During repository development, `uv` still uses the local editable `../ai-query`
-source from `pyproject.toml`.
+During repository development, `uv` uses the released `ai-query` version pinned
+in `pyproject.toml` and `uv.lock`.
 
 Build a local standalone backend binary:
 

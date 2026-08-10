@@ -1,5 +1,12 @@
 # chump-server
 
+## 0.1.18
+
+- Add connected-model discovery and configurable provider, model, reasoning, and step limits for delegated sessions.
+- Route delegated work through ai-query's registry, transport, mailbox, cancellation, persistence, and managed-agent lifecycle instead of constructing child agents directly.
+- Persist delegated completion, failure, and abort state; inspect incremental event logs and surface the latest provider error alongside durable final responses.
+- Upgrade to `ai-query==1.11.2` for managed agent-to-agent calls with cancellation-bounded timeouts.
+
 ## 0.1.17
 
 - Pin the provider's prefix-cache affinity to each session so repeated steps route to the same inference server, improving cache hit rates across providers (Codex `prompt_cache_key`, Workers AI `x-session-affinity`).
