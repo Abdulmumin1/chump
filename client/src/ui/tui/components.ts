@@ -16,6 +16,7 @@ import {
 } from "../command-activity.ts";
 import { renderThinkingLabel, renderTuiMuted } from "../render.ts";
 import type { TerminalMarkdownStream } from "../terminal.ts";
+import { renderToolDone, renderToolResult } from "../render.ts";
 
 export class StreamingText implements Component {
   private value = "";
@@ -75,6 +76,7 @@ export class StreamingText implements Component {
  */
 export class TuiTranscript extends Container {
   private currentText: StreamingText | null = null;
+  private currentCompactGroup: CompactToolGroup | null = null;
   private readonly markdownTheme: MarkdownTheme;
   private readonly commandActivities: ExpandableCommandActivity[] = [];
   private readonly reasoningBlocks: ToggleableReasoning[] = [];
@@ -92,6 +94,7 @@ export class TuiTranscript extends Container {
     if (!value) {
       return;
     }
+    this.currentCompactGroup = null;
     if (!this.currentText) {
       this.currentText = new StreamingText();
       this.addChild(this.currentText);
@@ -103,6 +106,7 @@ export class TuiTranscript extends Container {
 
   appendCommandActivity(activity: CommandActivity): void {
     this.currentText = null;
+    this.currentCompactGroup = null;
     const component = new ExpandableCommandActivity(
       activity,
       this.toolsExpanded,
@@ -119,6 +123,7 @@ export class TuiTranscript extends Container {
       return;
     }
     this.currentText = null;
+    this.currentCompactGroup = null;
     const component = new ToggleableReasoning(
       normalized,
       this.markdownTheme,
@@ -128,6 +133,21 @@ export class TuiTranscript extends Container {
     this.addChild(component);
     this.hasContent = true;
     this.trailingGap = false;
+  }
+
+  appendCompactToolRun(activity: { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string }): void {
+    this.currentText = null;
+    if (this.currentCompactGroup?.getToolName() === activity.toolName) {
+      this.currentCompactGroup.addRun(activity);
+    } else {
+      if (!this.currentCompactGroup && this.hasContent && !this.trailingGap) {
+        this.addChild(new Spacer(1));
+      }
+      this.currentCompactGroup = new CompactToolGroup(activity);
+      this.addChild(this.currentCompactGroup);
+      this.hasContent = true;
+      this.trailingGap = false;
+    }
   }
 
   setToolsExpanded(expanded: boolean): void {
@@ -160,6 +180,7 @@ export class TuiTranscript extends Container {
       this.addChild(new Spacer(1));
     }
     this.currentText = null;
+    this.currentCompactGroup = null;
     const markdown = new Markdown("", 0, 0, this.markdownTheme);
     this.addChild(markdown);
     let value = "";
@@ -186,6 +207,7 @@ export class TuiTranscript extends Container {
   override clear(): void {
     super.clear();
     this.currentText = null;
+    this.currentCompactGroup = null;
     this.hasContent = false;
     this.trailingGap = false;
     this.commandActivities.length = 0;
@@ -230,7 +252,7 @@ export class ToggleableReasoning implements Component {
     markdownTheme: MarkdownTheme,
     visible = true,
   ) {
-    this.markdown = new Markdown(asMarkdownQuote(content), 0, 0, markdownTheme);
+    this.markdown = new Markdown(content, 0, 0, markdownTheme);
     this.visible = visible;
   }
 
@@ -246,19 +268,16 @@ export class ToggleableReasoning implements Component {
     if (!this.visible) {
       return [];
     }
+    const renderWidth = Math.max(1, width);
+    const bodyWidth = Math.max(1, renderWidth - 2);
     return [
       "",
       renderThinkingLabel(),
-      ...this.markdown.render(Math.max(1, width)),
+      ...this.markdown.render(bodyWidth).map((line) =>
+        truncateToWidth(renderTuiMuted(`  ${line}`), renderWidth)
+      ),
     ];
   }
-}
-
-function asMarkdownQuote(content: string): string {
-  return content
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n");
 }
 
 class CachedAnsiLine {
@@ -424,6 +443,57 @@ export class SessionFooter implements Component {
     }
     if (this.metadata) {
       lines.push(this.style(truncateToWidth(this.metadata, renderWidth)));
+    }
+    return lines;
+  }
+}
+
+export class CompactToolGroup implements Component {
+  private toolName: string;
+  private label: string;
+  private runs: Array<{ status: string; args: string; preview: string; fallbackLine: string }> = [];
+
+  constructor(firstRun: { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string }) {
+    this.toolName = firstRun.toolName;
+    this.label = firstRun.label;
+    this.runs.push(firstRun);
+  }
+
+  getToolName(): string {
+    return this.toolName;
+  }
+
+  addRun(run: { status: string; args: string; preview: string; fallbackLine: string }): void {
+    this.runs.push(run);
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    if (this.runs.length === 0) {
+      return [];
+    }
+    const renderWidth = Math.max(1, width);
+    if (this.runs.length === 1) {
+      return [truncateToWidth(singleTerminalLine(this.runs[0].fallbackLine), renderWidth)];
+    }
+
+    // Grouped layout
+    const header = this.runs.every((run) => run.status === "ok")
+      ? renderToolDone(this.label, "")
+      : renderToolResult("error", this.label, "");
+    const lines = [truncateToWidth(singleTerminalLine(header), renderWidth)];
+    for (let i = 0; i < this.runs.length; i++) {
+      const run = this.runs[i];
+      const isLast = i === this.runs.length - 1;
+      const prefix = isLast ? "  └─ " : "  ├─ ";
+      
+      const content = run.preview || run.args;
+      const contentLine = run.status === "ok"
+        ? `${prefix}${content}`
+        : `${prefix}× ${content}`;
+      
+      lines.push(truncateToWidth(singleTerminalLine(renderTuiMuted(contentLine)), renderWidth));
     }
     return lines;
   }

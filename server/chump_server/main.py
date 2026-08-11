@@ -59,6 +59,10 @@ class ChumpServer(AgentServer):
         app.router.add_get("/version", self.version)
         app.router.add_get("/sessions", self.sessions)
         app.router.add_get("/files", self.files)
+        app.router.add_get(
+            "/agent/{agent_id}/session-snapshot",
+            self.session_snapshot,
+        )
         app.on_startup.append(self._start_managed_idle_shutdown)
         app.on_cleanup.append(self._stop_managed_idle_shutdown)
         app.on_cleanup.append(self._close_search)
@@ -158,6 +162,22 @@ class ChumpServer(AgentServer):
         return web.json_response(
             {"files": await self.search.files(query, max(1, min(limit, 100)))}
         )
+
+    async def session_snapshot(self, request: web.Request) -> web.Response:
+        """Read an active session without waiting behind its mailbox action."""
+        agent_id = request.match_info["agent_id"]
+        was_warm = agent_id in self._agents
+        agent = self.get_or_create(agent_id)
+        if agent._state is None:
+            if not was_warm:
+                stored = await agent._storage.get(f"{agent_id}:state")
+                if stored is None:
+                    self._agents.pop(agent_id, None)
+                    raise web.HTTPNotFound()
+            await agent.start()
+            await self.on_agent_create(agent)
+        self._agents[agent_id].last_activity = time.time()
+        return web.json_response(agent.capture_session_snapshot())
 
     def _stored_sessions(
         self,

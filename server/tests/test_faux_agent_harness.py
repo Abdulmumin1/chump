@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from ai_query import AbortController, AbortError, Field, tool
-from ai_query.agents import AgentServer
+from ai_query import AbortController, AbortError, Field, ToolExecutionContext, tool
+from ai_query.agents import AgentServer, Event
 from ai_query.providers import FauxProvider, FauxResponse, faux
-from ai_query.types import ImagePart, TextPart, ToolCall, ToolResultPart
+from ai_query.types import ImagePart, ReasoningEvent, TextPart, ToolCall, ToolResultPart
 
 from chump_server.agent import ChumpAgent
 from chump_server.config import ChumpConfig
@@ -40,6 +40,33 @@ def _test_config(workspace_root: Path) -> ChumpConfig:
         verbose=False,
         allowed_origins=(),
         available_providers=("faux",),
+    )
+
+
+def _tool_execution_context(call_id: str) -> ToolExecutionContext:
+    return ToolExecutionContext(
+        tool_call_id=call_id,
+        tool_name="start_session",
+        step_number=1,
+        signal=AbortController().signal,
+        agent_id="parent-session",
+    )
+
+
+def _progress_execution_context(
+    call_id: str,
+    emitted: list[tuple[str, dict]],
+) -> ToolExecutionContext:
+    async def capture_progress(message: str, data: dict) -> None:
+        emitted.append((message, data))
+
+    return ToolExecutionContext(
+        tool_call_id=call_id,
+        tool_name="start_session",
+        step_number=1,
+        signal=AbortController().signal,
+        agent_id="parent-session",
+        _emit_progress=capture_progress,
     )
 
 
@@ -125,6 +152,7 @@ async def test_start_session_persists_configured_child_final_answer(
     await parent.start()
     try:
         raw_result = await parent.tools["start_session"].run(
+            execution=_tool_execution_context("start-configured-child"),
             prompt="Complete delegated work",
             session_id="configured-child",
             provider="codex",
@@ -157,6 +185,228 @@ async def test_start_session_persists_configured_child_final_answer(
         "index": 1,
         "role": "assistant",
         "text": "Delegated work complete.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_start_session_forwards_correlated_child_tool_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        available_providers=("codex",),
+    )
+    resources = ResourceCatalog(tmp_path)
+    child_model = faux(
+        responses=[
+            FauxResponse(
+                reasoning_events=[
+                    ReasoningEvent(
+                        kind="summary",
+                        provider="faux",
+                        text="**Inspecting session boundaries**",
+                    )
+                ],
+                tool_calls=[
+                    ToolCall(
+                        "child-list-sessions",
+                        "list_sessions",
+                        {"page": 1, "limit": 1},
+                    )
+                ],
+                finish_reason="tool_use",
+            ),
+            FauxResponse(text="Child complete.", chunks=["Child complete."]),
+        ]
+    )
+    parent_model = faux(
+        responses=[
+            FauxResponse(
+                tool_calls=[
+                    ToolCall(
+                        "parent-delegation",
+                        "start_session",
+                        {
+                            "prompt": "Inspect sessions",
+                            "session_id": "progress-child",
+                            "provider": "codex",
+                            "model": "gpt-5.4",
+                            "max_steps": 4,
+                        },
+                    )
+                ],
+                finish_reason="tool_use",
+            ),
+            FauxResponse(text="Parent complete.", chunks=["Parent complete."]),
+        ]
+    )
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
+    monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
+    monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
+    monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
+
+    server = AgentServer(ChumpAgent)
+    parent = server.get_or_create("parent-session")
+    parent.model = parent_model
+    emitted_events: list[tuple[str, dict, int]] = []
+
+    async def capture_event(event: str, data: dict, event_id: int) -> None:
+        emitted_events.append((event, data, event_id))
+
+    parent._emit_handler = capture_event
+    await parent.start()
+    try:
+        chunks = [chunk async for chunk in parent.stream("Delegate inspection")]
+        progress_count_after_completion = sum(
+            event == "tool_execution.progress"
+            for event, _data, _event_id in emitted_events
+        )
+        child = server.get_or_create("progress-child")
+        await child.emit(
+            "reasoning",
+            {
+                "kind": "summary",
+                "provider": "faux",
+                "text": "This must not reach the completed parent tool",
+                "data": {},
+            },
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert sum(
+            event == "tool_execution.progress"
+            for event, _data, _event_id in emitted_events
+        ) == progress_count_after_completion
+        await server.evict("progress-child")
+    finally:
+        await server.evict("parent-session")
+
+    assert chunks == ["Parent complete."]
+    progress_payloads = [
+        data for event, data, _event_id in emitted_events
+        if event == "tool_execution.progress"
+    ]
+    assert any(
+        payload["call_id"] == "parent-delegation"
+        and payload["data"] == {
+            "kind": "delegated_session",
+            "session_id": "progress-child",
+            "event": {
+                "type": "tool_call",
+                "name": "list_sessions",
+                "call_id": "child-list-sessions",
+                "args": {"page": 1, "limit": 1},
+            },
+        }
+        for payload in progress_payloads
+    )
+    assert any(
+        payload["call_id"] == "parent-delegation"
+        and payload["data"] == {
+            "kind": "delegated_session",
+            "session_id": "progress-child",
+            "event": {
+                "type": "reasoning",
+                "text": "**Inspecting session boundaries**",
+            },
+        }
+        for payload in progress_payloads
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_start_sessions_keep_child_progress_scoped_to_each_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        available_providers=("codex",),
+    )
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", ResourceCatalog(tmp_path))
+    monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
+
+    both_calls_started = asyncio.Event()
+    started_calls = 0
+
+    class DelegatedCall:
+        def __init__(self, session_id: str, on_event) -> None:
+            self.session_id = session_id
+            self.on_event = on_event
+
+        async def run_delegated_task(self, **_kwargs) -> dict[str, object]:
+            nonlocal started_calls
+            started_calls += 1
+            if started_calls == 2:
+                both_calls_started.set()
+            await both_calls_started.wait()
+            await self.on_event(
+                Event(
+                    id=1,
+                    type="reasoning",
+                    data={"text": f"Reasoning in {self.session_id}"},
+                )
+            )
+            return {"response": f"Completed {self.session_id}"}
+
+    def call_child(
+        _self,
+        session_id: str,
+        *,
+        on_event,
+        **_kwargs,
+    ) -> DelegatedCall:
+        return DelegatedCall(session_id, on_event)
+
+    monkeypatch.setattr(ChumpAgent, "call", call_child)
+    parent = ChumpAgent("parent-session")
+    first_progress: list[tuple[str, dict]] = []
+    second_progress: list[tuple[str, dict]] = []
+
+    async with parent:
+        first, second = await asyncio.gather(
+            parent.tools["start_session"].run(
+                execution=_progress_execution_context("first-call", first_progress),
+                prompt="Inspect the API",
+                session_id="first-child",
+                provider="codex",
+                model="gpt-5.4",
+                max_steps=4,
+            ),
+            parent.tools["start_session"].run(
+                execution=_progress_execution_context("second-call", second_progress),
+                prompt="Review the types",
+                session_id="second-child",
+                provider="codex",
+                model="gpt-5.4",
+                max_steps=4,
+            ),
+        )
+
+    assert json.loads(first)["response"] == "Completed first-child"
+    assert json.loads(second)["response"] == "Completed second-child"
+    assert [payload["session_id"] for _message, payload in first_progress] == [
+        "first-child",
+        "first-child",
+    ]
+    assert [payload["session_id"] for _message, payload in second_progress] == [
+        "second-child",
+        "second-child",
+    ]
+    assert first_progress[-1][1]["event"] == {
+        "type": "reasoning",
+        "text": "Reasoning in first-child",
+    }
+    assert second_progress[-1][1]["event"] == {
+        "type": "reasoning",
+        "text": "Reasoning in second-child",
     }
 
 
@@ -199,6 +449,7 @@ async def test_delegated_session_persists_failure_after_tool_step(
     try:
         with pytest.raises(RuntimeError, match="provider overloaded"):
             await parent.tools["start_session"].run(
+                execution=_tool_execution_context("start-failed-child"),
                 prompt="Investigate before reporting",
                 session_id="failed-child",
                 provider="codex",

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from ai_query import Field, tool
+from ai_query import Field, ToolExecutionContext, tool
+from ai_query.agents import Event
 
 from ..config import (
     DEFAULT_MODELS,
@@ -22,6 +23,10 @@ from ..config import (
 )
 from ..runtime.messages import message_content_text
 from ..runtime.model import model_input_modalities
+from ..runtime.delegated_progress import (
+    delegated_session_progress,
+    parse_delegated_child_event,
+)
 from ..server.sessions import decode_json, stored_sessions
 
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -130,6 +135,7 @@ def bind_session_tools(agent, config, wrap_tool):
         )
     )
     async def start_session(
+        execution: ToolExecutionContext,
         prompt: str = Field(description="Initial prompt for the new session"),
         session_id: str | None = Field(
             description="Optional session id. Omit to generate one.", default=None
@@ -170,11 +176,31 @@ def bind_session_tools(agent, config, wrap_tool):
                 reasoning=reasoning,
                 max_steps=max_steps,
             )
+
+            async def forward_child_event(event: Event) -> None:
+                child_event = parse_delegated_child_event(
+                    event.type,
+                    event.data,
+                )
+                if child_event is not None:
+                    await execution.emit_progress(
+                        "Delegated session progress",
+                        data=delegated_session_progress(target_id, child_event),
+                    )
+
+            await execution.emit_progress(
+                "Delegated session started",
+                data=delegated_session_progress(
+                    target_id,
+                    {"type": "session_starting"},
+                ),
+            )
             result = await agent.call(
                 target_id,
                 agent_cls=type(agent),
                 timeout=None,
-                signal=agent.current_abort_signal,
+                signal=execution.signal,
+                on_event=forward_child_event,
             ).run_delegated_task(
                 prompt=normalized_prompt,
                 provider=session_config.provider,

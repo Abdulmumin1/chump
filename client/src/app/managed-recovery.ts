@@ -4,6 +4,7 @@ import { isTransientServerError } from "../api/errors.ts";
 import type { ChumpConfig } from "../core/types.ts";
 
 export type ManagedRecoveryDependencies = {
+  strategy?: "daemon-first" | "direct-first";
   recoverThroughDaemon?: (workspaceRoot: string) => Promise<string>;
   recoverDirectly?: (
     workspaceRoot: string,
@@ -103,6 +104,14 @@ export async function recoverManagedServerUrl(
     dependencies.recoverDirectly ??
     (async (workspace, previous) =>
       (await recoverManagedServer(workspace, previous)).metadata.url);
+
+  if (dependencies.strategy === "direct-first") {
+    try {
+      return await recoverDirectly(workspaceRoot, previousUrl);
+    } catch {
+      return await recoverThroughDaemon(workspaceRoot);
+    }
+  }
 
   try {
     return await recoverThroughDaemon(workspaceRoot);

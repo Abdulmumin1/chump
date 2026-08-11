@@ -1,6 +1,6 @@
 {
   "name": "chump-agent",
-  "version": "0.2.21",
+  "version": "0.3.0",
   "private": false,
   "description": "TypeScript CLI for the chump coding assistant",
   "type": "module",
@@ -63,7 +63,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
-    "@earendil-works/pi-tui": "0.80.10",
+    "@earendil-works/pi-tui": "0.84.1",
     "@ff-labs/fff-bun": "0.9.4",
     "onlocal": "^0.6.0"
   }

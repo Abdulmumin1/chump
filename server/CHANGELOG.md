@@ -1,5 +1,14 @@
 # chump-server
 
+## 0.1.19
+
+- Stream delegated session progress events from `start_session` so clients can render child-agent thinking, tool calls, tool results, assistant text, step status, and turn errors while the sub-agent is still running.
+- Add an active-session snapshot endpoint that returns status, transcript messages, and replay events together without waiting behind the agent mailbox, allowing clients to hydrate sub-agent views without blocking active turns.
+- Avoid duplicating concatenated assistant text after tool-use turns by only appending the final response when it represents a standalone final assistant step.
+- Forward tool-execution progress events into the durable event log and upgrade to `ai-query==1.12.1` for delegated progress and cancellation signal handling.
+- Save full bash command output to a temporary file when server line or byte limits truncate the returned preview, and include the file path in the tool result so agents can inspect the complete output when needed.
+- Retry plain searches as regex searches when the query contains regex syntax and the literal search returns no matches, preserving the default plain-mode behavior while making common regex-looking queries succeed.
+
 ## 0.1.18
 
 - Add connected-model discovery and configurable provider, model, reasoning, and step limits for delegated sessions.

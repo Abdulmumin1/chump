@@ -40,6 +40,43 @@ test("falls back to direct managed recovery when daemon recovery fails", async (
   assert.equal(url, "http://direct");
 });
 
+test("keeps source-owned recovery direct before using the installed daemon", async () => {
+  let daemonCalls = 0;
+  const url = await recoverManagedServerUrl("/workspace", "http://old", {
+    strategy: "direct-first",
+    recoverThroughDaemon: async () => {
+      daemonCalls += 1;
+      return "http://daemon-runtime";
+    },
+    recoverDirectly: async (workspace, previousUrl) => {
+      assert.equal(workspace, "/workspace");
+      assert.equal(previousUrl, "http://old");
+      return "http://source-runtime";
+    },
+  });
+
+  assert.equal(url, "http://source-runtime");
+  assert.equal(daemonCalls, 0);
+});
+
+test("source-owned recovery still falls back to the daemon", async () => {
+  const calls: string[] = [];
+  const url = await recoverManagedServerUrl("/workspace", "http://old", {
+    strategy: "direct-first",
+    recoverDirectly: async () => {
+      calls.push("direct");
+      throw new Error("source server failed");
+    },
+    recoverThroughDaemon: async () => {
+      calls.push("daemon");
+      return "http://daemon-runtime";
+    },
+  });
+
+  assert.equal(url, "http://daemon-runtime");
+  assert.deepEqual(calls, ["direct", "daemon"]);
+});
+
 test("reload stops the managed server before recovering it", async () => {
   const calls: string[] = [];
   const url = await reloadManagedServerUrl("/workspace", "http://old", {

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getAllSessions, getSessions, streamChat } from "./http.ts";
+import {
+  getAllSessions,
+  getSessionSnapshot,
+  getSessions,
+  streamChat,
+} from "./http.ts";
 import { ServerStreamInterruptedError } from "./errors.ts";
 import type { ChumpConfig } from "../core/types.ts";
 import { ManagedServerRequestCoordinator } from "../app/managed-recovery.ts";
@@ -34,6 +39,79 @@ test("requests six sessions by default", async () => {
   }
 
   assert.equal(new URL(requestUrl).searchParams.get("limit"), "6");
+});
+
+test("hydrates a session through one invocation-owned snapshot", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestUrl = String(input);
+    return Response.json({
+      status: { agent_id: "session-1", turn_running: true },
+      messages: [],
+      events: [],
+    });
+  }) as typeof fetch;
+
+  try {
+    const snapshot = await getSessionSnapshot(config);
+    assert.equal(snapshot.status.turn_running, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(
+    requestUrl,
+    "http://server.test/agent/session-1/session-snapshot",
+  );
+});
+
+test("falls back to established hydration endpoints when snapshot is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls: string[] = [];
+  globalThis.fetch = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    const url = String(input);
+    requestUrls.push(url);
+    if (url.endsWith("/session-snapshot")) {
+      return new Response("404: Not Found", { status: 404 });
+    }
+    if (url.endsWith("/action/status")) {
+      return Response.json({
+        result: { agent_id: "session-1", turn_running: false },
+      });
+    }
+    if (url.endsWith("/messages")) {
+      return Response.json({ messages: [{ role: "user", content: "hello" }] });
+    }
+    if (url.endsWith("/action/event_log")) {
+      assert.equal(init?.method, "POST");
+      return Response.json({
+        result: {
+          events: [{ id: 1, type: "user_message", data: { content: "hello" } }],
+        },
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const snapshot = await getSessionSnapshot(config);
+    assert.equal(snapshot.status.agent_id, "session-1");
+    assert.equal(snapshot.messages.length, 1);
+    assert.equal(snapshot.events.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requestUrls, [
+    "http://server.test/agent/session-1/session-snapshot",
+    "http://server.test/agent/session-1/action/status",
+    "http://server.test/agent/session-1/messages",
+    "http://server.test/agent/session-1/action/event_log",
+  ]);
 });
 
 test("loads every six-item session page only when requested", async () => {
@@ -75,6 +153,44 @@ test("loads every six-item session page only when requested", async () => {
   }
 
   assert.deepEqual(requestedPages, [1, 2, 3]);
+});
+
+test("never loads or returns more than sixty session suggestions", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedPages: number[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    const page = Number(url.searchParams.get("page"));
+    requestedPages.push(page);
+    const offset = (page - 1) * 6;
+    return Response.json({
+      sessions: Array.from({ length: 6 }, (_, index) => ({
+        id: `session-${offset + index + 1}`,
+        active: false,
+        message_count: 0,
+        event_count: 0,
+        title: null,
+        created_at: null,
+        updated_at: null,
+        last_user_goal: null,
+        last_activity: null,
+        connections: 0,
+      })),
+      page,
+      page_size: 6,
+      total: 600,
+      total_pages: 100,
+    });
+  }) as typeof fetch;
+
+  try {
+    const sessions = await getAllSessions(config);
+    assert.equal(sessions.length, 60);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requestedPages, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });
 
 test("treats a chat response that closes without end as a transport interruption", async () => {

@@ -62,6 +62,14 @@ class CodexProvider(OpenAIProvider):
             headers["ChatGPT-Account-Id"] = self.account_id
         return headers
 
+    def _cache_key_request_options(
+        self,
+        model: str | None,
+    ) -> dict[str, Any]:
+        if not self.cache_key:
+            return {}
+        return {"prompt_cache_key": self.cache_key}
+
     def _should_use_responses_api(
         self,
         *,

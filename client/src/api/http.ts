@@ -1,6 +1,7 @@
 import type {
   AgentEventLogResponse,
   AgentMessagesResponse,
+  AgentSessionSnapshotResponse,
   AgentStateResponse,
   ChumpConfig,
   ChumpHealth,
@@ -108,14 +109,20 @@ export async function getSessions(
 export async function getAllSessions(
   config: ChumpConfig,
 ): Promise<SessionsResponse["sessions"]> {
+  const sessionLimit = 60;
   const first = await getSessions(config);
-  if (first.total_pages <= 1) {
-    return first.sessions;
+  if (first.total_pages <= 1 || first.sessions.length >= sessionLimit) {
+    return first.sessions.slice(0, sessionLimit);
   }
 
   const sessions = [...first.sessions];
+  const pageSize = Math.max(1, first.page_size);
+  const pagesToLoad = Math.min(
+    first.total_pages,
+    Math.ceil(sessionLimit / pageSize),
+  );
   const remainingPages = Array.from(
-    { length: first.total_pages - 1 },
+    { length: pagesToLoad - 1 },
     (_, index) => index + 2,
   );
   const concurrency = 4;
@@ -126,10 +133,13 @@ export async function getAllSessions(
       ),
     );
     sessions.push(...responses.flatMap((response) => response.sessions));
+    if (sessions.length >= sessionLimit) {
+      break;
+    }
   }
 
   const unique = new Map(sessions.map((session) => [session.id, session]));
-  return [...unique.values()];
+  return [...unique.values()].slice(0, sessionLimit);
 }
 
 export async function searchFiles(
@@ -184,6 +194,34 @@ export async function getEventLog(
   config: ChumpConfig,
 ): Promise<AgentEventLogResponse> {
   return await invokeAction<AgentEventLogResponse>(config, "event_log");
+}
+
+export async function getSessionSnapshot(
+  config: ChumpConfig,
+): Promise<AgentSessionSnapshotResponse> {
+  const response = await fetch(`${buildAgentUrl(config)}/session-snapshot`);
+  if (response.ok) {
+    return (await response.json()) as AgentSessionSnapshotResponse;
+  }
+
+  const error = await serverHttpError(response);
+  if (error.status !== 404) {
+    throw error;
+  }
+
+  // Older managed servers do not expose the atomic snapshot route. Create or
+  // restore the target session through status first, then hydrate it through
+  // the established endpoints so /new and /session remain version-tolerant.
+  const status = await getStatus(config);
+  const [messages, eventLog] = await Promise.all([
+    getMessages(config),
+    getEventLog(config),
+  ]);
+  return {
+    status,
+    messages: messages.messages,
+    events: eventLog.events,
+  };
 }
 
 export async function abortCurrentTurn(

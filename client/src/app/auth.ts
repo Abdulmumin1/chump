@@ -103,6 +103,7 @@ type ProviderId = keyof typeof PROVIDERS;
 type AuthFile = {
   provider?: string;
   model?: string;
+  recentModels?: string[];
   reasoning?: Record<string, unknown>;
   credentials?: Record<string, Record<string, unknown>>;
 };

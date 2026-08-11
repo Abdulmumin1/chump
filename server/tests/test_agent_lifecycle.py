@@ -44,6 +44,27 @@ def test_codex_provider_options_do_not_duplicate_system_prompt():
     assert agent._turn_provider_options() is None
 
 
+def test_session_snapshot_captures_messages_status_and_event_cursor_together():
+    agent = make_agent()
+    agent._messages = [Message(role="assistant", content="Existing response")]
+    agent._event_log = [
+        {"id": 7, "type": "turn_status", "data": {"running": True}}
+    ]
+    agent._status_snapshot = lambda: {"turn_running": True}
+
+    snapshot = agent.capture_session_snapshot()
+
+    assert snapshot == {
+        "status": {"turn_running": True},
+        "messages": [{"role": "assistant", "content": "Existing response"}],
+        "events": [
+            {"id": 7, "type": "turn_status", "data": {"running": True}}
+        ],
+    }
+    agent._event_log[0]["data"]["running"] = False
+    assert snapshot["events"][0]["data"]["running"] is True
+
+
 def test_step_usage_accumulates_new_ai_query_per_step_usage():
     agent = make_agent()
 
@@ -236,6 +257,37 @@ def test_finalize_reconciles_missing_assistant_message_after_tool_steps():
     )
     assert len(agent._messages) == 4
     agent._persist_messages.assert_awaited_once()
+
+
+def test_finalize_does_not_append_aggregated_commentary_after_a_tool_step():
+    agent = make_agent()
+    original_messages = [
+        Message(role="user", content="Review the branch"),
+        Message(role="assistant", content="I will inspect the diff."),
+        Message(role="tool", content=[]),
+    ]
+    agent._messages = list(original_messages)
+    tool_step = StepResult(
+        text="I will inspect the diff.",
+        tool_calls=[
+            ToolCall(
+                id="call_read",
+                name="read_file",
+                arguments={"path": "README.md"},
+            )
+        ],
+        tool_results=[],
+    )
+
+    asyncio.run(
+        agent._ensure_final_assistant_persisted(
+            SimpleNamespace(steps=[tool_step]),
+            "I will inspect the diff.I will run the tests.",
+        )
+    )
+
+    assert agent._messages == original_messages
+    agent._persist_messages.assert_not_awaited()
 
 
 def test_ready_tool_call_uses_existing_client_event_with_correlation_fields():

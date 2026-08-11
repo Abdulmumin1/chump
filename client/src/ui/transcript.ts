@@ -9,11 +9,16 @@ import { LiveReasoningStream, ReasoningRenderer } from "./reasoning.ts";
 import {
   createLiveMarkdownStream,
   writeCommandActivity,
+  writeCompactToolRun,
   writeOutput,
   writeOutputLine,
 } from "./terminal.ts";
 import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import { parseChumpEvent } from "../core/events.ts";
+import {
+  parseDelegatedSessionProgress,
+  type DelegatedSessionProgress,
+} from "../core/delegated-session-progress.ts";
 import type { StoredMessage, SseEvent, TranscriptEvent } from "../core/types.ts";
 
 export type TranscriptRendererHooks = {
@@ -28,6 +33,7 @@ export type TranscriptRendererHooks = {
   ) => void) | null;
   onToolResult?: ((payload: Record<string, unknown>) => void) | null;
   onReasoningActivity?: ((payload: Record<string, unknown>) => void) | null;
+  onDelegatedSessionProgress?: ((progress: DelegatedSessionProgress) => void) | null;
   onSteeringAccepted?: ((content: string) => void) | null;
   onAssistantText?: ((content: string) => boolean) | null;
   onAgentStatus?: ((payload: Record<string, unknown>) => void) | null;
@@ -51,6 +57,7 @@ export class TranscriptRenderer {
     this.toolActivityRenderer = new ToolActivityRenderer(
       writeOutputLine,
       writeCommandActivity,
+      (activity) => writeCompactToolRun(activity),
       options.workspaceRoot,
     );
     this.hooks = options.hooks ?? {};
@@ -87,6 +94,7 @@ export class TranscriptRenderer {
       }
       case "tool_call_stream": {
         this.finishReasoning();
+        this.hooks.onBeforeToolActivity?.();
         const preview = this.toolActivityRenderer.renderToolCallStream(event.payload);
         this.hooks.onToolCallStream?.(
           preview,
@@ -102,6 +110,9 @@ export class TranscriptRenderer {
       case "reasoning":
         this.hooks.onReasoningActivity?.(event.payload);
         this.reasoningRenderer.render(event.payload);
+        return;
+      case "delegated_session_progress":
+        this.hooks.onDelegatedSessionProgress?.(event.progress);
         return;
       case "agent_status":
         this.hooks.onAgentStatus?.(event.payload);
@@ -197,6 +208,11 @@ export function transcriptEventFromSse(event: SseEvent): TranscriptEvent | null 
 
   if (event.event === "tool_execution.finished" && payload) {
     return { type: "tool_result", payload };
+  }
+
+  if (event.event === "tool_execution.progress" && payload) {
+    const progress = parseDelegatedSessionProgress(payload);
+    return progress ? { type: "delegated_session_progress", progress } : null;
   }
 
   if (

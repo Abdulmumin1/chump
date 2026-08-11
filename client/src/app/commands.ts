@@ -40,6 +40,12 @@ const ROOT_COMMANDS: Array<{
     action: "fill",
   },
   {
+    label: "/sub",
+    command: "/sub ",
+    description: "switch between the main session and sub-agents",
+    action: "fill",
+  },
+  {
     label: "/model",
     command: "/model ",
     description: "choose provider and model",
@@ -107,6 +113,15 @@ export function completeSlashCommand(
   const sessionSuggestions = completeSessionCommand(line, context.sessions);
   if (sessionSuggestions.length > 0) {
     return [sessionSuggestions.map(toSuggestionView), line, sessionSuggestions];
+  }
+
+  const subagentSuggestions = completeSubagentCommand(line, context.subagents ?? []);
+  if (subagentSuggestions.length > 0) {
+    return [
+      subagentSuggestions.map(toSuggestionView),
+      line,
+      subagentSuggestions,
+    ];
   }
 
   const modelSuggestions = completeModelCommand(line, context.models);
@@ -369,6 +384,37 @@ function completeSessionCommand(
     }));
 }
 
+function completeSubagentCommand(
+  line: string,
+  subagents: string[],
+): SlashCommandSuggestion[] {
+  if (!/^\/sub\s/.test(line)) {
+    return [];
+  }
+
+  const query = line.slice("/sub".length).trim().toLowerCase();
+  const targets = [
+    {
+      label: "..",
+      command: "/sub ..",
+      description: "return to the main session",
+    },
+    ...subagents.map((id) => ({
+      label: id,
+      command: `/sub ${id}`,
+      description: "switch to sub-agent session",
+    })),
+  ];
+
+  return targets
+    .filter((target) => !query || target.label.toLowerCase().startsWith(query))
+    .map((target) => ({
+      ...target,
+      kind: "command" as const,
+      action: "submit" as const,
+    }));
+}
+
 function describeSession(session: SessionSummary): string {
   const parts = [
     session.updated_at
@@ -470,6 +516,7 @@ export function parseSlashCommand(input: string): {
     case "clear":
     case "compact":
     case "agent":
+    case "sub":
     case "session":
     case "model":
     case "share":
@@ -492,6 +539,7 @@ export function printHelp(): void {
     }
     writeOutputLine("/session <id>");
     writeOutputLine("/agent <id>");
+    writeOutputLine("/sub [..|<session-id>]");
     writeOutputLine("/share [status|stop]");
     writeOutputLine("/thinking <none|low|high|xhigh>");
     writeOutputLine("/skill:<name> [args]");
@@ -503,8 +551,22 @@ export function switchAgent(
   config: ChumpConfig,
   nextAgentId: string,
 ): ChumpConfig {
+  if (nextAgentId === "..") {
+    throw new Error("session navigation must resolve '..' before switching agents");
+  }
   return {
     ...config,
     agentId: nextAgentId,
   };
+}
+
+export function resolveSubagentTarget(
+  target: string,
+  mainAgentId: string,
+  subagentIds: readonly string[],
+): string | null {
+  if (target === "..") {
+    return mainAgentId;
+  }
+  return subagentIds.includes(target) ? target : null;
 }

@@ -3,8 +3,8 @@ import { test } from "node:test";
 import {
   type AutocompleteProvider,
   type EditorTheme,
-  TUI,
   type Terminal,
+  TuiMainScreen,
   visibleWidth,
 } from "@earendil-works/pi-tui";
 
@@ -12,6 +12,7 @@ import type { SessionSummary } from "../core/types.ts";
 import { ChumpAutocompleteProvider } from "./tui/autocomplete.ts";
 import {
   MutableLines,
+  CompactToolGroup,
   SessionFooter,
   StreamingText,
   TranscriptGap,
@@ -123,6 +124,19 @@ test("Pi TUI live Markdown updates before a newline arrives", () => {
   assert.match(transcript.render(80).join("\n"), /partial response/);
 });
 
+test("Pi TUI renders Markdown LaTeX as terminal-friendly Unicode", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  const stream = transcript.createMarkdownStream((value) => value, () => {});
+
+  stream.write("Inline math: $x^2 + y^2$");
+  stream.end();
+
+  assert.match(
+    stripTestAnsi(transcript.render(80).join("\n")),
+    /Inline math: x² \+ y²/u,
+  );
+});
+
 test("Pi TUI transcript uses one semantic gap between user and assistant", () => {
   const transcript = new TuiTranscript(createTuiMarkdownTheme());
   transcript.append("\n※ hello\n");
@@ -146,6 +160,65 @@ test("Pi TUI input gap does not stack with a transcript blank", () => {
 
   transcript.append("※ question\n");
   assert.deepEqual(gap.render(80), [""]);
+});
+
+test("Pi TUI compact tool runs keep one semantic gap and upgrade contiguous repeats", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  transcript.appendReasoning("I will inspect the files.");
+  transcript.appendCompactToolRun({
+    toolName: "read_file",
+    label: "Read",
+    status: "ok",
+    args: "client/src/ui/tui.test.ts offset=360 limit=50",
+    preview: "client/src/ui/tui.test.ts offset=360 limit=50",
+    fallbackLine: "○ Read client/src/ui/tui.test.ts offset=360 limit=50",
+  });
+  transcript.appendCompactToolRun({
+    toolName: "read_file",
+    label: "Read",
+    status: "ok",
+    args: "client/src/ui/tui.test.ts offset=410 limit=100",
+    preview: "client/src/ui/tui.test.ts offset=410 limit=100",
+    fallbackLine: "○ Read client/src/ui/tui.test.ts offset=410 limit=100",
+  });
+
+  const lines = transcript.render(100).map((line) => stripTestAnsi(line).trimEnd());
+  const thinkingIndex = lines.findIndex((line) => /I will inspect/u.test(line));
+  const headerIndex = lines.findIndex((line) => /^○ Read/u.test(line));
+
+  assert.equal(lines[thinkingIndex + 1], "");
+  assert.equal(headerIndex, thinkingIndex + 2);
+  assert.match(lines[headerIndex + 1] ?? "", /├─ client\/src\/ui\/tui\.test\.ts offset=360 limit=50/u);
+  assert.match(lines[headerIndex + 2] ?? "", /└─ client\/src\/ui\/tui\.test\.ts offset=410 limit=100/u);
+});
+
+test("Pi TUI mixed compact tool runs do not add blank rows between tools", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  transcript.append("assistant context\n");
+  transcript.appendCompactToolRun({
+    toolName: "search",
+    label: "Search",
+    status: "ok",
+    args: '"foo" in client',
+    preview: '"foo" in client (1 match)',
+    fallbackLine: '○ Search "foo" in client (1 match)',
+  });
+  transcript.appendCompactToolRun({
+    toolName: "read_file",
+    label: "Read",
+    status: "ok",
+    args: "client/src/ui/tui.test.ts offset=1 limit=10",
+    preview: "client/src/ui/tui.test.ts offset=1 limit=10",
+    fallbackLine: "○ Read client/src/ui/tui.test.ts offset=1 limit=10",
+  });
+
+  const lines = transcript.render(100).map((line) => stripTestAnsi(line).trimEnd());
+  assert.deepEqual(lines, [
+    "assistant context",
+    "",
+    '○ Search "foo" in client (1 match)',
+    "○ Read client/src/ui/tui.test.ts offset=1 limit=10",
+  ]);
 });
 
 test("Pi TUI command activities expand globally and new commands inherit the state", () => {
@@ -216,7 +289,7 @@ test("Pi TUI expansion preserves byte-only server truncation warnings", () => {
 test("Pi TUI thinking blocks toggle globally and inherit hidden state", () => {
   const transcript = new TuiTranscript(createTuiMarkdownTheme());
   transcript.appendReasoning("first private thought");
-  assert.match(stripTestAnsi(transcript.render(80).join("\n")), /first private thought/u);
+  assert.match(stripTestAnsi(transcript.render(80).join("\n")), /\n  first private thought/u);
 
   transcript.setThinkingVisible(false);
   assert.doesNotMatch(stripTestAnsi(transcript.render(80).join("\n")), /first private thought/u);
@@ -226,8 +299,22 @@ test("Pi TUI thinking blocks toggle globally and inherit hidden state", () => {
 
   transcript.setThinkingVisible(true);
   const visible = stripTestAnsi(transcript.render(80).join("\n"));
-  assert.match(visible, /first private thought/u);
-  assert.match(visible, /second private thought/u);
+  assert.match(visible, /\n  first private thought/u);
+  assert.match(visible, /\n  second private thought/u);
+  assert.doesNotMatch(visible, /│ first private thought/u);
+
+  const narrow = stripTestAnsi(transcript.render(12).join("\n"));
+  assert.equal(
+    narrow
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .every((line) => line === "Thinking:" || line.startsWith("  ")),
+    true,
+  );
+  assert.equal(
+    transcript.render(161).every((line) => visibleWidth(line) <= 161),
+    true,
+  );
 });
 
 test("Pi TUI transcript shortcuts are consumed without affecting other input", () => {
@@ -383,6 +470,24 @@ test("exact picker commands expand before their option suggestions", async () =>
   assert.equal(
     provider.shouldTriggerFileCompletion(["/share "], 0, 7),
     true,
+  );
+});
+
+test("sub-agent picker reflects sessions discovered after initialization", async () => {
+  const provider = new ChumpAutocompleteProvider();
+  provider.setContext({ sessions: [], models: [], skills: [], mcps: [] });
+
+  provider.setSubagentSuggestions(["inspect-api", "review-types"]);
+
+  const suggestions = await provider.getSuggestions(
+    ["/sub "],
+    0,
+    5,
+    { signal: new AbortController().signal, force: true },
+  );
+  assert.deepEqual(
+    suggestions?.items.map((item) => item.value),
+    ["/sub ..", "/sub inspect-api", "/sub review-types"],
   );
 });
 
@@ -568,6 +673,52 @@ test("in-process Pi TUI extensions can be registered and removed", async () => {
   );
 });
 
+test("CompactToolGroup renders grouped tool runs with tree markers", () => {
+  const group = new CompactToolGroup({
+    toolName: "search",
+    label: "Search",
+    status: "ok",
+    args: '"foo" in client',
+    preview: '"foo" in client (4 matches)',
+    fallbackLine: '○ Search "foo" in client (4 matches)',
+  });
+
+  group.addRun({
+    status: "ok",
+    args: '"bar" in client',
+    preview: '"bar" in client (no matches)',
+    fallbackLine: '○ Search "bar" in client (no matches)',
+  });
+
+  const rendered = group.render(80).map((line) => stripTestAnsi(line));
+  assert.equal(rendered.length, 3);
+  assert.match(rendered[0] ?? "", /Search/u);
+  assert.match(rendered[1] ?? "", /├─ "foo" in client \(4 matches\)/u);
+  assert.match(rendered[2] ?? "", /└─ "bar" in client \(no matches\)/u);
+});
+
+test("CompactToolGroup marks a grouped failure in its header", () => {
+  const group = new CompactToolGroup({
+    toolName: "read_file",
+    label: "Read",
+    status: "error",
+    args: "missing-a",
+    preview: "missing-a",
+    fallbackLine: "× Read missing-a",
+  });
+  group.addRun({
+    status: "error",
+    args: "missing-b",
+    preview: "missing-b",
+    fallbackLine: "× Read missing-b",
+  });
+
+  const rendered = group.render(80).map((line) => stripTestAnsi(line));
+  assert.match(rendered[0] ?? "", /^× Read/u);
+  assert.match(rendered[1] ?? "", /├─ × missing-a/u);
+  assert.match(rendered[2] ?? "", /└─ × missing-b/u);
+});
+
 function stripTestAnsi(value: string): string {
   return value.replace(/\x1b\[[0-9;]*m/gu, "");
 }
@@ -602,7 +753,11 @@ const testTerminal: Terminal = {
 };
 
 function createTestEditor(provider: AutocompleteProvider): ChumpEditor {
-  const editor = new ChumpEditor(new TUI(testTerminal), testEditorTheme, []);
+  const editor = new ChumpEditor(
+    new TuiMainScreen(testTerminal),
+    testEditorTheme,
+    [],
+  );
   editor.setAutocompleteProvider(provider);
   return editor;
 }
