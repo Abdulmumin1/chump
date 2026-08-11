@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
+from copy import deepcopy
 import hashlib
 import json
 import time
@@ -136,6 +137,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @action
     async def status(self) -> dict[str, Any]:
+        return self._status_snapshot()
+
+    def _status_snapshot(self) -> dict[str, Any]:
         return {
             "agent_id": self.id,
             "workspace_root": str(self._config.workspace_root),
@@ -295,6 +299,21 @@ class ChumpAgent(Agent[dict[str, Any]]):
     @action
     async def event_log(self) -> dict[str, Any]:
         return {"events": list(self._event_log)}
+
+    @action
+    async def session_snapshot(self) -> dict[str, Any]:
+        """Capture transcript, turn state, and replay cursor as one snapshot."""
+        return self.capture_session_snapshot()
+
+    def capture_session_snapshot(self) -> dict[str, Any]:
+        """Synchronously copy all state owned by a session hydration cursor."""
+        return deepcopy(
+            {
+                "status": self._status_snapshot(),
+                "messages": [message.to_dict() for message in self.messages],
+                "events": list(self._event_log),
+            }
+        )
 
     @action
     async def abort_current_turn(self) -> dict[str, Any]:
@@ -917,6 +936,12 @@ class ChumpAgent(Agent[dict[str, Any]]):
             and not getattr(final_step, "tool_calls", [])
             and final_step_text.strip()
         )
+        if final_step is not None and not use_final_step:
+            # Tool-use steps are already persisted in their original order by
+            # ai-query. ``full_response`` accumulates every commentary chunk
+            # across the turn; appending it here would duplicate that text as
+            # one concatenated assistant message at the end of the transcript.
+            return
         expected_text = final_step_text if use_final_step else final_response
         if (
             self._messages
@@ -1032,7 +1057,14 @@ class ChumpAgent(Agent[dict[str, Any]]):
                     "name": call.name,
                 }
             )
-            if event.type == "tool_execution.finished":
+            if event.type == "tool_execution.progress":
+                payload.update(
+                    {
+                        "message": event.message,
+                        "data": event.data,
+                    }
+                )
+            elif event.type == "tool_execution.finished":
                 key = self._tool_lifecycle_key(event)
                 detail = self._take_tool_result_detail(
                     call.name,

@@ -4,7 +4,7 @@ import {
   matchesKey,
   ProcessTerminal,
   type Component,
-  TUI,
+  TuiMainScreen,
 } from "@earendil-works/pi-tui";
 
 import type {
@@ -59,6 +59,7 @@ export type PiPromptReader = {
   setMcpSuggestions: (mcps: SlashCommandMenuContext["mcps"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
+  setSubagentSuggestions: (subagents: string[]) => void;
   setSessionSuggestionLoader: (
     loader: (() => Promise<SessionSummary[]>) | null,
   ) => void;
@@ -93,7 +94,7 @@ export function handleTranscriptToggleKey(
 }
 
 class PiTuiShell implements PiPromptReader {
-  private readonly tui = new TUI(new ProcessTerminal());
+  private readonly tui = new TuiMainScreen(new ProcessTerminal());
   private readonly slots: Record<ChumpTuiSlot, Container> = {
     header: new Container(),
     beforeInput: new Container(),
@@ -229,6 +230,11 @@ class PiTuiShell implements PiPromptReader {
     this.tui.requestRender();
   };
 
+  writeCompactToolRun = (activity: { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string }): void => {
+    this.transcript.appendCompactToolRun(activity);
+    this.tui.requestRender();
+  };
+
   writeReasoning = (content: string): void => {
     this.transcript.appendReasoning(content);
     this.tui.requestRender();
@@ -315,6 +321,12 @@ class PiTuiShell implements PiPromptReader {
   setSessionSuggestions(sessions: SessionSummary[]): void {
     this.slashContext = { ...this.slashContext, sessions };
     this.autocomplete.setSessionSuggestions(sessions);
+    this.refreshAutocomplete();
+  }
+
+  setSubagentSuggestions(subagents: string[]): void {
+    this.slashContext = { ...this.slashContext, subagents };
+    this.autocomplete.setSubagentSuggestions(subagents);
     this.refreshAutocomplete();
   }
 

@@ -10,6 +10,7 @@ export type TerminalOutputSink = {
   clear: () => void;
   createMarkdownStream?: () => TerminalMarkdownStream;
   writeCommandActivity?: (activity: CommandActivity) => void;
+  writeCompactToolRun?: (activity: { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string }) => void;
   writeReasoning?: (content: string) => void;
 };
 
@@ -56,6 +57,14 @@ export function writeReasoning(content: string): boolean {
     return false;
   }
   activeOutputSink.writeReasoning(content);
+  return true;
+}
+
+export function writeCompactToolRun(activity: { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string }): boolean {
+  if (!activeOutputSink?.writeCompactToolRun) {
+    return false;
+  }
+  activeOutputSink.writeCompactToolRun(activity);
   return true;
 }
 

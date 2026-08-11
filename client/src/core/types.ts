@@ -5,6 +5,7 @@ import type {
   TurnStatusPayload,
   UserMessagePayload,
 } from "./events.ts";
+import type { DelegatedSessionProgress } from "./delegated-session-progress.ts";
 
 export type ChumpConfig = {
   agentId: string;
@@ -181,6 +182,12 @@ export type AgentEventLogResponse = {
   events: StoredEvent[];
 };
 
+export type AgentSessionSnapshotResponse = {
+  status: ChumpStatus;
+  messages: StoredMessage[];
+  events: StoredEvent[];
+};
+
 export type SessionSummary = {
   id: string;
   active: boolean;
@@ -265,6 +272,7 @@ export type TranscriptEvent =
   | { type: "tool_call"; payload: Record<string, unknown> }
   | { type: "tool_result"; payload: Record<string, unknown> }
   | { type: "reasoning"; payload: Record<string, unknown> }
+  | { type: "delegated_session_progress"; progress: DelegatedSessionProgress }
   | { type: "agent_status"; payload: AgentStatusPayload }
   | { type: "steering_queue"; payload: SteeringQueuePayload }
   | { type: "turn_status"; payload: TurnStatusPayload }
@@ -283,6 +291,7 @@ export type SlashCommandSuggestion = {
 
 export type SlashCommandMenuContext = {
   sessions: SessionSummary[];
+  subagents?: string[];
   models: ModelSuggestion[];
   skills: SkillSummary[];
   mcps: MCPServerStatusSummary[];
@@ -315,6 +324,7 @@ export type SlashCommand =
   | "clear"
   | "compact"
   | "agent"
+  | "sub"
   | "session"
   | "model"
   | "share"

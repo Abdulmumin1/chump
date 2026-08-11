@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { completeSlashCommand, parseSlashCommand } from "./commands.ts";
+import {
+  completeSlashCommand,
+  parseSlashCommand,
+  resolveSubagentTarget,
+} from "./commands.ts";
 
 const context = {
   sessions: [],
@@ -63,4 +67,31 @@ test("parses the reload command", () => {
     command: "reload",
     args: [],
   });
+});
+
+test("completes sub-agent targets with the main-session parent", () => {
+  const [, , suggestions] = completeSlashCommand("/sub ", {
+    ...context,
+    subagents: ["inspect-api", "review-types"],
+  });
+  assert.deepEqual(
+    suggestions.map((item) => item.command),
+    ["/sub ..", "/sub inspect-api", "/sub review-types"],
+  );
+  assert.deepEqual(parseSlashCommand("/sub .."), {
+    command: "sub",
+    args: [".."],
+  });
+  assert.equal(
+    resolveSubagentTarget("..", "main-session", ["inspect-api"]),
+    "main-session",
+  );
+  assert.equal(
+    resolveSubagentTarget("inspect-api", "main-session", ["inspect-api"]),
+    "inspect-api",
+  );
+  assert.equal(
+    resolveSubagentTarget("missing", "main-session", ["inspect-api"]),
+    null,
+  );
 });

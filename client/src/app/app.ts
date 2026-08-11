@@ -9,7 +9,7 @@ import {
   getAllSessions,
   compactMessages,
   getHealth,
-  getMessages,
+  getSessionSnapshot,
   getSessions,
   getState,
   getStatus,
@@ -24,6 +24,7 @@ import { openEventStream } from "../api/sse.ts";
 import {
   parseSlashCommand,
   printHelp,
+  resolveSubagentTarget,
   switchAgent,
 } from "./commands.ts";
 import { connectProvider, readGlobalAuth, updateGlobalAuth, PROVIDERS } from "./auth.ts";
@@ -48,6 +49,7 @@ import {
   setAgentStatusHook,
   setAssistantTextHook,
   setCompactionStatusHook,
+  setDelegatedSessionProgressHook,
   setReasoningActivityHook,
   setSteeringAcceptedHook,
   setSteeringQueueHook,
@@ -76,8 +78,12 @@ import {
   renderWorkedFor,
 } from "../ui/render.ts";
 import { clearTerminal, writeOutput } from "../ui/terminal.ts";
-import { ToolActivityRenderer } from "../ui/tool-activity.ts";
+import {
+  readStartedSessionId,
+  ToolActivityRenderer,
+} from "../ui/tool-activity.ts";
 import { TranscriptRenderer } from "../ui/transcript.ts";
+import { resolveRemoteTurnHydration } from "../core/remote-turn-hydration.ts";
 import {
   ensureServerTarget,
   parseCliArgs,
@@ -282,12 +288,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   // while the managed server initializes so it does not delay the UI.
   const updateNoticePromise = maybeRenderUpdateNotice({ refresh: true });
   const target = await ensureServerTarget(workspaceRoot, options);
+  const managedRecoveryStrategy = target.metadata?.command_source === "local"
+    ? "direct-first"
+    : "daemon-first";
   let config = loadConfig({
     agentId: options.sessionId ?? undefined,
     serverUrl: target.serverUrl,
     serverSource: target.serverSource,
   });
-  const standaloneRequest = createStandaloneServerRequestRunner(config);
+  const standaloneRequest = createStandaloneServerRequestRunner(
+    config,
+    managedRecoveryStrategy,
+  );
 
   if (options.mode === "status") {
     const [health, status] = await standaloneRequest(
@@ -312,6 +324,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let connectionCountAtQuit: number | null = null;
   let localCompactionActive = false;
   let lastServerEventId = 0;
+  let rootAgentId = config.agentId;
+  const subagentIds = new Set<string>();
+  const resetSubagentNavigation = (nextRootAgentId: string): void => {
+    rootAgentId = nextRootAgentId;
+    subagentIds.clear();
+    promptReader.setSubagentSuggestions([]);
+  };
+  const rememberSubagentId = (sessionId: string): void => {
+    if (!sessionId || sessionId === rootAgentId) {
+      return;
+    }
+    subagentIds.add(sessionId);
+    promptReader.setSubagentSuggestions([...subagentIds]);
+  };
 
   const statusValues = new Map<string, StatusDisplay>();
   const setCoordinatedStatus = (source: string, statusText: StatusDisplay) => {
@@ -329,17 +355,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader.setStatus(null);
   };
 
-  const [health, status, sessions] = await standaloneRequest(
+  const [health, initialSnapshot, sessions] = await standaloneRequest(
     config,
     (requestConfig) => Promise.all([
       getHealth(requestConfig),
-      getStatus(requestConfig),
+      getSessionSnapshot(requestConfig),
       getSessions(requestConfig),
     ]),
   );
+  const status = initialSnapshot.status;
   promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
   promptReader.setRuleBadge(await renderInputBadge(status));
   promptReader.setSessionSuggestions(sessions.sessions);
+  promptReader.setSubagentSuggestions([]);
   promptReader.setModelSuggestions(
     await loadModelSuggestions(health.available_models),
   );
@@ -384,11 +412,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     compactionStatus.stop();
   });
   const refreshCliHydration = async (): Promise<void> => {
-    const [health, status, sessions] = await Promise.all([
+    const [health, snapshot, sessions] = await Promise.all([
       getHealth(config),
-      getStatus(config),
+      getSessionSnapshot(config),
       getSessions(config),
     ]);
+    const turnHydration = resolveRemoteTurnHydration(
+      snapshot.status,
+      snapshot.events,
+    );
+    const status = {
+      ...snapshot.status,
+      turn_running: turnHydration.running,
+      steering_queue: turnHydration.steeringQueue,
+    };
     promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
     promptReader.setRuleBadge(await renderInputBadge(status));
     promptReader.setSessionSuggestions(sessions.sessions);
@@ -401,7 +438,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     sharedTurnSync.applyTurnStatus({
       running: status.turn_running === true,
       steering_queue: status.steering_queue ?? [],
-    });
+    }, turnHydration.activityEvents);
   };
 
   const recoverManagedServerSession = async (): Promise<void> => {
@@ -411,6 +448,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     const recoveredUrl = await recoverManagedServerUrl(
       config.workspaceRoot,
       config.serverUrl,
+      { strategy: managedRecoveryStrategy },
     );
     config.serverUrl = recoveredUrl;
     config.serverSource = "managed";
@@ -429,6 +467,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     config.serverUrl = await reloadManagedServerUrl(
       config.workspaceRoot,
       config.serverUrl,
+      { strategy: managedRecoveryStrategy },
     );
     closeEventStream = await startRecoverableEventStream(config);
     await refreshCliHydration();
@@ -479,6 +518,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     },
     popQueuedLine: () => lineQueue.popLast(),
     removeQueuedDisplay: (content) => promptReader.removeQueuedDisplay(content),
+    onSubagentId: rememberSubagentId,
   });
   sharedTurnSync.install();
   setAssistantTextHook(() => {
@@ -505,9 +545,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     writeOutput(`${renderMuted(updateNotice)}\n`);
   }
   renderLoadedResources(health, config.workspaceRoot);
-  closeEventStream = await startRecoverableEventStream(config);
   if (options.sessionId) {
-    const switchedStatus = await renderSwitchedSession(
+    const hydration = await renderSwitchedSession(
       config,
       shareManager,
       (footer) => promptReader.setFooter(footer),
@@ -520,14 +559,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         skipEmptyTranscript: true,
       },
     );
+    lastServerEventId = hydration.lastEventId;
     sharedTurnSync.applyTurnStatus({
-      running: switchedStatus.turn_running === true,
-      steering_queue: switchedStatus.steering_queue ?? [],
-    });
+      running: hydration.status.turn_running === true,
+      steering_queue: hydration.status.steering_queue ?? [],
+    }, hydration.activityEvents);
+    closeEventStream = await startRecoverableEventStream(config);
     promptReader.setSkillSuggestions((await runServerRequest(
       config,
       getHealth,
     )).skills);
+  } else {
+    closeEventStream = await startRecoverableEventStream(config);
   }
 
   void readInputLoop(
@@ -550,16 +593,26 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         },
         setRuleBadge: (badge) => promptReader.setRuleBadge(badge),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
+        rootAgentId,
+        subagentIds: [...subagentIds],
+        resetSubagentNavigation,
+        stopEventStream: () => {
+          closeEventStream?.();
+          closeEventStream = null;
+        },
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
         setMcpSuggestions: (mcps) => promptReader.setMcpSuggestions(mcps),
-        setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
+        setRemoteTurnStatus: (payload, activityEvents) =>
+          sharedTurnSync.applyTurnStatus(payload, activityEvents),
         runServerRequest,
         reloadManagedServer: reloadManagedServerSession,
-        restartEventStream: async (nextConfig) => {
+        restartEventStream: async (nextConfig, resumeAfterEventId) => {
           closeEventStream?.();
           if (nextConfig.agentId !== config.agentId) {
-            lastServerEventId = 0;
+            lastServerEventId = resumeAfterEventId ?? 0;
+          } else if (resumeAfterEventId !== undefined) {
+            lastServerEventId = resumeAfterEventId;
           }
           closeEventStream = await startRecoverableEventStream(nextConfig);
           return closeEventStream;
@@ -605,16 +658,26 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         },
         setRuleBadge: (badge) => promptReader.setRuleBadge(badge),
         setSessionSuggestions: (sessionsList) => promptReader.setSessionSuggestions(sessionsList),
+        rootAgentId,
+        subagentIds: [...subagentIds],
+        resetSubagentNavigation,
+        stopEventStream: () => {
+          closeEventStream?.();
+          closeEventStream = null;
+        },
         setModelSuggestions: (models) => promptReader.setModelSuggestions(models),
         setSkillSuggestions: (skills) => promptReader.setSkillSuggestions(skills),
         setMcpSuggestions: (mcps) => promptReader.setMcpSuggestions(mcps),
-        setRemoteTurnStatus: (payload) => sharedTurnSync.applyTurnStatus(payload),
+        setRemoteTurnStatus: (payload, activityEvents) =>
+          sharedTurnSync.applyTurnStatus(payload, activityEvents),
         runServerRequest,
         reloadManagedServer: reloadManagedServerSession,
-        restartEventStream: async (nextConfig) => {
+        restartEventStream: async (nextConfig, resumeAfterEventId) => {
           closeEventStream?.();
           if (nextConfig.agentId !== config.agentId) {
-            lastServerEventId = 0;
+            lastServerEventId = resumeAfterEventId ?? 0;
+          } else if (resumeAfterEventId !== undefined) {
+            lastServerEventId = resumeAfterEventId;
           }
           closeEventStream = await startRecoverableEventStream(nextConfig);
           return closeEventStream;
@@ -653,6 +716,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
               );
             },
             (submission) => lineQueue.unshift(submission),
+            rememberSubagentId,
           );
           promptReader.setQueuedLinePopHandler(() => {
             lineQueue.popLast();
@@ -685,6 +749,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
           );
         },
         (submission) => lineQueue.unshift(submission),
+        rememberSubagentId,
       );
       promptReader.setQueuedLinePopHandler(() => {
         lineQueue.popLast();
@@ -757,7 +822,12 @@ async function runPrintPrompt(
     serverUrl: target.serverUrl,
     serverSource: target.serverSource,
   });
-  const runServerRequest = createStandaloneServerRequestRunner(config);
+  const runServerRequest = createStandaloneServerRequestRunner(
+    config,
+    target.metadata?.command_source === "local"
+      ? "direct-first"
+      : "daemon-first",
+  );
 
   const startedAt = Date.now();
   if (options.verbose) {
@@ -851,13 +921,17 @@ async function runPrintPrompt(
   }
 }
 
-function createStandaloneServerRequestRunner(config: ChumpConfig): ServerRequestRunner {
+function createStandaloneServerRequestRunner(
+  config: ChumpConfig,
+  strategy: "daemon-first" | "direct-first" = "daemon-first",
+): ServerRequestRunner {
   const coordinator = new ManagedServerRequestCoordinator(
     () => config,
     async () => {
       config.serverUrl = await recoverManagedServerUrl(
         config.workspaceRoot,
         config.serverUrl,
+        { strategy },
       );
     },
   );
@@ -930,6 +1004,7 @@ async function createPrintVerboseEventLogger(config: ChumpConfig): Promise<{
     (value = "") => {
       process.stderr.write(`${value}\n`);
     },
+    null,
     null,
     config.workspaceRoot,
   );
@@ -1079,11 +1154,14 @@ async function runChatTurn(
   popSteeredDisplay: (content: string) => void,
   setQueuedLinePopHandler: (handler: (() => void) | null) => void,
   requeueSteeredSubmission: (submission: PromptSubmission) => void,
+  onSubagentId: (sessionId: string) => void,
 ): Promise<void> {
   const streamAbortController = new AbortController();
   liveSync.beginLocalTurn();
   let aborting = false;
-  const activityStatus = createActivityStatusController(setStatus);
+  const activityStatus = createActivityStatusController(setStatus, {
+    workspaceRoot: config.workspaceRoot,
+  });
   const abortTurn = (): void => {
     if (aborting) {
       return;
@@ -1132,16 +1210,24 @@ async function runChatTurn(
   });
   setToolActivityHook((preview, payload) => {
     toolCallCount += 1;
+    const sessionId = readStartedSessionId(payload);
+    if (sessionId) onSubagentId(sessionId);
     activityStatus.noteToolActivity(preview, payload);
   });
   setToolCallStreamHook((preview, payload) => {
     activityStatus.noteToolCallPreview(preview, payload);
   });
   setToolResultHook((payload) => {
+    const sessionId = readStartedSessionId(payload);
+    if (sessionId) onSubagentId(sessionId);
     activityStatus.noteToolResult(payload);
   });
   setReasoningActivityHook((payload) => {
     activityStatus.noteReasoningActivity(payload);
+  });
+  setDelegatedSessionProgressHook((progress) => {
+    onSubagentId(progress.sessionId);
+    activityStatus.noteDelegatedSessionProgress(progress);
   });
   let receivedChunk = false;
   let receivedEnd = false;
@@ -1227,6 +1313,7 @@ async function runChatTurn(
     setToolCallStreamHook(null);
     setToolResultHook(null);
     setReasoningActivityHook(null);
+    setDelegatedSessionProgressHook(null);
   }
 
   function removePendingSteeringSubmission(content: string): void {
@@ -1277,10 +1364,14 @@ function createSharedTurnSync(options: {
   setActiveSteerHandler: (handler: ((submission: PromptSubmission) => Promise<boolean>) | null) => void;
   popQueuedLine: () => PromptSubmission | null;
   removeQueuedDisplay: (content: string) => void;
+  onSubagentId: (sessionId: string) => void;
 }): {
   install: () => void;
   dispose: () => void;
-  applyTurnStatus: (payload: Record<string, unknown>) => void;
+  applyTurnStatus: (
+    payload: Record<string, unknown>,
+    activityEvents?: readonly StoredEvent[],
+  ) => void;
   beforeAssistantText: () => void;
 } {
   let remoteTurnRunning = false;
@@ -1292,7 +1383,7 @@ function createSharedTurnSync(options: {
       return;
     }
     options.setStatus(status);
-  });
+  }, { workspaceRoot: options.config().workspaceRoot });
   const remoteSteerHandler = async (submission: PromptSubmission): Promise<boolean> => {
     const baseConfig = options.config();
     const result = await options.runServerRequest(baseConfig, (requestConfig) =>
@@ -1309,7 +1400,10 @@ function createSharedTurnSync(options: {
     return true;
   };
 
-  const applyTurnStatus = (payload: Record<string, unknown>): void => {
+  const applyTurnStatus = (
+    payload: Record<string, unknown>,
+    activityEvents: readonly StoredEvent[] = [],
+  ): void => {
     remoteTurnRunning = payload.running === true;
     if (Array.isArray(payload.steering_queue)) {
       options.promptReader.setQueuedDisplay(
@@ -1322,6 +1416,7 @@ function createSharedTurnSync(options: {
         return;
       }
       activityStatus.start();
+      activityStatus.rehydrate(activityEvents);
       if (!options.getActiveSteerHandler()) {
         options.setActiveSteerHandler(remoteSteerHandler);
       }
@@ -1374,6 +1469,13 @@ function createSharedTurnSync(options: {
       }
       activityStatus.noteToolResult(payload);
     });
+    setDelegatedSessionProgressHook((progress) => {
+      options.onSubagentId(progress.sessionId);
+      if (!remoteTurnRunning || options.getLocalTurnActive()) {
+        return;
+      }
+      activityStatus.noteDelegatedSessionProgress(progress);
+    });
   };
 
   const dispose = (): void => {
@@ -1384,6 +1486,7 @@ function createSharedTurnSync(options: {
     setToolActivityHook(null);
     setToolCallStreamHook(null);
     setToolResultHook(null);
+    setDelegatedSessionProgressHook(null);
   };
 
   const beforeAssistantText = (): void => {
@@ -1544,13 +1647,23 @@ async function handleSlashCommand(
     setLocalCompactionActive: (active: boolean) => void;
     setRuleBadge: (badge: string | null) => void;
     setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void;
+    rootAgentId: string;
+    subagentIds: string[];
+    resetSubagentNavigation: (rootAgentId: string) => void;
+    stopEventStream: () => void;
     setModelSuggestions: (models: Awaited<ReturnType<typeof loadModelSuggestions>>) => void;
     setSkillSuggestions: (skills: Awaited<ReturnType<typeof getHealth>>["skills"]) => void;
     setMcpSuggestions: (mcps: SlashCommandMenuContext["mcps"]) => void;
-    setRemoteTurnStatus: (payload: Record<string, unknown>) => void;
+    setRemoteTurnStatus: (
+      payload: Record<string, unknown>,
+      activityEvents?: readonly StoredEvent[],
+    ) => void;
     runServerRequest: ServerRequestRunner;
     reloadManagedServer: () => Promise<(() => void) | null>;
-    restartEventStream: (config: ChumpConfig) => Promise<(() => void) | null>;
+    restartEventStream: (
+      config: ChumpConfig,
+      resumeAfterEventId?: number,
+    ) => Promise<(() => void) | null>;
   },
 ): Promise<false | "quit" | {
   config: ReturnType<typeof loadConfig>;
@@ -1733,6 +1846,59 @@ async function handleSlashCommand(
         },
       };
     }
+    case "sub": {
+      const target = parsed.args[0];
+      if (!target) {
+        writeOutput(`${renderMuted("usage: /sub [..|<session-id>]")}\n`);
+        break;
+      }
+
+      const nextAgentId = resolveSubagentTarget(
+        target,
+        context.rootAgentId,
+        context.subagentIds,
+      );
+      if (!nextAgentId) {
+        writeOutput(`${renderError(`[sub] unknown sub-agent: ${target}`)}\n`);
+        break;
+      }
+      if (nextAgentId === config.agentId) {
+        writeOutput(`${renderMuted(`[sub] already viewing ${target === ".." ? "main session" : target}`)}\n`);
+        break;
+      }
+
+      context.setRemoteTurnStatus({ running: false, steering_queue: [] });
+      context.stopEventStream();
+      config = switchAgent(config, nextAgentId);
+      clearTerminal();
+      writeOutput(
+        `${renderMuted(
+          nextAgentId === context.rootAgentId
+            ? "switched to main session"
+            : `switched to sub-agent ${nextAgentId}`,
+        )}\n`,
+      );
+      const hydration = await renderSwitchedSession(
+        config,
+        context.shareManager,
+        context.setFooter,
+        context.setRuleBadge,
+        context.setSessionSuggestions,
+        context.runServerRequest,
+      );
+      context.setRemoteTurnStatus({
+        running: hydration.status.turn_running === true,
+        steering_queue: hydration.status.steering_queue ?? [],
+      }, hydration.activityEvents);
+      closeEventStream = await context.restartEventStream(
+        config,
+        hydration.lastEventId,
+      );
+      const health = await request(getHealth);
+      context.setSkillSuggestions(health.skills);
+      context.setModelSuggestions(await loadModelSuggestions(health.available_models));
+      break;
+    }
     case "session": {
       const mode = parsed.args[0];
       if (!mode) {
@@ -1741,12 +1907,13 @@ async function handleSlashCommand(
       }
 
       if (mode === "new") {
+        context.setRemoteTurnStatus({ running: false, steering_queue: [] });
+        context.stopEventStream();
         config = switchAgent(config, createSessionId(config.workspaceRoot));
-        closeEventStream = await context.restartEventStream(config);
         const currentStatus = await request(getStatus);
         clearTerminal();
         writeOutput(`${renderBanner(config, { workspaceRoot: currentStatus.workspace_root })}\n`);
-        const switchedStatus = await renderSwitchedSession(
+        const hydration = await renderSwitchedSession(
           config,
           context.shareManager,
           context.setFooter,
@@ -1758,19 +1925,25 @@ async function handleSlashCommand(
           },
         );
         context.setRemoteTurnStatus({
-          running: switchedStatus.turn_running === true,
-          steering_queue: switchedStatus.steering_queue ?? [],
-        });
+          running: hydration.status.turn_running === true,
+          steering_queue: hydration.status.steering_queue ?? [],
+        }, hydration.activityEvents);
+        closeEventStream = await context.restartEventStream(
+          config,
+          hydration.lastEventId,
+        );
         context.setSkillSuggestions((await request(getHealth)).skills);
         context.setMcpSuggestions((await request(getHealth)).mcp ?? []);
+        context.resetSubagentNavigation(config.agentId);
         break;
       }
 
+      context.setRemoteTurnStatus({ running: false, steering_queue: [] });
+      context.stopEventStream();
       config = switchAgent(config, mode);
-      closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      const switchedStatus = await renderSwitchedSession(
+      const hydration = await renderSwitchedSession(
         config,
         context.shareManager,
         context.setFooter,
@@ -1779,14 +1952,19 @@ async function handleSlashCommand(
         context.runServerRequest,
       );
       context.setRemoteTurnStatus({
-        running: switchedStatus.turn_running === true,
-        steering_queue: switchedStatus.steering_queue ?? [],
-      });
+        running: hydration.status.turn_running === true,
+        steering_queue: hydration.status.steering_queue ?? [],
+      }, hydration.activityEvents);
+      closeEventStream = await context.restartEventStream(
+        config,
+        hydration.lastEventId,
+      );
       const health = await request(getHealth);
       context.setSkillSuggestions(health.skills);
       context.setModelSuggestions(
         await loadModelSuggestions(health.available_models),
       );
+      context.resetSubagentNavigation(config.agentId);
       break;
     }
     case "agent": {
@@ -1795,11 +1973,12 @@ async function handleSlashCommand(
         writeOutput(`${renderMuted("usage: /agent <id>")}\n`);
         break;
       }
+      context.setRemoteTurnStatus({ running: false, steering_queue: [] });
+      context.stopEventStream();
       config = switchAgent(config, nextAgentId);
-      closeEventStream = await context.restartEventStream(config);
       clearTerminal();
       writeOutput(`${renderMuted(`switched session to ${config.agentId}`)}\n`);
-      const switchedStatus = await renderSwitchedSession(
+      const hydration = await renderSwitchedSession(
         config,
         context.shareManager,
         context.setFooter,
@@ -1808,11 +1987,16 @@ async function handleSlashCommand(
         context.runServerRequest,
       );
       context.setRemoteTurnStatus({
-        running: switchedStatus.turn_running === true,
-        steering_queue: switchedStatus.steering_queue ?? [],
-      });
+        running: hydration.status.turn_running === true,
+        steering_queue: hydration.status.steering_queue ?? [],
+      }, hydration.activityEvents);
+      closeEventStream = await context.restartEventStream(
+        config,
+        hydration.lastEventId,
+      );
       context.setSkillSuggestions((await request(getHealth)).skills);
       context.setMcpSuggestions((await request(getHealth)).mcp ?? []);
+      context.resetSubagentNavigation(config.agentId);
       break;
     }
     case "quit":
@@ -1853,24 +2037,42 @@ async function renderSwitchedSession(
   setSessionSuggestions: (sessions: Awaited<ReturnType<typeof getSessions>>["sessions"]) => void,
   runServerRequest: ServerRequestRunner,
   options: { skipEmptyTranscript?: boolean } = {},
-): Promise<Awaited<ReturnType<typeof getStatus>>> {
-  const [health, status, response, sessions] = await runServerRequest(
+): Promise<{
+  status: Awaited<ReturnType<typeof getStatus>>;
+  activityEvents: StoredEvent[];
+  lastEventId: number;
+}> {
+  const [health, snapshot, sessions] = await runServerRequest(
     config,
     (requestConfig) => Promise.all([
       getHealth(requestConfig),
-      getStatus(requestConfig),
-      getMessages(requestConfig),
+      getSessionSnapshot(requestConfig),
       getSessions(requestConfig),
     ]),
   );
+  const status = snapshot.status;
   setFooter(renderSessionFooter(config, status, shareManager.current()));
   setRuleBadge(await renderInputBadge(status));
   setSessionSuggestions(sessions.sessions);
-  if (options.skipEmptyTranscript && response.messages.length === 0) {
-    return status;
+  const turnHydration = resolveRemoteTurnHydration(status, snapshot.events);
+  const hydratedStatus = {
+    ...status,
+    turn_running: turnHydration.running,
+    steering_queue: turnHydration.steeringQueue,
+  };
+  if (options.skipEmptyTranscript && snapshot.messages.length === 0) {
+    return {
+      status: hydratedStatus,
+      activityEvents: turnHydration.activityEvents,
+      lastEventId: turnHydration.lastEventId,
+    };
   }
-  renderSessionTranscript(response.messages, config.workspaceRoot);
-  return status;
+  renderSessionTranscript(snapshot.messages, config.workspaceRoot);
+  return {
+    status: hydratedStatus,
+    activityEvents: turnHydration.activityEvents,
+    lastEventId: turnHydration.lastEventId,
+  };
 }
 
 async function renderInputBadge(

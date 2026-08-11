@@ -24,6 +24,7 @@ const PICKER_COMMANDS = new Set([
   "/thinking",
   "/mcps",
   "/mcp",
+  "/sub",
 ]);
 
 export class ChumpAutocompleteProvider implements AutocompleteProvider {
@@ -65,6 +66,10 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
     this.sessionSuggestionsComplete = false;
     this.sessionSuggestionLoad = null;
     this.sessionSuggestionGeneration += 1;
+  }
+
+  setSubagentSuggestions(subagents: string[]): void {
+    this.context = { ...this.context, subagents };
   }
 
   setSessionSuggestionLoader(
@@ -185,7 +190,7 @@ export class ChumpAutocompleteProvider implements AutocompleteProvider {
     cursorCol: number,
   ): boolean {
     const beforeCursor = (lines[cursorLine] ?? "").slice(0, cursorCol);
-    return /^\/(?:model|session|share|thinking|mcps|mcp)\s/u.test(beforeCursor) ||
+    return /^\/(?:model|session|share|thinking|mcps|mcp|sub)\s/u.test(beforeCursor) ||
       findFileMention(beforeCursor) !== null;
   }
 

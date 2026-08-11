@@ -58,6 +58,41 @@ def test_chump_cloud_resolves_every_model_to_the_same_gateway(monkeypatch):
     assert deepseek.input_modalities == ("text",)
 
 
+@pytest.mark.asyncio
+async def test_chump_cloud_uses_gateway_session_affinity_without_openai_cache_field():
+    captured: dict[str, object] = {}
+
+    class CaptureTransport:
+        async def post(self, url, json, headers=None):
+            captured.update({"url": url, "body": json, "headers": headers})
+            return {
+                "choices": [
+                    {"message": {"content": "ok"}, "finish_reason": "stop"}
+                ]
+            }
+
+    provider = ChumpCloudProvider(
+        api_key="chump-cloud",
+        base_url="https://cloud.chmp.dev/v1",
+    )
+    provider._transport = CaptureTransport()
+    provider.cache_key = "running-session"
+
+    await provider.generate(
+        model="gemini-3.6-flash",
+        messages=[Message(role="user", content="hello")],
+    )
+    deepseek_options = provider._build_request_options(
+        {},
+        {},
+        model="deepseek-v4-flash",
+    )
+
+    assert "prompt_cache_key" not in captured["body"]
+    assert "prompt_cache_key" not in deepseek_options
+    assert captured["headers"]["x-session-affinity"] == "running-session"
+
+
 def test_model_input_modalities_are_declared_centrally():
     assert model_input_modalities(
         "workers_ai", "@cf/moonshotai/kimi-k2.6"

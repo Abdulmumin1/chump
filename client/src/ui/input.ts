@@ -26,6 +26,7 @@ export type PromptReader = {
   setMcpSuggestions: (mcps: SlashCommandMenuContext["mcps"]) => void;
   setAbortHandler: (handler: (() => void) | null) => void;
   setSessionSuggestions: (sessions: SessionSummary[]) => void;
+  setSubagentSuggestions: (subagents: string[]) => void;
   setSessionSuggestionLoader: (
     loader: (() => Promise<SessionSummary[]>) | null,
   ) => void;
@@ -83,6 +84,7 @@ function createFallbackPromptReader(fallbackRl: Interface | null): PromptReader 
     setMcpSuggestions: () => {},
     setAbortHandler: () => {},
     setSessionSuggestions: () => {},
+    setSubagentSuggestions: () => {},
     setSessionSuggestionLoader: () => {},
     setStatus: () => {},
     setFooter: () => {},

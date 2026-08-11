@@ -175,7 +175,7 @@ function asMarkdownQuote(content: string): string {
     .join("\n");
 }
 
-function mergeReasoningText(existing: string, incoming: string): string {
+export function mergeReasoningText(existing: string, incoming: string): string {
   const normalized = normalizeChunk(incoming, existing.length === 0);
   if (!normalized.trim()) {
     return existing;
@@ -184,14 +184,36 @@ function mergeReasoningText(existing: string, incoming: string): string {
   if (!appended) {
     return existing;
   }
-  return existing + appended;
+  return existing + reasoningSummaryBoundary(existing, appended) + appended;
+}
+
+export function renderReasoningActivityPreview(value: string): string | null {
+  const latest = cleanReasoningText(value)
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:#+\s*)?\*{0,2}/u, "").replace(/\*{0,2}\s*$/u, "").trim())
+    .filter(Boolean)
+    .at(-1);
+  if (!latest) {
+    return null;
+  }
+  const clipped = latest.length > 120 ? `${latest.slice(0, 119).trimEnd()}…` : latest;
+  return `${renderThinkingLabel()} ${renderMuted(clipped)}`;
+}
+
+function reasoningSummaryBoundary(existing: string, incoming: string): string {
+  return /\*{2}\s*$/u.test(existing) && /^\s*\*{2}/u.test(incoming)
+    ? "\n\n"
+    : "";
 }
 
 function normalizeChunk(value: string, trimStart: boolean): string {
   const normalized = value
     .replace(/\r\n?/g, "\n")
     .replace(/[^\S\n]+/g, " ")
-    .replace(/ *\n */g, "\n");
+    .replace(/ *\n */g, "\n")
+    // Some providers send adjacent summary headings as one Markdown string
+    // (`**First****Second**`). Keep the headings separate in live output too.
+    .replace(/(?<!\*)\*{4}(?=[^\s*])/gu, "**\n\n**");
   return trimStart ? normalized.trimStart() : normalized;
 }
 
@@ -207,6 +229,12 @@ function appendNovelSuffix(existing: string, incoming: string): string {
   }
   if (incoming.startsWith(existing)) {
     return incoming.slice(existing.length);
+  }
+  // Adjacent summary headings legitimately share the `**` Markdown marker.
+  // Do not treat that marker as streamed-content overlap or the next heading
+  // loses its opener and renders on the previous heading's line.
+  if (reasoningSummaryBoundary(existing, incoming)) {
+    return incoming;
   }
 
   const tail = existing.slice(-Math.min(existing.length, incoming.length, 1024));

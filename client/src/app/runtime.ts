@@ -229,6 +229,18 @@ export async function ensureServerTarget(
 
   if (options.autoStartServer) {
     await prepareNpmServerRuntime();
+    // A source checkout owns both sides of the client/server protocol. Do not
+    // route it through an already-running installed daemon, which may launch
+    // an older bundled server that does not implement the source client's API.
+    if (resolveLocalServerCommand()) {
+      const started = await ensureManagedServer(workspaceRoot);
+      return {
+        serverUrl: started.metadata.url,
+        serverSource: "managed",
+        note: null,
+        metadata: started.metadata,
+      };
+    }
     try {
       const daemonTarget = await ensureDaemonProjectTarget(workspaceRoot);
       return {
@@ -719,11 +731,28 @@ async function resolveServerCommand(): Promise<ServerCommand> {
     return override;
   }
 
+  const local = resolveLocalServerCommand();
+  if (local) {
+    return local;
+  }
+
   const bundled = resolveBundledServerCommand();
   if (bundled) {
     return bundled;
   }
 
+  if (canInstallServerRuntime()) {
+    const file = await installServerRuntime();
+    return { file, args: [], source: "bundled" };
+  }
+
+  throw new Error(
+    "No chump-server runtime was found.\n\n" +
+      "Reinstall Chump, or set CHUMP_SERVER_BIN to a server executable for development.",
+  );
+}
+
+function resolveLocalServerCommand(): ServerCommand | null {
   const sourcePath = fileURLToPath(import.meta.url);
   const appDir = path.dirname(sourcePath);
   const repoRoot = path.resolve(appDir, "..", "..", "..");
@@ -743,16 +772,7 @@ async function resolveServerCommand(): Promise<ServerCommand> {
     }
     return command;
   }
-
-  if (canInstallServerRuntime()) {
-    const file = await installServerRuntime();
-    return { file, args: [], source: "bundled" };
-  }
-
-  throw new Error(
-    "No chump-server runtime was found.\n\n" +
-      "Reinstall Chump, or set CHUMP_SERVER_BIN to a server executable for development.",
-  );
+  return null;
 }
 
 function resolveServerCommandOverride(): ServerCommand | null {

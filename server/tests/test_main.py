@@ -4,6 +4,7 @@ import json
 import unittest
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -86,6 +87,28 @@ class SessionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["page_size"], 6)
         self.assertEqual(payload["page_size"], 6)
         self.assertEqual(payload["total_pages"], 2)
+
+    async def test_session_snapshot_bypasses_the_active_agent_mailbox(self) -> None:
+        server = object.__new__(ChumpServer)
+        snapshot = {
+            "status": {"turn_running": True},
+            "messages": [],
+            "events": [{"id": 4, "type": "turn_status", "data": {}}],
+        }
+        agent = SimpleNamespace(
+            _state={},
+            capture_session_snapshot=lambda: snapshot,
+        )
+        server.get_or_create = lambda _agent_id: agent
+        server._agents = {
+            "running-child": SimpleNamespace(last_activity=0.0),
+        }
+        request = SimpleNamespace(match_info={"agent_id": "running-child"})
+
+        response = await server.session_snapshot(request)
+
+        self.assertEqual(json.loads(response.text), snapshot)
+        self.assertGreater(server._agents["running-child"].last_activity, 0)
 
 
 if __name__ == "__main__":

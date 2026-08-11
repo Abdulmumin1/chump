@@ -18,12 +18,18 @@ import {
 
 type ToolActivityEmission =
   | { type: "line"; value: string }
-  | { type: "command"; activity: CommandActivity };
+  | { type: "command"; activity: CommandActivity }
+  | { type: "compact"; activity: CompactActivityEmission; suppressLeadingGap?: boolean };
+
+export type CompactActivityEmission = { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string };
 
 export class ToolActivityRenderer {
   private readonly writeLine: (value?: string) => void;
   private readonly writeCommandActivity:
     | ((activity: CommandActivity) => boolean)
+    | null;
+  private readonly writeCompactActivity:
+    | ((activity: CompactActivityEmission) => boolean)
     | null;
   private workspaceRoot: string;
   private capturedOutput: ToolActivityEmission[] | null = null;
@@ -52,11 +58,24 @@ export class ToolActivityRenderer {
   constructor(
     writeLine: (value?: string) => void,
     writeCommandActivity: ((activity: CommandActivity) => boolean) | null = null,
+    writeCompactActivityOrWorkspaceRoot:
+      | ((activity: CompactActivityEmission) => boolean)
+      | string
+      | null = null,
     workspaceRoot = process.cwd(),
   ) {
     this.writeLine = writeLine;
     this.writeCommandActivity = writeCommandActivity;
-    this.workspaceRoot = path.resolve(workspaceRoot);
+    if (typeof writeCompactActivityOrWorkspaceRoot === "function") {
+      this.writeCompactActivity = writeCompactActivityOrWorkspaceRoot;
+      this.workspaceRoot = path.resolve(workspaceRoot);
+    } else if (typeof writeCompactActivityOrWorkspaceRoot === "string") {
+      this.writeCompactActivity = null;
+      this.workspaceRoot = path.resolve(writeCompactActivityOrWorkspaceRoot);
+    } else {
+      this.writeCompactActivity = null;
+      this.workspaceRoot = path.resolve(workspaceRoot);
+    }
   }
 
   setWorkspaceRoot(workspaceRoot: string): void {
@@ -249,7 +268,8 @@ export class ToolActivityRenderer {
       .entries()) {
       for (const [emissionIndex, emission] of result.output.entries()) {
         const suppressLeadingGap = resultIndex > 0 && emissionIndex === 0;
-        this.writeEmission(emission, suppressLeadingGap);
+        const effectiveEmission = emission.type === "compact" && suppressLeadingGap ? { ...emission, suppressLeadingGap } : emission;
+        this.writeEmission(effectiveEmission, suppressLeadingGap);
       }
     }
   }
@@ -295,8 +315,9 @@ export class ToolActivityRenderer {
             ? searchMatches.totalMatched
             : searchMatches.matches.length;
         const countSuffix = ` (${total} match${total === 1 ? "" : "es"})`;
-        this.writeCompactToolLine(
-          `${renderToolDone(label, args)}${renderMuted(countSuffix)}`,
+        const preview = `${args}${countSuffix}`;
+        this.writeCompactEmission(
+          { toolName: "search", label, status: ok, args, preview, fallbackLine: `${renderToolDone(label, args)}${renderMuted(countSuffix)}` }
         );
         const omitted =
           searchMatches.totalMatched > 0
@@ -308,12 +329,12 @@ export class ToolActivityRenderer {
           );
         }
       } else if (ok !== "ok") {
-        this.writeCompactToolLine(
-          renderToolResult(ok, label, visiblePreview),
+        this.writeCompactEmission(
+          { toolName: "search", label, status: ok, args, preview: visiblePreview, fallbackLine: renderToolResult(ok, label, visiblePreview) }
         );
       } else {
-        this.writeCompactToolLine(
-          `${renderToolDone(label, args)}${renderMuted(" (no matches)")}`,
+        this.writeCompactEmission(
+          { toolName: "search", label, status: ok, args, preview: `${args} (no matches)`, fallbackLine: `${renderToolDone(label, args)}${renderMuted(" (no matches)")}` }
         );
       }
       this.activity = true;
@@ -364,7 +385,14 @@ export class ToolActivityRenderer {
           label,
           pending?.args || visiblePreview,
         );
-      this.writeCompactToolLine(line);
+      this.writeCompactEmission({
+        toolName,
+        label,
+        status: ok,
+        args: pending?.args ?? "",
+        preview: ok === "ok" ? pending?.args ?? "" : pending?.args || visiblePreview,
+        fallbackLine: line,
+      });
       this.activity = true;
       return;
     }
@@ -402,6 +430,10 @@ export class ToolActivityRenderer {
     return tool ?? null;
   }
 
+  private writeCompactEmission(activity: CompactActivityEmission): void {
+    this.emitCompact(activity);
+  }
+
   private writeCompactToolLine(line: string): void {
     this.emit(this.compactToolRunActive ? line : `\n${line}`);
     this.compactToolRunActive = true;
@@ -413,6 +445,14 @@ export class ToolActivityRenderer {
       return;
     }
     this.writeLine(value);
+  }
+
+  private emitCompact(activity: CompactActivityEmission): void {
+    if (this.capturedOutput) {
+      this.capturedOutput.push({ type: "compact", activity });
+      return;
+    }
+    this.writeEmission({ type: "compact", activity }, false);
   }
 
   private emitCommand(activity: CommandActivity): void {
@@ -429,6 +469,12 @@ export class ToolActivityRenderer {
   ): void {
     if (emission.type === "command") {
       this.writeCommand(emission.activity, suppressLeadingGap);
+      return;
+    }
+    if (emission.type === "compact") {
+      if (!this.writeCompactActivity?.(emission.activity)) {
+        this.writeCompactToolLine(emission.activity.fallbackLine);
+      }
       return;
     }
     const value = suppressLeadingGap && emission.value.startsWith("\n")
@@ -496,10 +542,142 @@ export function readToolIdentity(payload: Record<string, unknown>): string {
   if (step !== null && index !== null) {
     return `position:${step}:${index}`;
   }
-  const callId = [payload.call_id, payload.tool_call_id, payload.id].find(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
+  const callId = readToolCallId(payload);
   return callId ? `call:${callId}` : "";
+}
+
+export function readToolCallId(payload: Record<string, unknown>): string | null {
+  return [payload.call_id, payload.tool_call_id, payload.id].find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  ) ?? null;
+}
+
+/** Return the child session id carried by a start_session call or result. */
+export type StartedSessionPayload = {
+  name: "start_session";
+  args?: StartedSessionArguments;
+  payload?: StartedSessionArguments;
+  result?: StartedSessionResult | string;
+  preview?: string;
+};
+
+type StartedSessionArguments = {
+  session_id?: string;
+  prompt?: string;
+  provider?: string;
+  model?: string;
+};
+
+type StartedSessionResult = {
+  session_id?: string;
+};
+
+export function readStartedSessionId(
+  value: unknown,
+): string | null {
+  const payload = parseStartedSessionPayload(value);
+  if (!payload) {
+    return null;
+  }
+
+  const args = payload.args ?? payload.payload;
+  const argumentId = args?.session_id;
+  if (typeof argumentId === "string" && argumentId.trim()) {
+    return argumentId.trim();
+  }
+
+  const resultObject = resultObjectFrom(payload.result ?? payload.preview);
+  const resultId = resultObject?.session_id;
+  return typeof resultId === "string" && resultId.trim()
+    ? resultId.trim()
+    : null;
+}
+
+type StartedSessionCandidate = {
+  name?: unknown;
+  tool?: unknown;
+  tool_name?: unknown;
+  args?: unknown;
+  payload?: unknown;
+  result?: unknown;
+  preview?: unknown;
+};
+
+type StartedSessionArgumentsCandidate = {
+  session_id?: unknown;
+  prompt?: unknown;
+  provider?: unknown;
+  model?: unknown;
+};
+
+export function parseStartedSessionPayload(value: unknown): StartedSessionPayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidate = value as StartedSessionCandidate;
+  const name = [candidate.name, candidate.tool, candidate.tool_name].find(
+    (item) => item === "start_session",
+  );
+  if (name !== "start_session") {
+    return null;
+  }
+  const args = startedSessionArgumentsFrom(candidate.args);
+  const payload = startedSessionArgumentsFrom(candidate.payload);
+  const result = resultObjectFrom(
+    typeof candidate.result === "string" || isStartedSessionResult(candidate.result)
+      ? candidate.result
+      : typeof candidate.preview === "string"
+        ? candidate.preview
+        : undefined,
+  );
+  return {
+    name: "start_session",
+    args: args ?? undefined,
+    payload: payload ?? undefined,
+    result: result ?? undefined,
+    preview: typeof candidate.preview === "string" ? candidate.preview : undefined,
+  };
+}
+
+function startedSessionArgumentsFrom(value: unknown): StartedSessionArguments | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidate = value as StartedSessionArgumentsCandidate;
+  return {
+    session_id: optionalString(candidate.session_id),
+    prompt: optionalString(candidate.prompt),
+    provider: optionalString(candidate.provider),
+    model: optionalString(candidate.model),
+  };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isStartedSessionResult(value: unknown): value is StartedSessionResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return typeof (value as { session_id?: unknown }).session_id === "string";
+}
+
+function resultObjectFrom(
+  value: StartedSessionPayload["result"],
+): StartedSessionResult | null {
+  if (isStartedSessionResult(value)) {
+    return { session_id: value.session_id };
+  }
+  if (typeof value !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isStartedSessionResult(parsed)
+      ? { session_id: parsed.session_id }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -571,6 +749,14 @@ function formatReadyToolPreview(
   return formatStreamingToolPreview(toolName, args, workspaceRoot);
 }
 
+export function formatDelegatedToolPreview(
+  toolName: string,
+  args: Record<string, unknown>,
+  workspaceRoot: string,
+): string {
+  return formatReadyToolPreview(toolName, args, workspaceRoot);
+}
+
 function formatSemanticToolPreview(
   toolName: string,
   args: Record<string, unknown>,
@@ -578,6 +764,12 @@ function formatSemanticToolPreview(
 ): string {
   if (toolName === "mcp") {
     return renderLiveActivity("MCP", mcpActivityLabel(args));
+  }
+  if (toolName === "search_models") {
+    return renderLiveActivity(
+      semanticToolLabel(toolName),
+      formatToolArgs(toolName, args, workspaceRoot),
+    );
   }
   const renderedArgs = formatToolArgs(toolName, args, workspaceRoot) || "…";
   const label = semanticToolLabel(toolName);
@@ -592,6 +784,8 @@ function semanticToolLabel(toolName: string): string {
       return "Viewing image";
     case "search":
       return "Searching files";
+    case "search_models":
+      return "Search models";
     case "web_fetch":
       return "Fetching page";
     case "website":
@@ -821,6 +1015,10 @@ export function formatToolArgs(
     return typeof args.query === "string" ? args.query : "";
   }
 
+  if (toolName === "search_models") {
+    return searchModelsActivityLabel(args);
+  }
+
   if (toolName === "skill") {
     const name = skillDisplayName(typeof args.name === "string" ? args.name : "");
     return name;
@@ -900,6 +1098,12 @@ function mcpActivityLabel(args: Record<string, unknown>): string {
   };
   const target = [server, tool].filter(Boolean).join(" / ");
   return [operation[action] ?? "Running", target || query].filter(Boolean).join(" · ");
+}
+
+function searchModelsActivityLabel(args: Record<string, unknown>): string {
+  const provider = typeof args.provider === "string" ? args.provider.trim() : "";
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  return [provider, query].filter(Boolean).join(" · ");
 }
 
 export function compactJson(value: unknown): string {
