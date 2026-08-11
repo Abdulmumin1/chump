@@ -5,6 +5,7 @@ import difflib
 import hashlib
 import os
 import signal
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +37,8 @@ def _truncate_command_output(
     if total_lines <= max_lines and total_bytes <= max_bytes:
         return value
 
+    full_output_path = _write_truncated_command_output(value)
+
     tail_lines = lines[-max_lines:] if lines else []
     visible = "\n".join(tail_lines)
     visible_bytes = len(visible.encode("utf-8"))
@@ -58,9 +61,23 @@ def _truncate_command_output(
     notice = "...[command output truncated"
     if notices:
         notice += f": {'; '.join(notices)}"
+    notice += f"; full output saved to {full_output_path}"
     notice += "]"
 
     return f"{notice}\n\n{visible}" if visible else notice
+
+
+def _write_truncated_command_output(value: str) -> str:
+    handle = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        prefix="chump-command-output-",
+        suffix=".txt",
+        delete=False,
+    )
+    with handle:
+        handle.write(value)
+    return handle.name
 
 
 def _result_text(value: object) -> str:

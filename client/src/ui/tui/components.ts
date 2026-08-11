@@ -16,7 +16,7 @@ import {
 } from "../command-activity.ts";
 import { renderThinkingLabel, renderTuiMuted } from "../render.ts";
 import type { TerminalMarkdownStream } from "../terminal.ts";
-import { renderToolDone } from "../render.ts";
+import { renderToolDone, renderToolResult } from "../render.ts";
 
 export class StreamingText implements Component {
   private value = "";
@@ -252,7 +252,7 @@ export class ToggleableReasoning implements Component {
     markdownTheme: MarkdownTheme,
     visible = true,
   ) {
-    this.markdown = new Markdown(asMarkdownQuote(content), 0, 0, markdownTheme);
+    this.markdown = new Markdown(content, 0, 0, markdownTheme);
     this.visible = visible;
   }
 
@@ -268,19 +268,16 @@ export class ToggleableReasoning implements Component {
     if (!this.visible) {
       return [];
     }
+    const renderWidth = Math.max(1, width);
+    const bodyWidth = Math.max(1, renderWidth - 2);
     return [
       "",
       renderThinkingLabel(),
-      ...this.markdown.render(Math.max(1, width)),
+      ...this.markdown.render(bodyWidth).map((line) =>
+        truncateToWidth(renderTuiMuted(`  ${line}`), renderWidth)
+      ),
     ];
   }
-}
-
-function asMarkdownQuote(content: string): string {
-  return content
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n");
 }
 
 class CachedAnsiLine {
@@ -482,7 +479,10 @@ export class CompactToolGroup implements Component {
     }
 
     // Grouped layout
-    const lines = [truncateToWidth(singleTerminalLine(renderToolDone(this.label, "")), renderWidth)];
+    const header = this.runs.every((run) => run.status === "ok")
+      ? renderToolDone(this.label, "")
+      : renderToolResult("error", this.label, "");
+    const lines = [truncateToWidth(singleTerminalLine(header), renderWidth)];
     for (let i = 0; i < this.runs.length; i++) {
       const run = this.runs[i];
       const isLast = i === this.runs.length - 1;

@@ -166,8 +166,14 @@ class ChumpServer(AgentServer):
     async def session_snapshot(self, request: web.Request) -> web.Response:
         """Read an active session without waiting behind its mailbox action."""
         agent_id = request.match_info["agent_id"]
+        was_warm = agent_id in self._agents
         agent = self.get_or_create(agent_id)
         if agent._state is None:
+            if not was_warm:
+                stored = await agent._storage.get(f"{agent_id}:state")
+                if stored is None:
+                    self._agents.pop(agent_id, None)
+                    raise web.HTTPNotFound()
             await agent.start()
             await self.on_agent_create(agent)
         self._agents[agent_id].last_activity = time.time()

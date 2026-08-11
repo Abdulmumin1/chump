@@ -289,7 +289,7 @@ test("Pi TUI expansion preserves byte-only server truncation warnings", () => {
 test("Pi TUI thinking blocks toggle globally and inherit hidden state", () => {
   const transcript = new TuiTranscript(createTuiMarkdownTheme());
   transcript.appendReasoning("first private thought");
-  assert.match(stripTestAnsi(transcript.render(80).join("\n")), /first private thought/u);
+  assert.match(stripTestAnsi(transcript.render(80).join("\n")), /\n  first private thought/u);
 
   transcript.setThinkingVisible(false);
   assert.doesNotMatch(stripTestAnsi(transcript.render(80).join("\n")), /first private thought/u);
@@ -299,8 +299,22 @@ test("Pi TUI thinking blocks toggle globally and inherit hidden state", () => {
 
   transcript.setThinkingVisible(true);
   const visible = stripTestAnsi(transcript.render(80).join("\n"));
-  assert.match(visible, /first private thought/u);
-  assert.match(visible, /second private thought/u);
+  assert.match(visible, /\n  first private thought/u);
+  assert.match(visible, /\n  second private thought/u);
+  assert.doesNotMatch(visible, /│ first private thought/u);
+
+  const narrow = stripTestAnsi(transcript.render(12).join("\n"));
+  assert.equal(
+    narrow
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .every((line) => line === "Thinking:" || line.startsWith("  ")),
+    true,
+  );
+  assert.equal(
+    transcript.render(161).every((line) => visibleWidth(line) <= 161),
+    true,
+  );
 });
 
 test("Pi TUI transcript shortcuts are consumed without affecting other input", () => {
@@ -681,6 +695,28 @@ test("CompactToolGroup renders grouped tool runs with tree markers", () => {
   assert.match(rendered[0] ?? "", /Search/u);
   assert.match(rendered[1] ?? "", /├─ "foo" in client \(4 matches\)/u);
   assert.match(rendered[2] ?? "", /└─ "bar" in client \(no matches\)/u);
+});
+
+test("CompactToolGroup marks a grouped failure in its header", () => {
+  const group = new CompactToolGroup({
+    toolName: "read_file",
+    label: "Read",
+    status: "error",
+    args: "missing-a",
+    preview: "missing-a",
+    fallbackLine: "× Read missing-a",
+  });
+  group.addRun({
+    status: "error",
+    args: "missing-b",
+    preview: "missing-b",
+    fallbackLine: "× Read missing-b",
+  });
+
+  const rendered = group.render(80).map((line) => stripTestAnsi(line));
+  assert.match(rendered[0] ?? "", /^× Read/u);
+  assert.match(rendered[1] ?? "", /├─ × missing-a/u);
+  assert.match(rendered[2] ?? "", /└─ × missing-b/u);
 });
 
 function stripTestAnsi(value: string): string {

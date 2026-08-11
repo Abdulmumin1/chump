@@ -4,6 +4,7 @@ import unittest
 import tempfile
 from pathlib import Path
 import sys
+import re
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chump_server.patch_tool import AddFilePatch, UpdateFilePatch, parse_patch
 from chump_server.safety import PathResolver, SafetyError
 from chump_server.tools.bash import bind_bash, resolve_command_timeout
+from chump_server.tools.search import bind_search
 from chump_server.tools.view_image import bind_view_image, detect_image_type
 from chump_server.tools._utils import (
     BASH_OUTPUT_BYTE_LIMIT,
@@ -144,6 +146,39 @@ class BashTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "custom-timeout")
 
 
+class SearchToolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_plain_search_falls_back_to_regex_for_regex_queries(self) -> None:
+        calls = []
+
+        class Search:
+            async def content(self, query, **kwargs):
+                calls.append((query, kwargs["mode"]))
+                if kwargs["mode"] == "regex":
+                    return {
+                        "matches": [
+                            {
+                                "path": "client/src/ui/tui.test.ts",
+                                "line": 289,
+                                "column": 1,
+                                "text": "test thinking",
+                            }
+                        ],
+                        "totalMatched": 1,
+                        "totalFiles": 1,
+                    }
+                return {"matches": [], "totalMatched": 0, "totalFiles": 0}
+
+        async def wrap_tool(_name, _payload, runner):
+            return await runner()
+
+        tool = bind_search(Search(), wrap_tool)
+
+        result = await tool.run(query="thinking|Thinking", path="client/src/ui/tui.test.ts")
+
+        self.assertIn("client/src/ui/tui.test.ts:289:1: test thinking", result)
+        self.assertEqual(calls, [("thinking|Thinking", "plain"), ("thinking|Thinking", "regex")])
+
+
 class CommandOutputTruncationTests(unittest.TestCase):
     def test_small_command_output_is_not_truncated(self) -> None:
         output = "\n".join(f"line {index}" for index in range(10))
@@ -161,6 +196,9 @@ class CommandOutputTruncationTests(unittest.TestCase):
         )
         self.assertNotIn("line 0", truncated)
         self.assertIn(f"line {BASH_OUTPUT_LINE_LIMIT + 24}", truncated)
+        full_output_path = _truncated_output_path(truncated)
+        self.assertEqual(full_output_path.read_text(), output)
+        full_output_path.unlink()
 
     def test_command_output_respects_byte_limit(self) -> None:
         line = "x" * (BASH_OUTPUT_BYTE_LIMIT // 2)
@@ -171,6 +209,16 @@ class CommandOutputTruncationTests(unittest.TestCase):
         self.assertIn("command output truncated", truncated)
         self.assertIn(f"showing last {BASH_OUTPUT_BYTE_LIMIT}", truncated)
         self.assertLessEqual(len(truncated.encode("utf-8")), BASH_OUTPUT_BYTE_LIMIT + 256)
+        full_output_path = _truncated_output_path(truncated)
+        self.assertEqual(full_output_path.read_text(), output)
+        full_output_path.unlink()
+
+
+def _truncated_output_path(value: str) -> Path:
+    match = re.search(r"full output saved to ([^\]]+)", value)
+    if match is None:
+        raise AssertionError(f"missing full output path in {value!r}")
+    return Path(match.group(1))
 
 
 class PatchParserTests(unittest.TestCase):

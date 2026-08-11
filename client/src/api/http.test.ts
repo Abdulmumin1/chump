@@ -155,6 +155,44 @@ test("loads every six-item session page only when requested", async () => {
   assert.deepEqual(requestedPages, [1, 2, 3]);
 });
 
+test("never loads or returns more than sixty session suggestions", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedPages: number[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    const page = Number(url.searchParams.get("page"));
+    requestedPages.push(page);
+    const offset = (page - 1) * 6;
+    return Response.json({
+      sessions: Array.from({ length: 6 }, (_, index) => ({
+        id: `session-${offset + index + 1}`,
+        active: false,
+        message_count: 0,
+        event_count: 0,
+        title: null,
+        created_at: null,
+        updated_at: null,
+        last_user_goal: null,
+        last_activity: null,
+        connections: 0,
+      })),
+      page,
+      page_size: 6,
+      total: 600,
+      total_pages: 100,
+    });
+  }) as typeof fetch;
+
+  try {
+    const sessions = await getAllSessions(config);
+    assert.equal(sessions.length, 60);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requestedPages, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+});
+
 test("treats a chat response that closes without end as a transport interruption", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>

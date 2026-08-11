@@ -11,6 +11,7 @@ import type {
   DelegatedSessionProgress,
   DelegatedToolResultEvent,
 } from "../core/delegated-session-progress.ts";
+import { parseDelegatedSessionProgress } from "../core/delegated-session-progress.ts";
 import { parseChumpEvent } from "../core/events.ts";
 import type { StoredEvent } from "../core/types.ts";
 import {
@@ -340,6 +341,13 @@ export function createActivityStatusController(
         return;
       }
       for (const storedEvent of events) {
+        if (storedEvent.type === "tool_execution.progress") {
+          const progress = parseDelegatedSessionProgress(storedEvent.data);
+          if (progress) {
+            this.noteDelegatedSessionProgress(progress);
+          }
+          continue;
+        }
         const event = parseChumpEvent(storedEvent.type, storedEvent.data);
         switch (event?.type) {
           case "assistant_text":

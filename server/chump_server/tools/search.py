@@ -43,14 +43,29 @@ def bind_search(search, wrap_tool):
         ),
     ) -> str:
         async def runner():
+            effective_mode = mode
             result = await search.content(
                 query,
                 path=path,
-                mode=mode,
+                mode=effective_mode,
                 limit=limit,
                 before_context=context,
                 after_context=context,
             )
+            if (
+                mode == "plain"
+                and not result.get("matches", [])
+                and _looks_like_regex(query)
+            ):
+                effective_mode = "regex"
+                result = await search.content(
+                    query,
+                    path=path,
+                    mode=effective_mode,
+                    limit=limit,
+                    before_context=context,
+                    after_context=context,
+                )
             matches = result.get("matches", [])
             if not matches:
                 return ("No matches found.", {"matches": [], "totalMatched": 0, "totalFiles": 0})
@@ -99,3 +114,27 @@ def bind_search(search, wrap_tool):
         )
 
     return search_impl
+
+
+def _looks_like_regex(query: str) -> bool:
+    escaped = False
+    in_character_class = False
+    for character in query:
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if character == "[":
+            in_character_class = True
+            return True
+        if in_character_class:
+            if character == "]":
+                in_character_class = False
+            continue
+        if character in "|^$()+{}":
+            return True
+        if character in ".*?":
+            return True
+    return False

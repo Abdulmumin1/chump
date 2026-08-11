@@ -717,6 +717,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
             },
             (submission) => lineQueue.unshift(submission),
             rememberSubagentId,
+            () => sharedTurnSync.applyTurnStatus({ running: false, steering_queue: [] }),
           );
           promptReader.setQueuedLinePopHandler(() => {
             lineQueue.popLast();
@@ -750,6 +751,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         },
         (submission) => lineQueue.unshift(submission),
         rememberSubagentId,
+        () => sharedTurnSync.applyTurnStatus({ running: false, steering_queue: [] }),
       );
       promptReader.setQueuedLinePopHandler(() => {
         lineQueue.popLast();
@@ -1155,6 +1157,7 @@ async function runChatTurn(
   setQueuedLinePopHandler: (handler: (() => void) | null) => void,
   requeueSteeredSubmission: (submission: PromptSubmission) => void,
   onSubagentId: (sessionId: string) => void,
+  onTurnSettled: () => void,
 ): Promise<void> {
   const streamAbortController = new AbortController();
   liveSync.beginLocalTurn();
@@ -1293,6 +1296,7 @@ async function runChatTurn(
   } finally {
     streamAbortController.abort();
     liveSync.endLocalTurn();
+    onTurnSettled();
     localTranscript.finish();
     activityStatus.stop();
     if (toolCallCount > 1 && !aborting) {
@@ -1726,14 +1730,20 @@ async function handleSlashCommand(
       const status = await request((requestConfig) =>
         setModel(requestConfig, provider, model)
       );
-      await updateGlobalAuth({ provider: status.provider, model: status.model });
+      const modelLabel = `${status.provider}/${status.model}`;
+      const auth = await readGlobalAuth();
+      await updateGlobalAuth({
+        provider: status.provider,
+        model: status.model,
+        recentModels: rememberRecentModel(readRecentModels(auth.recentModels), modelLabel),
+      });
       context.setFooter(renderSessionFooter(config, status, context.shareManager.current()));
       context.setRuleBadge(await renderInputBadge(status));
       const health = await request(getHealth);
       context.setModelSuggestions(
         await loadModelSuggestions(health.available_models),
       );
-      writeOutput(`${renderMuted(`model set to ${status.provider}/${status.model}`)}\n`);
+      writeOutput(`${renderMuted(`model set to ${modelLabel}`)}\n`);
       break;
     }
     case "share": {
@@ -2013,7 +2023,32 @@ async function loadModelSuggestions(
   const providers = Array.from(
     new Set(["chump_cloud", ...Object.keys(auth.credentials ?? {})]),
   );
-  return await listModelChoices(providers, availableModels);
+  const choices = await listModelChoices(providers, availableModels);
+  const recentRank = new Map(
+    readRecentModels(auth.recentModels).map((label, index) => [label, index]),
+  );
+  return [...choices].sort((left, right) => {
+    const leftRank = recentRank.get(left.label) ?? Number.POSITIVE_INFINITY;
+    const rightRank = recentRank.get(right.label) ?? Number.POSITIVE_INFINITY;
+    return leftRank - rightRank;
+  });
+}
+
+function rememberRecentModel(
+  existing: readonly string[],
+  modelLabel: string,
+): string[] {
+  return [
+    modelLabel,
+    ...(existing ?? []).filter((value) => value !== modelLabel),
+  ].slice(0, 20);
+}
+
+function readRecentModels(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 function parseModelSelector(value: string): [string | null, string | null] {

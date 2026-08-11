@@ -10,15 +10,35 @@ test("event-log turn state wins the race with stale status at its replay cursor"
     [
       event(10, "turn_status", { running: true, steering_queue: [] }),
       event(11, "reasoning", { text: "Inspecting lifecycle boundaries" }),
-      event(12, "assistant_text", { content: "raw partial response" }),
+      event(12, "tool_execution.progress", {
+        call_id: "parent-call",
+        step: 1,
+        index: 0,
+        data: {
+          kind: "delegated_session",
+          session_id: "child-session",
+          event: { type: "reasoning", text: "Inspecting child work" },
+        },
+      }),
+      event(13, "assistant_text", { content: "raw partial response" }),
     ],
   );
 
   assert.equal(hydration.running, true);
-  assert.equal(hydration.lastEventId, 12);
+  assert.equal(hydration.lastEventId, 13);
   assert.deepEqual(hydration.activityEvents, [
     event(11, "reasoning", { text: "Inspecting lifecycle boundaries" }),
-    event(12, "assistant_text", { content: "raw partial response" }),
+    event(12, "tool_execution.progress", {
+      call_id: "parent-call",
+      step: 1,
+      index: 0,
+      data: {
+        kind: "delegated_session",
+        session_id: "child-session",
+        event: { type: "reasoning", text: "Inspecting child work" },
+      },
+    }),
+    event(13, "assistant_text", { content: "raw partial response" }),
   ]);
 });
 

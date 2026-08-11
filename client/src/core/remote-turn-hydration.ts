@@ -60,5 +60,6 @@ function isTurnActivityEvent(event: StoredEvent): boolean {
   return event.type === "assistant_text" ||
     event.type === "reasoning" ||
     event.type === "tool_call" ||
-    event.type === "tool_result";
+    event.type === "tool_result" ||
+    event.type === "tool_execution.progress";
 }

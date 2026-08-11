@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.3.0
+
+### Minor Changes
+
+- Add live and resumed sub-agent activity views, compact repeated tool-call groups, improved reasoning presentation and turn status lifecycle handling, recently used model ordering, bounded session suggestions, and reliable session transcript hydration.
+
 ## 0.2.21
 
 ### Patch Changes
