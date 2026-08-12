@@ -27,6 +27,7 @@ export class ProjectRuntimeSupervisor {
   private readonly ensureServer;
   private readonly readServer;
   private readonly stopServer;
+  private readonly starts = new Map<string, Promise<ProjectRuntime | null>>();
 
   constructor(
     projects = new ProjectRegistryStore(),
@@ -39,6 +40,21 @@ export class ProjectRuntimeSupervisor {
   }
 
   async start(projectId: string): Promise<ProjectRuntime | null> {
+    const existing = this.starts.get(projectId);
+    if (existing) return await existing;
+
+    const start = this.startProject(projectId);
+    this.starts.set(projectId, start);
+    try {
+      return await start;
+    } finally {
+      if (this.starts.get(projectId) === start) {
+        this.starts.delete(projectId);
+      }
+    }
+  }
+
+  private async startProject(projectId: string): Promise<ProjectRuntime | null> {
     const project = await this.projects.get(projectId);
     if (!project) return null;
     const result = await this.ensureServer(project.workspacePath);
@@ -76,6 +92,7 @@ export class ProjectRuntimeSupervisor {
     );
     if (failure) throw failure.reason;
   }
+
 }
 
 function runtimeFromMetadata(
