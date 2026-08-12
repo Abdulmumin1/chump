@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.3.1
+
+### Patch Changes
+
+- Use a stable authenticated daemon port and coalesce daemon project runtime starts.
+
 ## 0.3.0
 
 ### Minor Changes
