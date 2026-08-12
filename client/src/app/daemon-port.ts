@@ -1,0 +1,2 @@
+export const DEFAULT_DAEMON_PORT = 38136;
+export const DEFAULT_DAEMON_URL = `http://127.0.0.1:${DEFAULT_DAEMON_PORT}`;

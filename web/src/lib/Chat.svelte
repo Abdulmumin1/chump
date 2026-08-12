@@ -1111,14 +1111,6 @@
             sessionStorage,
             (url) => window.history.replaceState({}, "", url),
         );
-        if (handoff) {
-            rememberDaemonConnection(
-                data.user.id,
-                handoff,
-                sessionStorage,
-                localStorage,
-            );
-        }
         const savedConnection =
             handoff ??
             readPendingDaemonHandoff(localStorage) ??
@@ -1127,13 +1119,21 @@
                 sessionStorage,
                 localStorage,
             );
+        if (savedConnection) {
+            rememberDaemonConnection(
+                data.user.id,
+                savedConnection,
+                sessionStorage,
+                localStorage,
+            );
+        }
         daemonUrl = savedConnection?.url ?? "";
         daemonToken = savedConnection?.token ?? "";
         activeProjectId =
             sessionStorage.getItem("chump:active-project") ?? "";
         if (daemonUrl && daemonToken) {
             void connectToSavedDaemon();
-        } else if (dev) {
+        } else {
             void discoverLocalDaemon()
                 .then((connection) => {
                     if (connection) {
@@ -1144,14 +1144,11 @@
                     if (serverUrl.trim()) {
                         return connectDirectly();
                     }
+                    openConnectModal();
                 })
                 .catch((error) => {
-                    connectionError = toErrorMessage(error);
+                    if (dev) connectionError = toErrorMessage(error);
                 });
-        } else if (serverUrl.trim()) {
-            void connectDirectly();
-        } else {
-            openConnectModal();
         }
 
         return () => {
