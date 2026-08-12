@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.20
+
+- Refresh MCP configuration from shared global and project `.mcp.json` files when clients request health so newly added servers appear in `/mcp` without restarting the running Chump server.
+
 ## 0.1.19
 
 - Stream delegated session progress events from `start_session` so clients can render child-agent thinking, tool calls, tool results, assistant text, step status, and turn errors while the sub-agent is still running.

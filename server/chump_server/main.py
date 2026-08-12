@@ -11,9 +11,10 @@ from aiohttp import web
 
 from .git_utils import get_git_branch
 from .agent import ChumpAgent
-from .config import ChumpConfig, PROVIDER_MODELS, load_config
+from .config import ChumpConfig, PROVIDER_MODELS, load_config, load_global_config, load_repo_config
 from .managed_idle import is_resume_gap
 from .mcp_runtime import MCPManager
+from .mcp_config import load_mcp_server_configs
 from .process_title import set_process_title
 from .resources import ResourceCatalog
 from .search import WorkspaceSearch
@@ -87,6 +88,7 @@ class ChumpServer(AgentServer):
         await self.mcp.close()
 
     async def health(self, request: web.Request) -> web.Response:
+        await self._sync_mcp_config()
         return web.json_response(
             {
                 "status": "ok",
@@ -121,6 +123,16 @@ class ChumpServer(AgentServer):
                 "mcp": self.mcp.status(),
             }
         )
+
+    async def _sync_mcp_config(self) -> None:
+        configs = load_mcp_server_configs(
+            self.chump_config.workspace_root,
+            load_repo_config(self.chump_config.workspace_root),
+            load_global_config(),
+        )
+        await self.mcp.sync_configs(configs)
+        for agent in self._agents.values():
+            agent.refresh_mcp_tools()
 
     async def version(self, request: web.Request) -> web.Response:
         return web.json_response(

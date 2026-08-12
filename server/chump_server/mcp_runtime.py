@@ -257,6 +257,16 @@ class MCPManager:
             task = self._start_task
         await task
 
+    async def sync_configs(self, configs: dict[str, MCPServerConfig]) -> None:
+        await self.start()
+        async with self._change_lock:
+            current = dict(self._configs)
+        for name in sorted(set(current) - set(configs)):
+            await self.remove(name)
+        for name, config in sorted(configs.items()):
+            if current.get(name) != config:
+                await self.upsert(name, config)
+
     async def _start_all(self) -> None:
         enabled = [(name, config) for name, config in self._configs.items() if config.enabled]
         for name, _ in enabled:
