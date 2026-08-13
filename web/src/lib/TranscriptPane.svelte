@@ -3,7 +3,7 @@
     import AssistantTranscriptItem from "$lib/chat/transcript/AssistantTranscriptItem.svelte";
     import ReasoningTranscriptItem from "$lib/chat/transcript/ReasoningTranscriptItem.svelte";
     import TranscriptEmptyState from "$lib/chat/transcript/TranscriptEmptyState.svelte";
-    import BrailleSpinner from "$lib/BrailleSpinner.svelte";
+    import PulseDot from "$lib/PulseDot.svelte";
     import type { TranscriptMessage } from "$lib/chat/types";
     import type { ChumpHealth } from "$lib/chump/types";
 
@@ -30,14 +30,17 @@
         expandedReasoning: Record<string, boolean>;
         onToggleBlock: (id: string) => void;
         onToggleReasoning: (id: string, defaultExpanded?: boolean) => void;
-        reasoningSummary: (text: string) => string;
+        reasoningSummary: (...texts: string[]) => string;
         health?: ChumpHealth | null;
         activeSessionId?: string;
         onOpenConnectModal?: () => void;
         isLoadingSession?: boolean;
     }>();
 
-    function isToolBlock(item: TranscriptMessage, edge: "first" | "last"): boolean {
+    function isToolBlock(
+        item: TranscriptMessage,
+        edge: "first" | "last",
+    ): boolean {
         const block = edge === "first" ? item.blocks[0] : item.blocks.at(-1);
         return block?.kind === "tool-call" || block?.kind === "tool-result";
     }
@@ -101,8 +104,12 @@
                 {:else}
                     <AssistantTranscriptItem
                         {item}
+                        active={isSending && itemIndex === transcript.length - 1}
                         {expandedBlocks}
+                        {expandedReasoning}
                         {onToggleBlock}
+                        {onToggleReasoning}
+                        {reasoningSummary}
                     />
                 {/if}
             </div>
@@ -114,10 +121,10 @@
                 aria-live="polite"
                 data-testid="transcript-working-indicator"
             >
-                <BrailleSpinner
-                    class="font-mono text-[15px] text-text-highlight"
+                <PulseDot
+                    duration="2s"
+                    class="w-2 h-2 text-text-highlight bg-black/60"
                 />
-                <span>Working...</span>
             </div>
         {/if}
     </div>

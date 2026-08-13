@@ -1,5 +1,12 @@
 # chump-server
 
+## Unreleased
+
+- Let delegated `start_session` runs own their full lifecycle: remove child step caps, require a terminal final answer instead of treating tool-only turns as success, and preserve truthful completed or failed delegated-task state when a provider stops before the child replies.
+- Persist `start_session` parent `tool_execution.finished` events durably and treat those terminal lifecycle events as valid snapshot settlement input so rehydrated sessions can recover completed delegated runs even before the final tool result is replayed.
+- Increase interactive session pagination defaults from six to ten entries so session browsers expose more recent history per page without changing the bounded query behavior.
+- Tighten built-in agent guidance around one-time skill loading and tightly scoped delegated-session prompts so child sessions run to completion rather than to an arbitrary step ceiling.
+
 ## 0.1.22
 
 - Restore health checks after sessions are loaded by refreshing MCP tools on the agent held by each server session entry instead of calling the wrapper metadata object.

@@ -168,7 +168,7 @@
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 <span
-                    class="font-mono text-[11px] font-semibold tracking-[0.16em] text-text-highlight"
+                    class="font-mono text-[11px] font-semibold tracking-[0.16em] text-text-secondary"
                     >{block.originalToolName === "write_file" ||
                     block.originalToolName === "create_file"
                         ? "Write file"

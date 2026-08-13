@@ -9,19 +9,19 @@ afterEach(() => {
 });
 
 describe('session listing', () => {
-	it('requests six sessions by default', async () => {
+	it('requests ten sessions by default', async () => {
 		let requestUrl = new URL('http://unused.test');
 		globalThis.fetch = (async (input: string | URL | Request) => {
 			requestUrl = new URL(String(input));
 			return new Response(
-				JSON.stringify({ sessions: [], page: 1, page_size: 6, total: 0, total_pages: 1 }),
+				JSON.stringify({ sessions: [], page: 1, page_size: 10, total: 0, total_pages: 1 }),
 				{ status: 200 }
 			);
 		}) as typeof fetch;
 
 		await getSessions({ kind: 'direct', serverUrl: 'http://127.0.0.1:8000' });
 
-		expect(requestUrl.searchParams.get('limit')).toBe('6');
+		expect(requestUrl.searchParams.get('limit')).toBe('10');
 	});
 });
 

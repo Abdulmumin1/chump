@@ -16,6 +16,10 @@
 </div>
 
 <style>
+    :global(.markdown-body) {
+        font-family: inherit;
+    }
+
     :global(.markdown-body p) {
         margin: 0 0 1rem 0;
     }

@@ -15,50 +15,38 @@ export function buildTranscript(source: StoredMessage[]): TranscriptMessage[] {
         const message = source[index]!;
 
         if (message.role === "assistant" && Array.isArray(message.content)) {
-            let reasoningBuffer = "";
-            const nonReasoningBlocks: TranscriptBlock[] = [];
+            const blocks: TranscriptBlock[] = [];
 
             for (const part of message.content as MessagePart[]) {
                 const candidate = part as Record<string, unknown>;
                 if (candidate.type === "reasoning") {
                     const fragment = asString(candidate.text);
                     if (fragment) {
-                        reasoningBuffer = mergeReasoningText(
-                            reasoningBuffer,
-                            fragment,
-                        );
+                        const previous = blocks.at(-1);
+                        if (previous?.kind === "reasoning") {
+                            previous.text = mergeReasoningText(previous.text, fragment);
+                        } else {
+                            const text = cleanReasoningText(fragment);
+                            if (text) {
+                                blocks.push({ kind: "reasoning", text });
+                            }
+                        }
                     }
                     continue;
                 }
 
-                if (reasoningBuffer) {
-                    pushReasoningMessage(
-                        items,
-                        index,
-                        reasoningBuffer,
-                        Boolean((message as { live?: boolean }).live),
-                    );
-                    reasoningBuffer = "";
-                }
-
-                nonReasoningBlocks.push(formatPartBlock(part));
+                blocks.push(formatPartBlock(part));
             }
 
-            if (reasoningBuffer) {
-                pushReasoningMessage(
-                    items,
-                    index,
-                    reasoningBuffer,
-                    Boolean((message as { live?: boolean }).live),
+            if (blocks.length > 0) {
+                const reasoningOnly = blocks.every(
+                    (block) => block.kind === "reasoning",
                 );
-            }
-
-            if (nonReasoningBlocks.length > 0) {
                 items.push({
-                    id: `${index}-assistant`,
-                    role: "assistant",
-                    label: "Assistant",
-                    blocks: nonReasoningBlocks,
+                    id: `${index}-${reasoningOnly ? "reasoning" : "assistant"}`,
+                    role: reasoningOnly ? "reasoning" : "assistant",
+                    label: reasoningOnly ? "Reasoning" : "Assistant",
+                    blocks,
                     live: (message as { live?: boolean }).live,
                 });
             }
@@ -135,31 +123,37 @@ export function buildTranscript(source: StoredMessage[]): TranscriptMessage[] {
         });
     }
 
-    return coalesceAdjacentToolMessages(items);
+    return coalesceAdjacentActivityMessages(items);
 }
 
-function coalesceAdjacentToolMessages(
+function coalesceAdjacentActivityMessages(
     items: TranscriptMessage[],
 ): TranscriptMessage[] {
     const coalesced: TranscriptMessage[] = [];
 
     for (const item of items) {
-        const toolBlocks = toolOnlyBlocks(item);
+        const activityBlocks = activityOnlyBlocks(item);
         const previous = coalesced.at(-1);
-        const previousToolBlocks = previous ? toolOnlyBlocks(previous) : null;
+        const previousActivityBlocks = previous
+            ? activityOnlyBlocks(previous)
+            : null;
 
-        if (toolBlocks && previous && previousToolBlocks) {
+        if (activityBlocks && previous && previousActivityBlocks) {
+            const blocks = [...previousActivityBlocks, ...activityBlocks];
+            const hasTools = blocks.some(isToolBlock);
             coalesced[coalesced.length - 1] = {
                 ...previous,
-                blocks: [...previousToolBlocks, ...toolBlocks],
+                role: hasTools ? "assistant" : "reasoning",
+                label: hasTools ? "Assistant" : "Reasoning",
+                blocks,
                 live: previous.live || item.live,
             };
             continue;
         }
 
         coalesced.push(
-            toolBlocks && toolBlocks.length !== item.blocks.length
-                ? { ...item, blocks: toolBlocks }
+            activityBlocks && activityBlocks.length !== item.blocks.length
+                ? { ...item, blocks: activityBlocks }
                 : item,
         );
     }
@@ -167,19 +161,34 @@ function coalesceAdjacentToolMessages(
     return coalesced;
 }
 
-function toolOnlyBlocks(item: TranscriptMessage): TranscriptBlock[] | null {
-    if (item.role !== "assistant") return null;
+function activityOnlyBlocks(item: TranscriptMessage): TranscriptBlock[] | null {
+    if (item.role !== "assistant" && item.role !== "reasoning") return null;
 
-    const toolBlocks: TranscriptBlock[] = [];
+    const activityBlocks: TranscriptBlock[] = [];
     for (const block of item.blocks) {
-        if (block.kind === "tool-call" || block.kind === "tool-result") {
-            toolBlocks.push(block);
+        if (block.kind === "reasoning" || isToolBlock(block)) {
+            activityBlocks.push(block);
             continue;
         }
         if (block.kind !== "text" || block.text.trim()) return null;
     }
 
-    return toolBlocks.length > 0 ? toolBlocks : null;
+    return activityBlocks.length > 0 ? activityBlocks : null;
+}
+
+function isToolBlock(block: TranscriptBlock): boolean {
+    return block.kind === "tool-call" || block.kind === "tool-result";
+}
+
+export function isTerminalActivityBlock(block: TranscriptBlock): boolean {
+    if (block.kind === "reasoning") return true;
+    if (!isToolBlock(block)) return false;
+    return (
+        block.status === "completed" ||
+        block.status === "error" ||
+        block.status === "aborted" ||
+        block.hasResult === true
+    );
 }
 
 export function mergeReasoningText(existing: string, incoming: string): string {
@@ -196,30 +205,12 @@ export function mergeReasoningText(existing: string, incoming: string): string {
     return existing + appended;
 }
 
-export function reasoningSummary(text: string): string {
-    const words = text.trim().split(/\s+/).filter(Boolean).length;
-    const seconds = Math.max(1, Math.round(words / 35));
+export function reasoningSummary(...texts: string[]): string {
+    const seconds = texts.reduce((total, text) => {
+        const words = text.trim().split(/\s+/).filter(Boolean).length;
+        return total + Math.max(1, Math.round(words / 35));
+    }, 0);
     return `Thought for ${seconds} second${seconds === 1 ? "" : "s"}`;
-}
-
-function pushReasoningMessage(
-    items: TranscriptMessage[],
-    index: number,
-    reasoningBuffer: string,
-    live: boolean,
-): void {
-    const text = cleanReasoningText(reasoningBuffer);
-    if (!text) {
-        return;
-    }
-
-    items.push({
-        id: `${index}-reasoning-${items.length}`,
-        role: "reasoning",
-        label: "Reasoning",
-        blocks: [{ kind: "reasoning", text }],
-        live,
-    });
 }
 
 function mergeToolResultIntoCall(

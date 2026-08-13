@@ -43,6 +43,7 @@
         ChumpHealth,
         ChumpState,
         ChumpStatus,
+        DelegatedSessionActivity,
         SessionSummary,
         StoredMessage,
     } from "$lib/chump/types";
@@ -103,6 +104,7 @@
     let isConnecting = $state(false);
     let isSending = $state(false);
     let workingSessionIds = $state<string[]>([]);
+    let delegatedActivities = $state<DelegatedSessionActivity[]>([]);
     let isCompacting = $state(false);
     let isLoadingSession = $state(false);
     let connectionError = $state("");
@@ -378,6 +380,12 @@
         },
         set availableModels(value: ModelChoice[]) {
             availableModels = value;
+        },
+        get delegatedActivities() {
+            return delegatedActivities;
+        },
+        set delegatedActivities(value: DelegatedSessionActivity[]) {
+            delegatedActivities = value;
         },
     };
 
@@ -1174,7 +1182,7 @@
     class="flex h-[100dvh] w-full bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
 >
     <div
-        class="hidden md:block h-full shrink-0 transition-[width,opacity] duration-200 ease-in-out {sidebarOpen
+        class="hidden md:flex flex-col h-[100dvh] shrink-0 transition-[width,opacity] duration-200 ease-in-out {sidebarOpen
             ? 'w-64 lg:w-72 border-r border-border-default'
             : 'w-0 overflow-hidden border-none opacity-0'}"
     >
@@ -1218,7 +1226,7 @@
             role="dialog"
             aria-modal="true"
         >
-            <div class="relative w-72 max-w-[80vw] h-full bg-bg-surface-alt border-r border-border-default">
+            <div class="relative w-72 max-w-[80vw] h-full flex flex-col bg-bg-surface-alt border-r border-border-default">
                 <SessionsSidebar
                     {sessions}
                     {sessionPage}
@@ -1334,6 +1342,8 @@
                 {reasoningInfo}
                 {contextUsageLabel}
                 {steeringQueue}
+                {delegatedActivities}
+                onSelectSession={(id) => void sessionController.selectSession(id)}
                 onSend={() => void submitPrompt()}
                 onDeleteSteering={(index) => void deleteSteering(index)}
                 onEditSteering={(index) => void editSteering(index)}

@@ -34,7 +34,6 @@ DEFAULT_MESSAGE_LIMIT = 20
 MAX_MESSAGE_LIMIT = 100
 DEFAULT_EVENT_LIMIT = 20
 MAX_EVENT_LIMIT = 100
-MAX_SESSION_STEPS = 1_000
 
 
 def bind_session_tools(agent, config, wrap_tool):
@@ -131,7 +130,7 @@ def bind_session_tools(agent, config, wrap_tool):
     @tool(
         description=(
             "Start a separate Chump session/thread with an initial prompt and "
-            "optional model, reasoning, and step configuration."
+            "optional model and reasoning configuration."
         )
     )
     async def start_session(
@@ -152,9 +151,6 @@ def bind_session_tools(agent, config, wrap_tool):
             ),
             default=None,
         ),
-        max_steps: int | None = Field(
-            description="Optional maximum agent steps, from 1 to 1000", default=None
-        ),
     ) -> str:
         async def runner() -> str:
             target_id = normalize_session_id(session_id or generated_session_id())
@@ -174,7 +170,6 @@ def bind_session_tools(agent, config, wrap_tool):
                 provider=provider,
                 model=model,
                 reasoning=reasoning,
-                max_steps=max_steps,
             )
 
             async def forward_child_event(event: Event) -> None:
@@ -206,7 +201,6 @@ def bind_session_tools(agent, config, wrap_tool):
                 provider=session_config.provider,
                 model=session_config.model,
                 reasoning=session_config.reasoning,
-                max_steps=session_config.max_steps,
             )
 
             return format_payload(
@@ -224,7 +218,6 @@ def bind_session_tools(agent, config, wrap_tool):
                 "provider": provider,
                 "model": model,
                 "reasoning": reasoning,
-                "max_steps": max_steps,
             },
             runner,
         )
@@ -482,7 +475,6 @@ def resolve_session_config(
     provider: str | None,
     model: str | None,
     reasoning: str | None,
-    max_steps: int | None,
 ) -> ChumpConfig:
     provider_name = normalize_provider_name(provider or config.provider)
     if provider_name not in connected_provider_names(config):
@@ -494,9 +486,6 @@ def resolve_session_config(
         model_name = DEFAULT_MODELS[provider_name]
     else:
         model_name = config.model
-
-    if max_steps is not None and not 1 <= max_steps <= MAX_SESSION_STEPS:
-        raise ValueError(f"max_steps must be between 1 and {MAX_SESSION_STEPS}")
 
     auth_config = load_auth_config()
     apply_auth_environment(auth_config, provider_name)
@@ -518,7 +507,6 @@ def resolve_session_config(
         provider=provider_name,
         model=model_name,
         reasoning=reasoning_config,
-        max_steps=max_steps if max_steps is not None else config.max_steps,
     )
 
 

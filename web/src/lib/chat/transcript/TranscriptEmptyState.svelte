@@ -1,5 +1,6 @@
 <script lang="ts">
     import BrailleSpinner from "$lib/BrailleSpinner.svelte";
+    import PulseDot from "$lib/PulseDot.svelte";
     import PixelGridShader from "$lib/PixelGridShader.svelte";
     import type { ChumpHealth } from "$lib/chump/types";
 
@@ -70,7 +71,7 @@
         </p>
     {:else if isLoadingSession}
         <h1 class="text-[18px] md:text-[20px] font-medium text-text-main mb-2 flex items-center gap-2 justify-center">
-            <BrailleSpinner class="font-mono text-[18px] text-text-highlight" />
+            <PulseDot class="w-2.5 h-2.5 text-text-highlight" />
             Loading session...
         </h1>
         <p class="text-[14px] text-text-tertiary max-w-md">

@@ -9,6 +9,7 @@
 		stageDaemonHandoff
 	} from '$lib/chump/daemon-handoff';
 	import type { DaemonConnection } from '$lib/chump/daemon-api';
+	import { initBodyFont } from '$lib/fonts';
 	import '../app.css';
 
 	let { children } = $props();
@@ -24,6 +25,7 @@
 	};
 
 	onMount(() => {
+		initBodyFont();
 		const publishHandoff = (handoff: DaemonConnection) => {
 			stageDaemonHandoff(localStorage, handoff);
 			dispatchPendingDaemonHandoff(window, handoff);

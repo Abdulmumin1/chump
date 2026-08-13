@@ -146,8 +146,8 @@ class ChumpServer(AgentServer):
     async def sessions(self, request: web.Request) -> web.Response:
         page = parse_positive_int(request.query.get("page", "1"), "page")
         page_size = min(
-            parse_positive_int(request.query.get("limit", "6"), "limit"),
-            6,
+            parse_positive_int(request.query.get("limit", "10"), "limit"),
+            10,
         )
         active_agents = dict(self._agents)
         sessions, total = await asyncio.to_thread(

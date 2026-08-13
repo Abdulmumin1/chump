@@ -137,13 +137,13 @@
 {:else}
     <div>
         <button
-            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none {isMcpTool ? 'bg-text-highlight/5 hover:bg-text-highlight/10' : ''}"
+            class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
             onclick={onToggle}
         >
             <div class="flex items-center gap-3 overflow-hidden">
                 {#if block.originalToolName === "bash" || block.originalToolName === "execute_command"}
                     <span
-                        class="font-mono text-[11px] font-semibold text-text-highlight"
+                        class="font-mono text-[11px] font-semibold text-text-secondary"
                         >$</span
                     >
                     <span
@@ -152,7 +152,7 @@
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >Read file</span
                     >
                     <span
@@ -169,7 +169,7 @@
                     {/if}
                 {:else if isViewImage}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >View image</span
                     >
                     <span
@@ -180,7 +180,7 @@
                     >
                 {:else if block.originalToolName === "search"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >Search</span
                     >
                     {#if block.args?.query}
@@ -188,7 +188,7 @@
                     {/if}
                 {:else if block.originalToolName === "apply_patch"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >Edited</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -199,7 +199,7 @@
                     {/if}
                 {:else if block.originalToolName === "write_file" || block.originalToolName === "create_file"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >Write file</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -210,7 +210,7 @@
                     {/if}
                 {:else if block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >Web</span
                     >
                     {#if block.args?.query || block.args?.url}
@@ -218,7 +218,7 @@
                     {/if}
                 {:else if block.originalToolName === "skill" || block.originalToolName === "load_skill"}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >Skill</span
                     >
                     {#if block.toolName !== block.originalToolName}
@@ -229,7 +229,7 @@
                     {/if}
                 {:else if isMcpTool}
                     <span
-                        class="flex-shrink-0 rounded border border-text-highlight/30 bg-text-highlight/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-[0.12em] text-text-highlight"
+                        class="flex-shrink-0 rounded border border-border-default bg-bg-elevated px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-[0.12em] text-text-secondary"
                         >MCP</span
                     >
                     <span
@@ -244,7 +244,7 @@
                     {/if}
                 {:else if isSessionTool}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >{sessionToolLabel}</span
                     >
                     {#if sessionToolDetail}
@@ -255,7 +255,7 @@
                     {/if}
                 {:else}
                     <span
-                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight"
+                        class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary"
                         >{block.originalToolName || block.toolName || "tool"}</span
                     >
                     {#if block.toolName !== block.originalToolName}

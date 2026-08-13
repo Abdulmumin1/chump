@@ -244,6 +244,28 @@ export type AgentEventLogResponse = {
 	events: StoredEvent[];
 };
 
+export type DelegatedSessionActivity = {
+	parentCallId: string;
+	parentStep: number;
+	parentIndex: number;
+	sessionId: string;
+	model: string | null;
+	phase: string;
+	activeTool: string | null;
+	latestDetail: DelegatedSessionActivityDetail | null;
+	updatedAt: number;
+};
+
+export type DelegatedSessionActivityDetail =
+	| { kind: "reasoning"; text: string }
+	| {
+			kind: "tool";
+			name: string;
+			callId: string;
+			detail: string;
+			status: "running" | "completed" | "error";
+	  };
+
 export type AgentSessionSnapshotResponse = {
 	status: ChumpStatus;
 	messages: StoredMessage[];

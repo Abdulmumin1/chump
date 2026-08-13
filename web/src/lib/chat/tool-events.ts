@@ -14,6 +14,7 @@ const TOOL_EVENT_TYPES = new Set([
     "tool_call",
     "tool_execution.started",
     "tool_execution.finished",
+    "tool_execution.progress",
     "tool_result",
 ]);
 
