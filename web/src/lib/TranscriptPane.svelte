@@ -3,6 +3,7 @@
     import AssistantTranscriptItem from "$lib/chat/transcript/AssistantTranscriptItem.svelte";
     import ReasoningTranscriptItem from "$lib/chat/transcript/ReasoningTranscriptItem.svelte";
     import TranscriptEmptyState from "$lib/chat/transcript/TranscriptEmptyState.svelte";
+    import BrailleSpinner from "$lib/BrailleSpinner.svelte";
     import type { TranscriptMessage } from "$lib/chat/types";
     import type { ChumpHealth } from "$lib/chump/types";
 
@@ -106,5 +107,18 @@
                 {/if}
             </div>
         {/each}
+
+        {#if isSending}
+            <div
+                class="mt-4 flex items-center gap-2 px-2 text-[13px] text-text-tertiary"
+                aria-live="polite"
+                data-testid="transcript-working-indicator"
+            >
+                <BrailleSpinner
+                    class="font-mono text-[15px] text-text-highlight"
+                />
+                <span>Working...</span>
+            </div>
+        {/if}
     </div>
 </div>

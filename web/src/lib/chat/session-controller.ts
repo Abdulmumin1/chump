@@ -1,11 +1,10 @@
 import {
     createSessionId,
-    getEventLog,
     getHealth,
     getMessages,
+    getSessionSnapshot,
     getSessions,
     getState,
-    getStatus,
     normalizeServerUrl,
     openEventStream,
     type ChumpApiTarget,
@@ -250,46 +249,33 @@ export function createSessionController(
         try {
             const apiTarget = state.apiTarget;
             if (!apiTarget) return;
-            const nextStatus = await getStatus(apiTarget, sessionId);
+            const snapshot = await getSessionSnapshot(apiTarget, sessionId);
 
             if (currentToken !== state.loadToken || state.activeSessionId !== sessionId) {
                 return;
             }
 
-            const [nextState, nextMessages] = await Promise.all([
-                getState(apiTarget, sessionId),
-                getMessages(apiTarget, sessionId),
-            ]);
+            const nextState = await getState(apiTarget, sessionId);
 
             if (currentToken !== state.loadToken || state.activeSessionId !== sessionId) {
                 return;
             }
 
-            applyStatus(nextStatus);
+            applyStatus(snapshot.status);
             state.steeringQueue = parseSteeringQueue({
-                items: nextStatus.steering_queue ?? [],
+                items: snapshot.status.steering_queue ?? [],
             });
             state.sessionState = nextState;
-            state.messages = nextMessages.messages;
-            state.lastEventId = 0;
-
-            if (nextStatus.turn_running === true) {
-                try {
-                    const eventLog = await getEventLog(apiTarget, sessionId);
-                    if (
-                        currentToken !== state.loadToken ||
-                        state.activeSessionId !== sessionId
-                    ) {
-                        return;
-                    }
-                    if (eventLog.events.length > 0) {
-                        state.messages = buildMessagesFromEventLog(eventLog.events);
-                        state.lastEventId = eventLog.events.at(-1)?.id ?? 0;
-                    }
-                } catch {
-                    // Fall back to the stored message snapshot if event-log hydration fails.
-                }
+            const unfinishedDurableTurn = eventLogHasUnfinishedTurn(snapshot.events);
+            if (snapshot.status.turn_running === true || unfinishedDurableTurn) {
+                state.messages = buildMessagesFromEventLog(snapshot.events);
+            } else {
+                state.messages = snapshot.messages;
             }
+            state.lastEventId = Math.max(
+                0,
+                ...snapshot.events.map((event) => event.id),
+            );
 
             await callbacks.scrollTranscriptToEnd();
         } catch (error) {
@@ -410,6 +396,7 @@ export function createSessionController(
             return;
         }
 
+        state.stopEvents?.();
         const currentStreamToken = state.streamToken + 1;
         state.streamToken = currentStreamToken;
         state.stopEvents = openEventStream(
@@ -589,4 +576,16 @@ export function createSessionController(
         clearSessionView,
         destroy,
     };
+}
+
+function eventLogHasUnfinishedTurn(
+    events: Array<{ type: string; data: Record<string, unknown> }>,
+): boolean {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (event?.type === "turn_status") {
+            return event.data.running === true;
+        }
+    }
+    return false;
 }

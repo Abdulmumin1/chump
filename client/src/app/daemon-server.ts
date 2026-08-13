@@ -394,7 +394,7 @@ async function handleRequest(
     }
 
     const sessionRouteMatch =
-      /^\/projects\/([^/]+)\/sessions\/([^/]+)\/(state|messages|action\/[^/]+)$/
+      /^\/projects\/([^/]+)\/sessions\/([^/]+)\/(state|messages|session-snapshot|action\/[^/]+)$/
         .exec(url.pathname);
     if (sessionRouteMatch) {
       if (!authorizeBearerHeader(request.headers.authorization, context.authToken)) {
@@ -405,7 +405,7 @@ async function handleRequest(
       const sessionId = decodeURIComponent(sessionRouteMatch[2]!);
       const route = sessionRouteMatch[3]!;
       const allowedMethods =
-        route === "state" || route === "messages"
+        route === "state" || route === "messages" || route === "session-snapshot"
           ? ["GET"]
           : ["POST"];
       if (!allowedMethods.includes(method)) {
@@ -428,7 +428,11 @@ async function handleRequest(
         sessionId,
         {
           method,
-          path: route as "state" | "messages" | `action/${string}`,
+          path: route as
+            | "state"
+            | "messages"
+            | "session-snapshot"
+            | `action/${string}`,
           query: url.search,
           headers: forwardedRequestHeaders(request),
           body,

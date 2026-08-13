@@ -1,7 +1,7 @@
 import type { ManagedServerMetadata } from "../core/types.ts";
 import {
   ensureManagedServer,
-  readManagedServerMetadata,
+  readActiveManagedServerMetadata,
   stopManagedServer,
 } from "./runtime.ts";
 import { ProjectRegistryStore } from "./projects.ts";
@@ -35,7 +35,7 @@ export class ProjectRuntimeSupervisor {
   ) {
     this.projects = projects;
     this.ensureServer = dependencies.ensureServer ?? ensureManagedServer;
-    this.readServer = dependencies.readServer ?? readManagedServerMetadata;
+    this.readServer = dependencies.readServer ?? readActiveManagedServerMetadata;
     this.stopServer = dependencies.stopServer ?? stopManagedServer;
   }
 

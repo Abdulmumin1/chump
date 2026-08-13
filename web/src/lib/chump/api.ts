@@ -2,6 +2,7 @@ import type {
 	ChatAttachment,
 	AgentEventLogResponse,
 	AgentMessagesResponse,
+	AgentSessionSnapshotResponse,
 	AgentStateResponse,
 	ChumpState,
 	ChumpHealth,
@@ -70,6 +71,34 @@ export async function getMessages(target: ChumpApiTarget, agentId: string): Prom
 
 export async function getEventLog(target: ChumpApiTarget, agentId: string): Promise<AgentEventLogResponse> {
 	return await invokeAction<AgentEventLogResponse>(target, agentId, 'event_log');
+}
+
+export async function getSessionSnapshot(
+	target: ChumpApiTarget,
+	agentId: string
+): Promise<AgentSessionSnapshotResponse> {
+	const response = await fetch(`${buildAgentUrl(target, agentId)}/session-snapshot`, {
+		headers: requestHeaders(target)
+	});
+	if (response.ok) {
+		return (await response.json()) as AgentSessionSnapshotResponse;
+	}
+	if (response.status !== 404) {
+		throw new Error(await readErrorResponse(response));
+	}
+
+	// Older direct servers and daemons do not expose the atomic snapshot route.
+	// Restore the session through status, then hydrate through the legacy reads.
+	const status = await getStatus(target, agentId);
+	const [messages, eventLog] = await Promise.all([
+		getMessages(target, agentId),
+		getEventLog(target, agentId)
+	]);
+	return {
+		status,
+		messages: messages.messages,
+		events: eventLog.events
+	};
 }
 
 export async function setModel(

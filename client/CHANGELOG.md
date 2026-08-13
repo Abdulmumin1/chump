@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.3.2
+
+### Patch Changes
+
+- Proxy atomic session snapshots through the local daemon so the web app hydrates a consistent replay cursor before opening its live event stream, reconcile orphaned delegated-session calls from terminal child state, and recover safe project reads when an idle managed runtime exits.
+
 ## 0.3.1
 
 ### Patch Changes

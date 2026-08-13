@@ -674,6 +674,16 @@ export async function readManagedServerMetadata(
   }
 }
 
+export async function readActiveManagedServerMetadata(
+  workspaceRoot: string,
+): Promise<ManagedServerMetadata | null> {
+  const metadata = await readManagedServerMetadata(workspaceRoot);
+  if (!metadata || !(await isServerHealthy(metadata.url))) {
+    return null;
+  }
+  return metadata;
+}
+
 async function writeManagedServerMetadata(
   workspaceRoot: string,
   metadata: ManagedServerMetadata,

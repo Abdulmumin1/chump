@@ -20,6 +20,7 @@ from .resources import ResourceCatalog
 from .search import WorkspaceSearch
 from .server.connections import active_connection_count
 from .server.sessions import stored_sessions
+from .server.session_snapshot import reconcile_delegated_session_snapshot
 
 
 class ChumpServer(AgentServer):
@@ -189,7 +190,12 @@ class ChumpServer(AgentServer):
             await agent.start()
             await self.on_agent_create(agent)
         self._agents[agent_id].last_activity = time.time()
-        return web.json_response(agent.capture_session_snapshot())
+        snapshot = await asyncio.to_thread(
+            reconcile_delegated_session_snapshot,
+            self.chump_config.data_dir / "chump.sqlite3",
+            agent.capture_session_snapshot(),
+        )
+        return web.json_response(snapshot)
 
     def _stored_sessions(
         self,
@@ -238,7 +244,11 @@ class ChumpServer(AgentServer):
             if is_resume_gap(loop_gap, interval, timeout):
                 self._managed_idle_resume_grace_until = now + timeout
                 continue
-            if self._active_connection_count() > 0 or self._active_requests > 0:
+            if (
+                self._active_connection_count() > 0
+                or self._active_requests > 0
+                or self._has_active_turn()
+            ):
                 self._managed_idle_resume_grace_until = None
                 continue
             if (
@@ -264,6 +274,13 @@ class ChumpServer(AgentServer):
 
     def _active_connection_count(self) -> int:
         return active_connection_count(list(self._agents.values()))
+
+    def _has_active_turn(self) -> bool:
+        for meta in self._agents.values():
+            turn = getattr(meta.agent, "_current_turn", None)
+            if turn is not None and not bool(getattr(turn, "done", False)):
+                return True
+        return False
 
 
 def main() -> None:
