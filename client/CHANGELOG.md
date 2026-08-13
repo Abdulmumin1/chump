@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.3.3
+
+### Patch Changes
+
+- Bundle the server health-check hotfix that keeps managed sessions reachable after an agent has been loaded.
+
 ## 0.3.2
 
 ### Patch Changes

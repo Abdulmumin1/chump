@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.22
+
+- Restore health checks after sessions are loaded by refreshing MCP tools on the agent held by each server session entry instead of calling the wrapper metadata object.
+
 ## 0.1.21
 
 - Add atomic session snapshots that reconcile orphaned delegated-session calls against durable child state, preserving truthful active, completed, failed, and aborted lifecycle state after runtime restarts.

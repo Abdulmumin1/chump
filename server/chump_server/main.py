@@ -132,8 +132,8 @@ class ChumpServer(AgentServer):
             load_global_config(),
         )
         await self.mcp.sync_configs(configs)
-        for agent in self._agents.values():
-            agent.refresh_mcp_tools()
+        for meta in self._agents.values():
+            meta.agent.refresh_mcp_tools()
 
     async def version(self, request: web.Request) -> web.Response:
         return web.json_response(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import unittest
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -74,6 +75,32 @@ class ActiveRequestTrackingTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "boom"):
             await server._track_active_requests(request, handler)
         self.assertEqual(server._active_requests, 0)
+
+
+class McpConfigSyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_refreshes_the_agent_owned_by_each_server_entry(self) -> None:
+        server = object.__new__(ChumpServer)
+        refreshed: list[str] = []
+        server.chump_config = SimpleNamespace(workspace_root=Path("/workspace"))
+        sync_configs = AsyncMock()
+        server.mcp = SimpleNamespace(sync_configs=sync_configs)
+        server._agents = {
+            "session-one": SimpleNamespace(
+                agent=SimpleNamespace(
+                    refresh_mcp_tools=lambda: refreshed.append("session-one")
+                )
+            )
+        }
+
+        with (
+            patch("chump_server.main.load_mcp_server_configs", return_value={}),
+            patch("chump_server.main.load_repo_config", return_value={}),
+            patch("chump_server.main.load_global_config", return_value={}),
+        ):
+            await server._sync_mcp_config()
+
+        sync_configs.assert_awaited_once_with({})
+        self.assertEqual(refreshed, ["session-one"])
 
 
 class SessionPaginationParsingTests(unittest.TestCase):
