@@ -25,7 +25,13 @@ export type ProjectSessionDependencies = {
 
 export type SessionRequest = {
   method: string;
-  path: "state" | "messages" | "chat" | "events" | `action/${string}`;
+  path:
+    | "state"
+    | "messages"
+    | "session-snapshot"
+    | "chat"
+    | "events"
+    | `action/${string}`;
   query?: string;
   headers?: Record<string, string>;
   body?: string;
@@ -45,11 +51,15 @@ export class ProjectSessionRouter {
   }
 
   async list(projectId: string, query = ""): Promise<ProjectSessions | null> {
-    const runtime = await this.runtimes.start(projectId);
-    if (!runtime?.serverUrl) return null;
-    const target = new URL(`${runtime.serverUrl}/sessions`);
-    target.search = query;
-    const response = await this.fetchRequest(target.toString());
+    const response = await this.requestProjectRuntime(
+      projectId,
+      (serverUrl) => {
+        const target = new URL(`${serverUrl}/sessions`);
+        target.search = query;
+        return target;
+      },
+    );
+    if (!response) return null;
     if (!response.ok) {
       throw new Error(`project session request failed with ${response.status}`);
     }
@@ -100,19 +110,28 @@ export class ProjectSessionRouter {
     sessionId: string,
     request: SessionRequest,
   ): Promise<Response | null> {
-    const runtime = await this.runtimes.start(projectId);
-    if (!runtime?.serverUrl) return null;
     const sessionPath = encodeURIComponent(sessionId);
-    const target = new URL(
-      `${runtime.serverUrl}/agent/${sessionPath}/${request.path}`,
+    const canRetry =
+      (request.method === "GET" && request.path !== "events") ||
+      request.path === "action/status" ||
+      request.path === "action/event_log";
+    return await this.requestProjectRuntime(
+      projectId,
+      (serverUrl) => {
+        const target = new URL(
+          `${serverUrl}/agent/${sessionPath}/${request.path}`,
+        );
+        if (request.query) target.search = request.query;
+        return target;
+      },
+      {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        signal: request.signal,
+      },
+      canRetry,
     );
-    if (request.query) target.search = request.query;
-    return await this.fetchRequest(target, {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      signal: request.signal,
-    });
   }
 
   async projectRequest(
@@ -120,11 +139,35 @@ export class ProjectSessionRouter {
     path: "health" | "files",
     query = "",
   ): Promise<Response | null> {
+    return await this.requestProjectRuntime(projectId, (serverUrl) => {
+      const target = new URL(`${serverUrl}/${path}`);
+      target.search = query;
+      return target;
+    });
+  }
+
+  private async requestProjectRuntime(
+    projectId: string,
+    targetForServer: (serverUrl: string) => URL,
+    init?: RequestInit,
+    canRetry = true,
+  ): Promise<Response | null> {
     const runtime = await this.runtimes.start(projectId);
     if (!runtime?.serverUrl) return null;
-    const target = new URL(`${runtime.serverUrl}/${path}`);
-    target.search = query;
-    return await this.fetchRequest(target);
+    try {
+      return await this.fetchRequest(targetForServer(runtime.serverUrl), init);
+    } catch (error) {
+      if (!canRetry || init?.signal?.aborted) throw error;
+      const recovered = await this.runtimes.start(projectId);
+      if (!recovered?.serverUrl) return null;
+      if (
+        recovered.serverUrl === runtime.serverUrl &&
+        recovered.pid === runtime.pid
+      ) {
+        throw error;
+      }
+      return await this.fetchRequest(targetForServer(recovered.serverUrl), init);
+    }
   }
 }
 

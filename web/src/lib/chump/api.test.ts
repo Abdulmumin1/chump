@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getSessions, openEventStream } from '$lib/chump/api';
+import { getSessionSnapshot, getSessions, openEventStream } from '$lib/chump/api';
 
 const originalFetch = globalThis.fetch;
 
@@ -87,6 +87,38 @@ describe('event stream replay', () => {
 		} finally {
 			close();
 		}
+	});
+});
+
+describe('session snapshots', () => {
+	it('uses the atomic session hydration endpoint through the daemon', async () => {
+		let requestUrl = '';
+		let requestHeaders: Headers | undefined;
+		globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			requestUrl = String(input);
+			requestHeaders = new Headers(init?.headers);
+			return Response.json({
+				status: { agent_id: 'session-one', turn_running: true },
+				messages: [],
+				events: [{ id: 7, type: 'turn_status', data: { running: true } }]
+			});
+		}) as typeof fetch;
+
+		const snapshot = await getSessionSnapshot(
+			{
+				kind: 'daemon',
+				daemonUrl: 'http://127.0.0.1:38136',
+				token: 'daemon-token',
+				projectId: 'project-one'
+			},
+			'session-one'
+		);
+
+		expect(requestUrl).toBe(
+			'http://127.0.0.1:38136/projects/project-one/sessions/session-one/session-snapshot'
+		);
+		expect(requestHeaders?.get('authorization')).toBe('Bearer daemon-token');
+		expect(snapshot.events.at(-1)?.id).toBe(7);
 	});
 });
 

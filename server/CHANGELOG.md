@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.1.21
+
+- Add atomic session snapshots that reconcile orphaned delegated-session calls against durable child state, preserving truthful active, completed, failed, and aborted lifecycle state after runtime restarts.
+- Keep managed servers alive while parent or delegated turns are active so long-running work is not interrupted by idle shutdown.
+
 ## 0.1.20
 
 - Refresh MCP configuration from shared global and project `.mcp.json` files when clients request health so newly added servers appear in `/mcp` without restarting the running Chump server.

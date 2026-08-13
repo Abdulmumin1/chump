@@ -244,6 +244,12 @@ export type AgentEventLogResponse = {
 	events: StoredEvent[];
 };
 
+export type AgentSessionSnapshotResponse = {
+	status: ChumpStatus;
+	messages: StoredMessage[];
+	events: StoredEvent[];
+};
+
 export type SseEvent = {
 	event: string;
 	data: string;

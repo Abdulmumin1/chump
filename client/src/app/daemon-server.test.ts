@@ -470,7 +470,7 @@ test("forwards project health and file search requests", async (t) => {
   ]);
 });
 
-test("forwards project session state, messages, and actions", async (t) => {
+test("forwards project session snapshots, state, messages, and actions", async (t) => {
   const fixture = await createFixture();
   const token = "test-token-that-is-long-enough-for-auth";
   const store = new ProjectRegistryStore({
@@ -517,7 +517,7 @@ test("forwards project session state, messages, and actions", async (t) => {
   const base =
     `${daemon.url}/projects/${project.id}/sessions/session-one`;
 
-  for (const path of ["state", "messages"]) {
+  for (const path of ["session-snapshot", "state", "messages"]) {
     const response = await fetch(`${base}/${path}`, { headers });
     assert.equal(response.status, 200);
   }
@@ -538,6 +538,13 @@ test("forwards project session state, messages, and actions", async (t) => {
   });
   assert.equal(steerResponse.status, 200);
   assert.deepEqual(forwarded, [
+    {
+      projectId: project.id,
+      sessionId: "session-one",
+      method: "GET",
+      path: "session-snapshot",
+      body: undefined,
+    },
     {
       projectId: project.id,
       sessionId: "session-one",
