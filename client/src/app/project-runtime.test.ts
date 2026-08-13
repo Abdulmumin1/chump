@@ -50,6 +50,36 @@ test("starts, reports, and stops a registered project runtime", async () => {
   assert.equal(await supervisor.start("missing"), null);
 });
 
+test("coalesces concurrent starts for the same project runtime", async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-"));
+  const workspacePath = path.join(rootPath, "workspace");
+  await mkdir(workspacePath);
+  const projects = new ProjectRegistryStore({
+    registryPath: path.join(rootPath, "projects.json"),
+  });
+  const project = await projects.register(workspacePath);
+  let starts = 0;
+  let releaseStart!: () => void;
+  const startBlocked = new Promise<void>((resolve) => {
+    releaseStart = resolve;
+  });
+  const supervisor = new ProjectRuntimeSupervisor(projects, {
+    ensureServer: async (workspace) => {
+      starts += 1;
+      await startBlocked;
+      return { started: true, metadata: createMetadata(workspace) };
+    },
+  });
+
+  const first = supervisor.start(project.id);
+  const second = supervisor.start(project.id);
+  releaseStart();
+
+  const [firstRuntime, secondRuntime] = await Promise.all([first, second]);
+  assert.equal(starts, 1);
+  assert.deepEqual(firstRuntime, secondRuntime);
+});
+
 test("stops every running registered project", async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-"));
   const projects = new ProjectRegistryStore({

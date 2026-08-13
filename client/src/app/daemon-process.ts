@@ -1,8 +1,9 @@
 import { startDaemon } from "./daemon-runner.ts";
+import { DEFAULT_DAEMON_PORT } from "./daemon-port.ts";
 
 export async function runDaemonProcess(): Promise<void> {
   process.title = "Chump Agent (Daemon)";
-  const configuredPort = readConfiguredPort();
+  const configuredPort = readConfiguredDaemonPort();
   const daemon = await startDaemon({
     port: configuredPort,
   });
@@ -20,9 +21,9 @@ export async function runDaemonProcess(): Promise<void> {
   });
 }
 
-function readConfiguredPort(): number | undefined {
+export function readConfiguredDaemonPort(): number {
   const rawPort = process.env.CHUMP_DAEMON_PORT;
-  if (!rawPort) return undefined;
+  if (!rawPort) return DEFAULT_DAEMON_PORT;
   const port = Number(rawPort);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`invalid CHUMP_DAEMON_PORT: ${rawPort}`);

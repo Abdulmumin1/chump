@@ -1,6 +1,9 @@
 import type { SessionsResponse } from "$lib/chump/types";
 import { normalizeServerUrl } from "$lib/chump/api";
 
+export const DEFAULT_DAEMON_PORT = 38136;
+export const DEFAULT_DAEMON_URL = `http://127.0.0.1:${DEFAULT_DAEMON_PORT}`;
+
 export type DaemonProjectStatus =
     | "ready"
     | "starting"
@@ -38,6 +41,9 @@ export type DaemonConnection = {
 };
 
 export async function discoverLocalDaemon(): Promise<DaemonConnection | null> {
+    const directConnection = await discoverDefaultDaemon();
+    if (directConnection) return directConnection;
+
     const response = await fetch("/api/local-daemon/bootstrap", {
         headers: { accept: "application/json" },
         cache: "no-store",
@@ -60,6 +66,28 @@ export async function discoverLocalDaemon(): Promise<DaemonConnection | null> {
         url: connection.url,
         token: connection.token,
     });
+}
+
+export async function discoverDefaultDaemon(): Promise<DaemonConnection | null> {
+    const savedToken = readSavedDaemonToken();
+    if (!savedToken) return null;
+
+    const connection = normalizeDaemonConnection({
+        url: DEFAULT_DAEMON_URL,
+        token: savedToken,
+    });
+    try {
+        const response = await fetch(`${connection.url}/health`, {
+            headers: { accept: "application/json" },
+            cache: "no-store",
+            signal: AbortSignal.timeout(1_000),
+        });
+        if (!response.ok) return null;
+        const health = await response.json() as { service?: unknown };
+        return health.service === "chump-daemon" ? connection : null;
+    } catch {
+        return null;
+    }
 }
 
 export async function listDaemonProjects(
@@ -242,4 +270,23 @@ function readDaemonError(body: string): string {
 function requestSignal(signal?: AbortSignal | null): AbortSignal {
     const timeout = AbortSignal.timeout(10_000);
     return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+function readSavedDaemonToken(): string | null {
+    if (typeof localStorage === "undefined" || typeof sessionStorage === "undefined") {
+        return null;
+    }
+
+    const sessionToken = sessionStorage.getItem("chump:daemon-token")?.trim();
+    if (sessionToken) return sessionToken;
+
+    for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key || !key.startsWith("chump:user:") || !key.endsWith(":daemon-token")) {
+            continue;
+        }
+        const token = localStorage.getItem(key)?.trim();
+        if (token) return token;
+    }
+    return null;
 }

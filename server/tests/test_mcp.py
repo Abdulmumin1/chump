@@ -197,6 +197,21 @@ async def test_manager_discovers_calls_and_closes_stdio_server(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_manager_syncs_new_config_entries(tmp_path: Path) -> None:
+    manager = MCPManager(tmp_path, {})
+    disabled = parse_mcp_server_config(
+        "later",
+        {"command": sys.executable, "enabled": False},
+    )
+
+    await manager.sync_configs({"later": disabled})
+
+    assert manager.status() == [
+        {"name": "later", "type": "local", "status": "disabled", "tools": 0}
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("server_transport", "path", "client_transport"),
     [

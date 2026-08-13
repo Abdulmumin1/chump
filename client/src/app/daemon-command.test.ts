@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_DAEMON_PORT,
+  DEFAULT_DAEMON_URL,
+} from "./daemon-port.ts";
+import {
   daemonSpawnCommand,
   isCompatibleDaemonHealth,
   parseDaemonCommand,
@@ -21,6 +25,11 @@ test("parses daemon commands with a strict grammar", () => {
     () => parseDaemonCommand(["start", "extra"]),
     /unexpected daemon argument/,
   );
+});
+
+test("uses the chmp-derived stable default daemon port", () => {
+  assert.equal(DEFAULT_DAEMON_PORT, 38136);
+  assert.equal(DEFAULT_DAEMON_URL, "http://127.0.0.1:38136");
 });
 
 test("builds daemon spawn commands for source and standalone runtimes", () => {
