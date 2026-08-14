@@ -88,6 +88,23 @@ export type StepStatusPayload = VersionedEventPayload & {
   step: number;
 };
 
+export type DelegatedChildEvent =
+  | { type: "session_starting" }
+  | { type: "reasoning"; text: string }
+  | { type: "tool_call"; name: string; callId: string; args: JsonRecord }
+  | { type: "tool_result"; name: string; callId: string; status: "ok" | "error" }
+  | { type: "assistant_text" }
+  | { type: "status"; phase: "step_start" | "step_finish"; step: number }
+  | { type: "turn_error"; message: string };
+
+export type DelegatedSessionProgress = {
+  parentCallId: string;
+  parentStep: number;
+  parentIndex: number;
+  sessionId: string;
+  event: DelegatedChildEvent;
+};
+
 export type ChumpEvent =
   | { type: "assistant_text"; data: AssistantTextPayload }
   | { type: "user_message"; data: UserMessagePayload }
@@ -186,6 +203,72 @@ export function parseChumpEvent(type: string, data: unknown): ChumpEvent | null 
           isInteger(data.step)
         ? { type, data: versioned as StepStatusPayload }
         : null;
+  }
+}
+
+/** Parse transient delegated-agent progress without adding it to the durable event contract. */
+export function parseDelegatedSessionProgress(
+  value: unknown,
+): DelegatedSessionProgress | null {
+  if (!isRecord(value) || !isRecord(value.data) || value.data.kind !== "delegated_session") {
+    return null;
+  }
+
+  const data = value.data;
+  if (
+    !isString(value.call_id) ||
+    !isInteger(value.step) ||
+    !isInteger(value.index) ||
+    !isString(data.session_id) ||
+    !data.session_id ||
+    !isRecord(data.event)
+  ) {
+    return null;
+  }
+
+  const event = parseDelegatedChildEvent(data.event);
+  return event
+    ? {
+        parentCallId: value.call_id,
+        parentStep: value.step,
+        parentIndex: value.index,
+        sessionId: data.session_id,
+        event,
+      }
+    : null;
+}
+
+function parseDelegatedChildEvent(value: JsonRecord): DelegatedChildEvent | null {
+  if (!isString(value.type)) return null;
+
+  switch (value.type) {
+    case "session_starting":
+      return { type: "session_starting" };
+    case "reasoning":
+      return isString(value.text) ? { type: "reasoning", text: value.text } : null;
+    case "tool_call":
+      return isString(value.name) &&
+          isString(value.call_id) &&
+          isRecord(value.args)
+        ? { type: "tool_call", name: value.name, callId: value.call_id, args: value.args }
+        : null;
+    case "tool_result":
+      return isString(value.name) &&
+          isString(value.call_id) &&
+          (value.status === "ok" || value.status === "error")
+        ? { type: "tool_result", name: value.name, callId: value.call_id, status: value.status }
+        : null;
+    case "assistant_text":
+      return { type: "assistant_text" };
+    case "status":
+      return (value.phase === "step_start" || value.phase === "step_finish") &&
+          isInteger(value.step)
+        ? { type: "status", phase: value.phase, step: value.step }
+        : null;
+    case "turn_error":
+      return isString(value.message) ? { type: "turn_error", message: value.message } : null;
+    default:
+      return null;
   }
 }
 

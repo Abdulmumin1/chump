@@ -158,7 +158,6 @@ async def test_start_session_persists_configured_child_final_answer(
             provider="codex",
             model="gpt-5.6",
             reasoning="none",
-            max_steps=40,
         )
         assert server.list_agents() == ["parent-session", "configured-child"]
         await server.evict("configured-child")
@@ -178,7 +177,7 @@ async def test_start_session_persists_configured_child_final_answer(
     assert inspected["provider"] == "codex"
     assert inspected["model"] == "gpt-5.6"
     assert inspected["reasoning"] is None
-    assert inspected["max_steps"] == 40
+    assert inspected["max_steps"] == 250
     assert inspected["delegated_task_status"] == "completed"
     assert inspected["delegated_task_error"] is None
     assert inspected["messages"][-1] == {
@@ -186,6 +185,74 @@ async def test_start_session_persists_configured_child_final_answer(
         "role": "assistant",
         "text": "Delegated work complete.",
     }
+
+
+@pytest.mark.asyncio
+async def test_delegated_session_ignores_interactive_step_cap_until_final_answer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        max_steps=1,
+        available_providers=("codex",),
+    )
+    resources = ResourceCatalog(tmp_path)
+    child_model = faux(
+        responses=[
+            *[
+                FauxResponse(
+                    tool_calls=[
+                        ToolCall(
+                            f"child-list-sessions-{step}",
+                            "list_sessions",
+                            {"page": 1, "limit": 1},
+                        )
+                    ],
+                    finish_reason="tool_use",
+                )
+                for step in range(9)
+            ],
+            FauxResponse(
+                text="Final delegated report.",
+                chunks=["Final delegated report."],
+            ),
+        ]
+    )
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
+    monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
+    monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
+    monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
+
+    server = AgentServer(ChumpAgent)
+    parent = server.get_or_create("parent-session")
+    await parent.start()
+    try:
+        raw_result = await parent.tools["start_session"].run(
+            execution=_tool_execution_context("start-no-step-cap-child"),
+            prompt="Inspect and report",
+            session_id="no-step-cap-child",
+            provider="codex",
+            model="gpt-5.4",
+        )
+        await server.evict("no-step-cap-child")
+    finally:
+        await server.evict("parent-session")
+
+    result = json.loads(raw_result)
+    inspected = inspect_session_payload(
+        config.data_dir / "chump.sqlite3",
+        session_id="no-step-cap-child",
+        include_messages=True,
+        message_limit=10,
+    )
+
+    assert result["response"] == "Final delegated report."
+    assert inspected["delegated_task_status"] == "completed"
+    assert inspected["messages"][-1]["text"] == "Final delegated report."
 
 
 @pytest.mark.asyncio
@@ -234,7 +301,6 @@ async def test_start_session_forwards_correlated_child_tool_progress(
                             "session_id": "progress-child",
                             "provider": "codex",
                             "model": "gpt-5.4",
-                            "max_steps": 4,
                         },
                     )
                 ],
@@ -286,6 +352,15 @@ async def test_start_session_forwards_correlated_child_tool_progress(
         await server.evict("parent-session")
 
     assert chunks == ["Parent complete."]
+    durable_parent_completions = [
+        data
+        for event, data, _event_id in emitted_events
+        if event == "tool_execution.finished"
+        and data.get("call_id") == "parent-delegation"
+    ]
+    assert len(durable_parent_completions) == 1
+    assert durable_parent_completions[0]["status"] == "ok"
+    assert "progress-child" in durable_parent_completions[0]["preview"]
     progress_payloads = [
         data for event, data, _event_id in emitted_events
         if event == "tool_execution.progress"
@@ -378,7 +453,6 @@ async def test_concurrent_start_sessions_keep_child_progress_scoped_to_each_call
                 session_id="first-child",
                 provider="codex",
                 model="gpt-5.4",
-                max_steps=4,
             ),
             parent.tools["start_session"].run(
                 execution=_progress_execution_context("second-call", second_progress),
@@ -386,7 +460,6 @@ async def test_concurrent_start_sessions_keep_child_progress_scoped_to_each_call
                 session_id="second-child",
                 provider="codex",
                 model="gpt-5.4",
-                max_steps=4,
             ),
         )
 
@@ -454,7 +527,6 @@ async def test_delegated_session_persists_failure_after_tool_step(
                 session_id="failed-child",
                 provider="codex",
                 model="gpt-5.4",
-                max_steps=4,
             )
         await server.evict("failed-child")
     finally:
@@ -477,6 +549,72 @@ async def test_delegated_session_persists_failure_after_tool_step(
         "assistant",
         "tool",
     ]
+
+
+@pytest.mark.asyncio
+async def test_delegated_session_does_not_accept_streamed_tool_step_text_as_final(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        _test_config(tmp_path),
+        provider="codex",
+        model="gpt-5.4",
+        available_providers=("codex",),
+    )
+    resources = ResourceCatalog(tmp_path)
+    child_model = faux(
+        responses=[
+            FauxResponse(
+                text="I will inspect the sessions first.",
+                chunks=["I will inspect the sessions first."],
+                tool_calls=[
+                    ToolCall(
+                        "call-list-sessions",
+                        "list_sessions",
+                        {"page": 1, "limit": 1},
+                    )
+                ],
+                finish_reason="tool_use",
+            ),
+            FauxResponse(error=RuntimeError("provider stopped before final answer")),
+        ]
+    )
+    monkeypatch.setattr(ChumpAgent, "_server_config", config)
+    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
+    monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
+    monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
+    monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
+
+    server = AgentServer(ChumpAgent)
+    parent = server.get_or_create("parent-session")
+    await parent.start()
+    try:
+        with pytest.raises(RuntimeError, match="stopped before final answer"):
+            await parent.tools["start_session"].run(
+                execution=_tool_execution_context("start-no-final-child"),
+                prompt="Investigate before reporting",
+                session_id="no-final-child",
+                provider="codex",
+                model="gpt-5.4",
+            )
+        await server.evict("no-final-child")
+    finally:
+        await server.evict("parent-session")
+
+    inspected = inspect_session_payload(
+        config.data_dir / "chump.sqlite3",
+        session_id="no-final-child",
+        include_messages=True,
+        message_limit=10,
+    )
+    assert inspected["delegated_task_status"] == "failed"
+    assert inspected["delegated_task_error"] == "provider stopped before final answer"
+    assert inspected["messages"][-1]["role"] == "tool"
+    assert not any(
+        "did not produce a final answer" in message.get("text", "")
+        for message in inspected["messages"]
+    )
 
 
 @pytest.mark.asyncio
@@ -520,7 +658,6 @@ async def test_delegated_session_persists_abort_before_call_returns(
             provider="codex",
             model="gpt-5.4",
             reasoning=None,
-            max_steps=4,
         )
     )
     try:

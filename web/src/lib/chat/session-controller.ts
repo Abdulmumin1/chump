@@ -1,7 +1,6 @@
 import {
     createSessionId,
     getHealth,
-    getMessages,
     getSessionSnapshot,
     getSessions,
     getState,
@@ -13,13 +12,16 @@ import type {
     ChumpHealth,
     ChumpState,
     ChumpStatus,
+    DelegatedSessionActivity,
     SessionSummary,
     StoredMessage,
     SseEvent,
 } from "$lib/chump/types";
 import {
     isChumpEventType,
+    parseDelegatedSessionProgress,
     parseChumpEvent,
+    type DelegatedSessionProgress,
 } from "$lib/chump/events";
 import { listModelChoices, type ModelChoice } from "$lib/models";
 import {
@@ -30,6 +32,7 @@ import {
 } from "$lib/chat/events";
 import { isToolLifecycleEvent } from "$lib/chat/tool-events";
 import { parseJson, toErrorMessage } from "$lib/chat/helpers";
+import { mergeReasoningText } from "$lib/chat/transcript";
 import type { SteeringQueueItem } from "$lib/chat/types";
 
 export type SessionControllerState = {
@@ -78,6 +81,8 @@ export type SessionControllerState = {
     set stopEvents(value: (() => void) | null);
     get availableModels(): ModelChoice[];
     set availableModels(value: ModelChoice[]);
+    get delegatedActivities(): DelegatedSessionActivity[];
+    set delegatedActivities(value: DelegatedSessionActivity[]);
 };
 
 export function createSessionController(
@@ -222,6 +227,7 @@ export function createSessionController(
         state.sessionState = null;
         state.messages = [];
         state.steeringQueue = [];
+        state.delegatedActivities = [];
         state.isSending = false;
         state.isCompacting = false;
         state.lastEventId = 0;
@@ -363,6 +369,7 @@ export function createSessionController(
         state.sessionState = null;
         state.messages = [];
         state.steeringQueue = [];
+        state.delegatedActivities = [];
         state.isSending = false;
         state.isCompacting = false;
         state.lastEventId = 0;
@@ -442,6 +449,17 @@ export function createSessionController(
             return;
         }
 
+        if (event.event === "tool_execution.progress") {
+            const progress = parseDelegatedSessionProgress(rawPayload);
+            if (progress) {
+                state.delegatedActivities = applyDelegatedProgress(
+                    state.delegatedActivities,
+                    progress,
+                );
+            }
+            return;
+        }
+
         const chumpEvent = parseChumpEvent(event.event, rawPayload);
         if (isChumpEventType(event.event) && !chumpEvent) {
             return;
@@ -450,6 +468,7 @@ export function createSessionController(
 
         if (chumpEvent?.type === "turn_error") {
             state.connectionError = chumpEvent.data.message;
+            state.delegatedActivities = [];
             return;
         }
 
@@ -491,16 +510,26 @@ export function createSessionController(
                 });
             }
             if (!state.isSending) {
-                void refreshMessages(sessionId, currentStreamToken);
+                void refreshCompletedTurn(sessionId, currentStreamToken);
                 void refreshSessionsList();
             }
             return;
         }
 
+        if (
+            (event.event === "tool_result" || event.event === "tool_execution.finished") &&
+            payload
+        ) {
+            state.delegatedActivities = settleDelegatedActivity(
+                state.delegatedActivities,
+                payload,
+            );
+        }
+
         if (event.event === "compaction_status" && payload) {
             state.isCompacting = payload.running === true;
             if (!state.isCompacting) {
-                void refreshMessages(sessionId, currentStreamToken);
+                void refreshCompletedTurn(sessionId, currentStreamToken);
                 void refreshSessionsList();
             }
             return;
@@ -532,7 +561,7 @@ export function createSessionController(
         }
     }
 
-    async function refreshMessages(
+    async function refreshCompletedTurn(
         sessionId: string,
         currentStreamToken: number,
     ): Promise<void> {
@@ -540,11 +569,23 @@ export function createSessionController(
         if (!apiTarget) return;
 
         try {
-            const response = await getMessages(apiTarget, sessionId);
-            if (!isCurrentStream(sessionId, currentStreamToken)) return;
-            state.messages = response.messages;
+            const snapshot = await getSessionSnapshot(apiTarget, sessionId);
+            if (
+                !isCurrentStream(sessionId, currentStreamToken) ||
+                state.isSending
+            ) {
+                return;
+            }
+            state.messages = snapshot.messages;
         } catch {
             // Non-fatal: live messages are still displayed.
+        } finally {
+            if (
+                isCurrentStream(sessionId, currentStreamToken) &&
+                !state.isSending
+            ) {
+                state.delegatedActivities = [];
+            }
         }
     }
 
@@ -576,6 +617,181 @@ export function createSessionController(
         clearSessionView,
         destroy,
     };
+}
+
+function applyDelegatedProgress(
+    current: DelegatedSessionActivity[],
+    progress: DelegatedSessionProgress,
+): DelegatedSessionActivity[] {
+    const key = `${progress.parentCallId}:${progress.parentStep}:${progress.parentIndex}`;
+    const existing = current.find(
+        (activity) =>
+            `${activity.parentCallId}:${activity.parentStep}:${activity.parentIndex}` === key,
+    );
+    const event = progress.event;
+    let phase = existing?.phase ?? "Starting delegated task";
+    let activeTool = existing?.activeTool ?? null;
+    let latestDetail = existing?.latestDetail ?? null;
+    if (event.type === "reasoning") {
+        phase = "Thinking";
+        activeTool = null;
+        const previousReasoning =
+            latestDetail?.kind === "reasoning" ? latestDetail.text : "";
+        const incomingReasoning = summarizeDelegatedReasoning(event.text);
+        const text = summarizeDelegatedReasoning(
+            mergeReasoningText(
+                previousReasoning,
+                previousReasoning && /^\s/.test(event.text)
+                    ? ` ${incomingReasoning}`
+                    : incomingReasoning,
+            ),
+        );
+        if (text) {
+            latestDetail = { kind: "reasoning", text };
+        }
+    } else if (event.type === "tool_call") {
+        phase = "Working";
+        activeTool = event.name;
+        latestDetail = {
+            kind: "tool",
+            name: event.name,
+            callId: event.callId,
+            detail: delegatedToolDetail(event.name, event.args),
+            status: "running",
+        };
+    } else if (event.type === "tool_result") {
+        phase = event.status === "ok" ? "Working" : `Failed: ${event.name}`;
+        activeTool = null;
+        latestDetail = {
+            kind: "tool",
+            name: event.name,
+            callId: event.callId,
+            detail:
+                latestDetail?.kind === "tool" &&
+                latestDetail.callId === event.callId
+                    ? latestDetail.detail
+                    : "",
+            status: event.status === "ok" ? "completed" : "error",
+        };
+    } else if (event.type === "assistant_text") {
+        phase = "Writing response";
+        activeTool = null;
+    } else if (event.type === "status" && event.phase === "step_start") {
+        phase = `Working on step ${event.step}`;
+    } else if (event.type === "turn_error") {
+        phase = `Failed: ${event.message}`;
+        activeTool = null;
+        latestDetail = null;
+    }
+
+    const next: DelegatedSessionActivity = {
+        parentCallId: progress.parentCallId,
+        parentStep: progress.parentStep,
+        parentIndex: progress.parentIndex,
+        sessionId: progress.sessionId,
+        model: existing?.model ?? null,
+        phase,
+        activeTool,
+        latestDetail,
+        updatedAt: Date.now(),
+    };
+    return existing
+        ? current.map((activity) =>
+              `${activity.parentCallId}:${activity.parentStep}:${activity.parentIndex}` === key
+                  ? next
+                  : activity,
+          )
+        : [...current, next];
+}
+
+function summarizeDelegatedReasoning(value: string): string {
+    return value
+        .replace(/\r?\n+/g, " ")
+        .replace(/[*_`#>]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function delegatedToolDetail(
+    name: string,
+    args: Record<string, unknown>,
+): string {
+    const stringArg = (...keys: string[]): string => {
+        for (const key of keys) {
+            const value = args[key];
+            if (typeof value === "string" && value.trim()) return value.trim();
+        }
+        return "";
+    };
+
+    if (name === "bash" || name === "execute_command") {
+        return stringArg("command", "cmd");
+    }
+    if (
+        name === "read_file" ||
+        name === "view_file" ||
+        name === "view_image" ||
+        name === "write_file" ||
+        name === "create_file" ||
+        name === "edit_file"
+    ) {
+        const path = stringArg("file_path", "path");
+        if (!path || (name !== "read_file" && name !== "view_file")) return path;
+
+        const offset = typeof args.offset === "number" ? `L${args.offset}` : "";
+        const limit = typeof args.limit === "number" ? `+${args.limit}` : "";
+        return [path, [offset, limit].filter(Boolean).join(" ")]
+            .filter(Boolean)
+            .join(" · ");
+    }
+    if (name === "apply_patch") {
+        const patch = stringArg("patch_text", "patch", "diff");
+        const file = patch.match(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/m)?.[1];
+        return file ?? "Applying file changes";
+    }
+    if (name === "search") {
+        const query = stringArg("query");
+        const path = stringArg("path");
+        return [query, path ? `in ${path}` : ""].filter(Boolean).join(" ");
+    }
+    if (name === "website" || name === "web_search") {
+        return stringArg("query");
+    }
+    if (name === "web_fetch") {
+        return stringArg("url");
+    }
+    if (name === "skill" || name === "load_skill") {
+        return stringArg("name");
+    }
+    if (name === "inspect_session" || name === "start_session") {
+        return stringArg("session_id");
+    }
+    if (name === "mcp") {
+        return [
+            stringArg("server"),
+            stringArg("tool_name", "action", "query"),
+        ]
+            .filter(Boolean)
+            .join(" / ");
+    }
+    return "";
+}
+
+function settleDelegatedActivity(
+    current: DelegatedSessionActivity[],
+    payload: Record<string, unknown>,
+): DelegatedSessionActivity[] {
+    const callId = typeof payload.call_id === "string" ? payload.call_id : null;
+    const step = typeof payload.step === "number" ? payload.step : null;
+    const index = typeof payload.index === "number" ? payload.index : null;
+    return current.filter(
+        (activity) =>
+            !(
+                (callId !== null && activity.parentCallId === callId) ||
+                (step !== null && index !== null &&
+                    activity.parentStep === step && activity.parentIndex === index)
+            ),
+    );
 }
 
 function eventLogHasUnfinishedTurn(

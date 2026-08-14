@@ -1,6 +1,7 @@
 <script lang="ts">
     import { resolve } from "$app/paths";
     import BrailleSpinner from "$lib/BrailleSpinner.svelte";
+    import Spinner from "$lib/Spinner.svelte";
     import ThemeToggle from "$lib/ThemeToggle.svelte";
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
     import ProjectsSwitcher from "$lib/ProjectsSwitcher.svelte";
@@ -114,7 +115,7 @@
 </script>
 
 <aside
-    class="flex flex-col h-full bg-bg-surface-alt w-full shrink-0 select-none overflow-hidden"
+    class="flex flex-col h-[100dvh] min-h-full bg-bg-surface-alt w-full shrink-0 select-none overflow-hidden"
 >
     <!-- Top Header Row: Borderless Project Selector & Action Icons -->
     <div
@@ -254,6 +255,7 @@
                         </button>
                     {/if}
                 </div>
+
             </div>
         {/if}
 
@@ -276,13 +278,10 @@
                         <div class="flex items-center gap-2 min-w-0 flex-1">
                             {#if isWorking}
                                 <div
-                                    class="flex size-4 shrink-0 items-center justify-center rounded-full bg-text-highlight/10 text-text-highlight ring-1 ring-text-highlight/25 shadow-[0_0_7px_currentColor]"
+                                    class="flex w-3.5 h-3.5 shrink-0 items-center justify-center text-text-highlight"
                                     title="Working..."
                                 >
-                                    <BrailleSpinner
-                                        intervalMs={55}
-                                        class="font-mono text-[16px] font-black leading-none"
-                                    />
+                                    <Spinner class="w-3.5 h-3.5 text-text-highlight" />
                                 </div>
                             {:else}
                                 <DitherIdenticon
@@ -321,8 +320,8 @@
                         onclick={loadMoreSessions}
                     >
                         {#if isLoadingMore}
-                            <BrailleSpinner
-                                class="font-mono text-[13px] text-text-main"
+                            <Spinner
+                                class="w-3 h-3 text-text-main"
                             />
                             Loading
                         {:else}
@@ -336,7 +335,7 @@
 
     <!-- Bottom Footer: Unified Single Menu Trigger -->
     <div
-        class="relative p-2 border-t border-border-default/30 bg-bg-surface-alt shrink-0"
+        class="relative p-2 border-t border-border-default/30 bg-bg-surface-alt shrink-0 mt-auto"
     >
         {#if menuOpen}
             <!-- Backdrop to close on click outside -->

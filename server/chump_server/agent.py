@@ -55,6 +55,11 @@ from .tools import build_tools
 from .git_utils import get_git_branch
 
 
+def delegated_task_is_terminal_only(_steps: list[Any]) -> bool:
+    """Do not stop a delegated loop while the model continues to call tools."""
+    return False
+
+
 class ChumpAgent(Agent[dict[str, Any]]):
     enable_event_log = True
     # Reconnects only need a recent delivery window. Keeping this bounded is
@@ -178,7 +183,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
         provider: str,
         model: str,
         reasoning: dict[str, Any] | None,
-        max_steps: int,
     ) -> dict[str, Any]:
         """Run a newly routed delegated task inside this managed agent."""
         if self.messages or self.state.get("delegated_task_status") is not None:
@@ -201,12 +205,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
             raise ValueError(f"provider is not connected: {provider_name}")
         model_name = normalize_model_name(provider_name, model)
         reasoning_config = normalize_reasoning_config(reasoning, provider_name)
-        if (
-            not isinstance(max_steps, int)
-            or isinstance(max_steps, bool)
-            or not 1 <= max_steps <= 1_000
-        ):
-            raise ValueError("max_steps must be between 1 and 1000")
         apply_auth_environment(load_auth_config(), provider_name)
 
         self._config = replace(
@@ -214,10 +212,13 @@ class ChumpAgent(Agent[dict[str, Any]]):
             provider=provider_name,
             model=model_name,
             reasoning=reasoning_config,
-            max_steps=max_steps,
         )
         self.model = None
-        self.stop_when = step_count_is(max_steps)
+        # A delegated task owns its own lifecycle and must run until it returns
+        # a terminal answer, fails, or is aborted by its parent. The ordinary
+        # interactive-session step cap must not manufacture a successful child
+        # completion after a tool-use step.
+        self.stop_when = delegated_task_is_terminal_only
         self.reasoning = reasoning_config
         self._rebuild_tools()
         now = time.time()
@@ -225,7 +226,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
             provider=provider_name,
             model=model_name,
             reasoning=reasoning_config,
-            max_steps=max_steps,
             delegated_task_status="running",
             delegated_task_error=None,
             updated_at=now,
@@ -247,6 +247,19 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 updated_at=time.time(),
             )
             raise
+        finally:
+            # Subsequent direct interaction with the saved child is an ordinary
+            # session again and uses the configured interactive safety cap.
+            self.stop_when = step_count_is(self._config.max_steps)
+
+        if not response.strip():
+            error = "delegated task ended without a final answer"
+            await self.update_state(
+                delegated_task_status="failed",
+                delegated_task_error=error,
+                updated_at=time.time(),
+            )
+            raise RuntimeError(error)
 
         await self.update_state(
             delegated_task_status="completed",
@@ -260,7 +273,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "provider": provider_name,
             "model": model_name,
             "reasoning": reasoning_config,
-            "max_steps": max_steps,
         }
 
     @action
@@ -908,13 +920,40 @@ class ChumpAgent(Agent[dict[str, Any]]):
             )
             await self._persist_usage_summary()
             await self.emit("agent_status", await self.status())
-        if not full_response.strip():
-            full_response = await self._build_empty_response_fallback(result)
-            self._log(f"chat produced fallback response: {full_response}")
+        if self.state.get("delegated_task_status") == "running":
+            final_step_text = await self._terminal_step_text(result)
+            if not final_step_text:
+                raise RuntimeError("delegated task ended without a final answer")
+            if not full_response.strip():
+                full_response = final_step_text
+                self._log(
+                    f"chat completed from terminal step with {len(full_response)} chars"
+                )
+        elif not full_response.strip():
+            final_step_text = await self._terminal_step_text(result)
+            if final_step_text:
+                full_response = final_step_text
+                self._log(
+                    f"chat completed from terminal step with {len(full_response)} chars"
+                )
+            else:
+                full_response = await self._build_empty_response_fallback(result)
+                self._log(f"chat produced fallback response: {full_response}")
         else:
             self._log(f"chat complete with {len(full_response)} chars")
 
         return full_response
+
+    @staticmethod
+    async def _terminal_step_text(result: Any) -> str:
+        result_steps = getattr(result, "steps", None)
+        steps = result_steps if isinstance(result_steps, list) else await result.steps
+        if not steps:
+            return ""
+        final_step = steps[-1]
+        if getattr(final_step, "tool_calls", []):
+            return ""
+        return str(getattr(final_step, "text", "") or "").strip()
 
     async def _ensure_final_assistant_persisted(
         self,
@@ -1088,7 +1127,11 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 display_output = detail.get("display_output")
                 if isinstance(display_output, str):
                     payload["display_output"] = display_output
-        await self.emit(event.type, payload, replay=False)
+        # A delegated run is a durable parent lifecycle, not presentation-only
+        # progress. Persist its earliest terminal event so disconnects or turn
+        # cancellation cannot erase a completed child before tool_result arrives.
+        replay = event.type == "tool_execution.finished" and call.name == "start_session"
+        await self.emit(event.type, payload, replay=replay)
 
     def capture_tool_result_detail(
         self,

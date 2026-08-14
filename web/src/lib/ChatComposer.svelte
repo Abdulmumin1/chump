@@ -1,12 +1,13 @@
 <script lang="ts">
     import { tick } from "svelte";
-    import BrailleSpinner from "$lib/BrailleSpinner.svelte";
+    import PulseDot from "$lib/PulseDot.svelte";
     import CommandMenu from "$lib/CommandMenu.svelte";
     import AttachmentTray from "$lib/chat/composer/AttachmentTray.svelte";
     import CommandSuggestions from "$lib/chat/composer/CommandSuggestions.svelte";
     import FileSuggestions from "$lib/chat/composer/FileSuggestions.svelte";
     import ComposerMetaBar from "$lib/chat/composer/ComposerMetaBar.svelte";
     import QueuedSteeringList from "$lib/chat/composer/QueuedSteeringList.svelte";
+    import DelegatedActivityPeek from "$lib/chat/composer/DelegatedActivityPeek.svelte";
     import {
         ACCEPTED_IMAGE_TYPES,
         readClipboardItemsAsAttachments,
@@ -19,9 +20,11 @@
     import { shortenModel } from "$lib/chat/helpers";
     import type { SteeringQueueItem } from "$lib/chat/types";
     import type { ChatAttachment } from "$lib/chump/types";
+    import type { DelegatedSessionActivity } from "$lib/chump/types";
     import type { FileSearchResult } from "$lib/chump/types";
     import { searchFiles, type ChumpApiTarget } from "$lib/chump/api";
     import type { ModelChoice } from "$lib/models";
+    import Spinner from "./Spinner.svelte";
 
     let {
         composerText = $bindable(),
@@ -39,6 +42,8 @@
         reasoningInfo = null,
         contextUsageLabel = null,
         steeringQueue = [],
+        delegatedActivities = [],
+        onSelectSession,
         onSend,
         onDeleteSteering,
         onEditSteering,
@@ -62,6 +67,8 @@
         reasoningInfo: { effort: string | null; budget: number | null } | null;
         contextUsageLabel: string | null;
         steeringQueue: SteeringQueueItem[];
+        delegatedActivities?: DelegatedSessionActivity[];
+        onSelectSession?: (sessionId: string) => void;
         onSend: () => void;
         onDeleteSteering: (index: number) => void;
         onEditSteering: (index: number) => void;
@@ -112,7 +119,8 @@
         }
 
         event.preventDefault();
-        const newAttachments = await readClipboardItemsAsAttachments(imageItems);
+        const newAttachments =
+            await readClipboardItemsAsAttachments(imageItems);
         if (newAttachments.length === 0) {
             return;
         }
@@ -231,7 +239,8 @@
             case "ArrowUp":
                 event.preventDefault();
                 selectedIndex =
-                    (selectedIndex - 1 + suggestions.length) % suggestions.length;
+                    (selectedIndex - 1 + suggestions.length) %
+                    suggestions.length;
                 scrollSelectedIntoView();
                 break;
             case "Enter":
@@ -428,7 +437,8 @@
         <div
             class="absolute inset-0 z-20 bg-accent/10 border-2 border-dashed border-accent rounded-lg flex items-center justify-center pointer-events-none"
         >
-            <span class="text-accent text-sm font-medium">Drop images here</span>
+            <span class="text-accent text-sm font-medium">Drop images here</span
+            >
         </div>
     {/if}
 
@@ -448,6 +458,13 @@
             />
         {/if}
 
+        {#if isSending && delegatedActivities.length > 0}
+            <DelegatedActivityPeek
+                activities={delegatedActivities}
+                {onSelectSession}
+            />
+        {/if}
+
         <div
             class="flex flex-col rounded-[8px] border border-border-default bg-bg-code focus-within:border-border-hover relative group"
         >
@@ -462,7 +479,9 @@
                 bind:this={textareaElement}
                 bind:value={composerText}
                 rows="2"
-                placeholder={isLoadingSession ? "Loading session..." : "Message Chump..."}
+                placeholder={isLoadingSession
+                    ? "Loading session..."
+                    : "Message Chump..."}
                 onkeydown={handleKeydown}
                 oninput={handleInput}
                 onpaste={handlePaste}
@@ -510,10 +529,12 @@
                             class="flex items-center gap-1.5 text-[13px] text-text-tertiary"
                             aria-live="polite"
                         >
-                            <BrailleSpinner
-                                class="font-mono text-[15px] text-text-highlight"
-                            />
-                            {isCompacting ? "Compacting..." : "Working..."}
+                            <Spinner class="text-text-highlight" />
+                            {#if isCompacting}
+                                Compacting...
+                            {:else}
+                                Working...
+                            {/if}
                         </span>
                     {:else if !composerText.trim() && !hasAttachments}
                         {#if !isLoadingSession}
@@ -551,7 +572,8 @@
                                 : "Send message"}
                             class="flex h-7 w-7 items-center justify-center rounded-[6px] border border-transparent bg-bg-elevated text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50 md:h-8 md:w-8"
                             onclick={onSend}
-                            disabled={!canSend || (isCommand && !hasAttachments)}
+                            disabled={!canSend ||
+                                (isCommand && !hasAttachments)}
                         >
                             <svg
                                 class="w-3.5 h-3.5 md:w-4 md:h-4"
@@ -581,7 +603,7 @@
             {#if fileVisible}
                 <FileSuggestions
                     files={fileSuggestions}
-                    selectedIndex={selectedIndex}
+                    {selectedIndex}
                     loading={fileSearchLoading}
                     onSelect={acceptFileSuggestion}
                 />

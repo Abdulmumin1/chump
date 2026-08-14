@@ -39,7 +39,7 @@ export async function getSessions(
 ): Promise<SessionsResponse> {
 	const url = new URL(projectUrl(target, 'sessions'));
 	url.searchParams.set('page', String(options.page ?? 1));
-	url.searchParams.set('limit', String(options.limit ?? 6));
+	url.searchParams.set('limit', String(options.limit ?? 10));
 	const response = await fetchJson<Partial<SessionsResponse> & Pick<SessionsResponse, 'sessions'>>(
 		url.toString(),
 		requestHeaders(target)

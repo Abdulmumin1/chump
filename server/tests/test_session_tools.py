@@ -92,19 +92,30 @@ class SessionToolTests(unittest.TestCase):
         )
 
     @patch("chump_server.tools.sessions.load_auth_config", return_value={})
-    def test_resolves_session_model_reasoning_and_step_overrides(self, _auth) -> None:
+    def test_resolves_session_model_and_reasoning(self, _auth) -> None:
         resolved = resolve_session_config(
             self._config(),
             provider="codex",
             model="gpt-5.6",
             reasoning="low",
-            max_steps=40,
         )
 
         self.assertEqual(resolved.provider, "codex")
         self.assertEqual(resolved.model, "gpt-5.6")
         self.assertEqual(resolved.reasoning, {"effort": "low"})
-        self.assertEqual(resolved.max_steps, 40)
+        self.assertEqual(resolved.max_steps, self._config().max_steps)
+
+    def test_start_session_does_not_expose_a_step_limit(self) -> None:
+        from chump_server.agent import ChumpAgent
+        from chump_server.resources import ResourceCatalog
+
+        config = self._config()
+        ChumpAgent.configure(config, ResourceCatalog(config.workspace_root))
+        agent = ChumpAgent("tool-schema-session")
+
+        properties = agent.tools["start_session"].parameters["properties"]
+
+        self.assertNotIn("max_steps", properties)
 
     def test_inspection_reads_incremental_events_and_reports_turn_failure(self) -> None:
         db_path = self._session_db(

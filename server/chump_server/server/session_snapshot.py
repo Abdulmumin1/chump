@@ -30,15 +30,16 @@ def reconcile_delegated_session_snapshot(
         return snapshot
 
     reconciled_events = reconcile_delegated_session_lifecycles(db_path, events)
-    if reconciled_events is events:
+    projected_messages = _append_reconciled_delegated_messages(
+        messages,
+        reconciled_events,
+        reconciled_events,
+    )
+    if reconciled_events is events and projected_messages is messages:
         return snapshot
 
     result = deepcopy(snapshot)
-    result["messages"] = _append_reconciled_delegated_messages(
-        messages,
-        events,
-        reconciled_events[len(events) :],
-    )
+    result["messages"] = projected_messages
     if (
         isinstance(status, dict)
         and status.get("turn_running") is False
@@ -86,38 +87,60 @@ def reconcile_delegated_session_lifecycles(
             continue
         status = state["delegated_task_status"]
         error = state.get("delegated_task_error")
-        failed = status != "completed"
-        result_status = "ok" if status == "completed" else "error"
         reconciled.append(
-            {
+            _terminal_result_event(
                 # Reconciliation is a snapshot-only projection, not a durable
                 # event. Reuse the call cursor so clients never skip the next
                 # real SSE event after hydrating this synthetic result.
-                "id": event_id,
-                "type": "tool_result",
-                "data": {
-                    "tool": "start_session",
-                    "name": "start_session",
-                    "tool_name": "start_session",
-                    "call_id": call_id,
-                    "tool_call_id": call_id,
-                    "step": step,
-                    "index": index,
-                    "ok": not failed,
-                    "status": result_status,
-                    "is_error": failed,
-                    "aborted": status == "aborted",
-                    "preview": _terminal_result_preview(session_id, status, error),
-                    "metadata": {
-                        "delegated_task_status": status,
-                        "reconciled_from_child_session": True,
-                    },
-                    **({"error": str(error)} if failed and error else {}),
-                    "schema_version": 1,
-                },
-            }
+                event_id=event_id,
+                call_id=call_id,
+                step=step,
+                index=index,
+                session_id=session_id,
+                status=status,
+                error=error,
+                reconciled=True,
+            )
         )
     return reconciled
+
+
+def _terminal_result_event(
+    *,
+    event_id: int,
+    call_id: str,
+    step: int,
+    index: int,
+    session_id: str,
+    status: str,
+    error: object,
+    reconciled: bool,
+) -> dict[str, Any]:
+    failed = status != "completed"
+    metadata: dict[str, Any] = {"delegated_task_status": status}
+    if reconciled:
+        metadata["reconciled_from_child_session"] = True
+    return {
+        "id": event_id,
+        "type": "tool_result",
+        "data": {
+            "tool": "start_session",
+            "name": "start_session",
+            "tool_name": "start_session",
+            "call_id": call_id,
+            "tool_call_id": call_id,
+            "step": step,
+            "index": index,
+            "ok": not failed,
+            "status": "ok" if status == "completed" else "error",
+            "is_error": failed,
+            "aborted": status == "aborted",
+            "preview": _terminal_result_preview(session_id, status, error),
+            "metadata": metadata,
+            **({"error": str(error)} if failed and error else {}),
+            "schema_version": 1,
+        },
+    }
 
 
 def _pending_start_session_calls(
@@ -238,7 +261,9 @@ def _append_reconciled_delegated_messages(
     settlement_by_call_id = {
         call_id: event
         for event in settlements
-        if isinstance((data := event.get("data")), dict)
+        if event.get("type") in {"tool_result", "tool_execution.finished"}
+        and isinstance((data := event.get("data")), dict)
+        and _tool_name(data) == "start_session"
         and (call_id := _call_id(data)) is not None
     }
     if not settlement_by_call_id:

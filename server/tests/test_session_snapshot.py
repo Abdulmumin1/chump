@@ -210,6 +210,57 @@ def test_snapshot_projects_terminal_lifecycle_into_messages_and_closes_idle_tail
     assert result["status"] == "completed"
 
 
+def test_snapshot_projects_durable_execution_finished_into_messages(tmp_path):
+    db_path = tmp_path / "chump.sqlite3"
+    snapshot = {
+        "status": {"turn_running": False, "steering_queue": []},
+        "messages": [{"role": "user", "content": "delegate work"}],
+        "events": [
+            _event(1, "turn_status", {"running": True, "steering_queue": []}),
+            _event(
+                7336,
+                "tool_call",
+                {
+                    "name": "start_session",
+                    "call_id": "start-227",
+                    "args": {"session_id": "issue-227"},
+                    "step": 5,
+                    "index": 0,
+                },
+            ),
+            _event(
+                7440,
+                "tool_execution.finished",
+                {
+                    "name": "start_session",
+                    "call_id": "start-227",
+                    "step": 5,
+                    "index": 0,
+                    "ok": True,
+                    "status": "ok",
+                    "preview": json.dumps(
+                        {
+                            "session_id": "issue-227",
+                            "delegated_task_status": "completed",
+                        }
+                    ),
+                    "metadata": {"delegated_task_status": "completed"},
+                },
+            ),
+            _event(7441, "turn_status", {"running": False, "steering_queue": []}),
+        ],
+    }
+
+    reconciled = reconcile_delegated_session_snapshot(db_path, snapshot)
+
+    assert reconciled["events"] == snapshot["events"]
+    assert reconciled["messages"][-2]["content"][0]["tool_call"]["id"] == "start-227"
+    result = reconciled["messages"][-1]["content"][0]["tool_result"]
+    assert result["tool_call_id"] == "start-227"
+    assert result["status"] == "completed"
+    assert "issue-227" in result["result"]
+
+
 def test_snapshot_keeps_unfinished_turn_when_another_tool_is_pending(tmp_path):
     db_path = tmp_path / "chump.sqlite3"
     _store_child_state(db_path, "issue-227", "completed")

@@ -350,7 +350,318 @@ describe("session hydration", () => {
         }
     });
 
+    it("hydrates a completed delegated run from the reconciled snapshot", async () => {
+        let snapshotRequestCount = 0;
+        const eventStream = controllableEventStream();
+        globalThis.fetch = (async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url.endsWith("/session-snapshot")) {
+                snapshotRequestCount += 1;
+                if (snapshotRequestCount === 1) {
+                    return Response.json({
+                        status: status({ turn_running: true }),
+                        messages: [{ role: "user", content: "delegate work" }],
+                        events: [
+                            {
+                                id: 1,
+                                type: "turn_status",
+                                data: { running: true, steering_queue: [] },
+                            },
+                        ],
+                    });
+                }
+                return Response.json({
+                    status: status({ turn_running: false }),
+                    messages: [
+                        { role: "user", content: "delegate work" },
+                        {
+                            role: "assistant",
+                            content: [
+                                {
+                                    type: "tool_call",
+                                    tool_call: {
+                                        id: "start-227",
+                                        name: "start_session",
+                                        arguments: { session_id: "issue-227" },
+                                        step: 5,
+                                        index: 0,
+                                        status: "ready",
+                                    },
+                                },
+                            ],
+                        },
+                        {
+                            role: "tool",
+                            content: [
+                                {
+                                    type: "tool_result",
+                                    tool_result: {
+                                        tool_call_id: "start-227",
+                                        tool_name: "start_session",
+                                        result: JSON.stringify({
+                                            session_id: "issue-227",
+                                            delegated_task_status: "completed",
+                                        }),
+                                        is_error: false,
+                                        step: 5,
+                                        index: 0,
+                                        status: "completed",
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                    events: [
+                        {
+                            id: 1,
+                            type: "turn_status",
+                            data: { running: true, steering_queue: [] },
+                        },
+                        {
+                            id: 7336,
+                            type: "tool_call",
+                            data: {
+                                name: "start_session",
+                                call_id: "start-227",
+                                args: { session_id: "issue-227" },
+                                step: 5,
+                                index: 0,
+                            },
+                        },
+                        {
+                            id: 7336,
+                            type: "tool_result",
+                            data: {
+                                name: "start_session",
+                                call_id: "start-227",
+                                ok: true,
+                                status: "ok",
+                                preview: "completed",
+                                step: 5,
+                                index: 0,
+                            },
+                        },
+                        {
+                            id: 7441,
+                            type: "turn_status",
+                            data: { running: false, steering_queue: [] },
+                        },
+                    ],
+                });
+            }
+            if (url.endsWith("/state")) return Response.json(sessionState());
+            if (url.includes("/sessions?")) {
+                return Response.json({
+                    sessions: [],
+                    page: 1,
+                    page_size: 6,
+                    total: 0,
+                    total_pages: 1,
+                });
+            }
+            if (url.includes("/events?")) {
+                return new Response(eventStream.stream, {
+                    headers: { "content-type": "text/event-stream" },
+                });
+            }
+            throw new Error(`unexpected request: ${url}`);
+        }) as typeof fetch;
+
+        const state = controllerState();
+        const controller = createSessionController(state, {
+            closeConnectModal: () => {},
+            scrollTranscriptToEnd: async () => {},
+        });
+
+        try {
+            await controller.selectSession("session-one");
+            state.delegatedActivities = [
+                {
+                    parentCallId: "start-227",
+                    parentStep: 5,
+                    parentIndex: 0,
+                    sessionId: "issue-227",
+                    model: null,
+                    phase: "Writing response",
+                    activeTool: null,
+                    latestDetail: null,
+                    updatedAt: 1,
+                },
+            ];
+
+            eventStream.enqueue(
+                'id: 7441\nevent: turn_status\ndata: {"running":false,"steering_queue":[],"schema_version":1}\n\n',
+            );
+            await waitFor(() => snapshotRequestCount === 2);
+            await waitFor(() => JSON.stringify(state.messages).includes("issue-227"));
+
+            expect(snapshotRequestCount).toBe(2);
+            expect(JSON.stringify(state.messages)).toContain('"status":"completed"');
+            expect(state.delegatedActivities).toEqual([]);
+            expect(state.isSending).toBe(false);
+        } finally {
+            controller.destroy();
+        }
+    });
+
+    it("keeps the latest useful delegated reasoning and tool detail", async () => {
+        const eventStream = controllableEventStream();
+        globalThis.fetch = (async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url.endsWith("/session-snapshot")) {
+                return Response.json({
+                    status: status({ turn_running: true }),
+                    messages: [],
+                    events: [
+                        {
+                            id: 1,
+                            type: "turn_status",
+                            data: { running: true, steering_queue: [] },
+                        },
+                    ],
+                });
+            }
+            if (url.endsWith("/state")) return Response.json(sessionState());
+            if (url.includes("/events?")) {
+                return new Response(eventStream.stream, {
+                    headers: { "content-type": "text/event-stream" },
+                });
+            }
+            throw new Error(`unexpected request: ${url}`);
+        }) as typeof fetch;
+
+        const state = controllerState();
+        const controller = createSessionController(state, {
+            closeConnectModal: () => {},
+            scrollTranscriptToEnd: async () => {},
+        });
+
+        try {
+            await controller.selectSession("session-one");
+            eventStream.enqueue(delegatedProgressEvent(2, {
+                type: "reasoning",
+                text: "**Inspecting the session lifecycle**",
+            }));
+            eventStream.enqueue(delegatedProgressEvent(3, {
+                type: "status",
+                phase: "step_start",
+                step: 2,
+            }));
+
+            await waitFor(
+                () =>
+                    state.delegatedActivities[0]?.latestDetail?.kind ===
+                    "reasoning",
+            );
+            expect(state.delegatedActivities[0]).toMatchObject({
+                phase: "Working on step 2",
+                latestDetail: {
+                    kind: "reasoning",
+                    text: "Inspecting the session lifecycle",
+                },
+            });
+
+            eventStream.enqueue(delegatedProgressEvent(4, {
+                type: "reasoning",
+                text: " before reading the composer.",
+            }));
+            await waitFor(
+                () =>
+                    state.delegatedActivities[0]?.latestDetail?.kind ===
+                        "reasoning" &&
+                    state.delegatedActivities[0].latestDetail.text.endsWith(
+                        "before reading the composer.",
+                    ),
+            );
+            expect(state.delegatedActivities[0]?.latestDetail).toEqual({
+                kind: "reasoning",
+                text: "Inspecting the session lifecycle before reading the composer.",
+            });
+
+            eventStream.enqueue(delegatedProgressEvent(5, {
+                type: "tool_call",
+                name: "read_file",
+                call_id: "child-read-1",
+                args: {
+                    path: "web/src/lib/ChatComposer.svelte",
+                    offset: 440,
+                    limit: 80,
+                },
+            }));
+            eventStream.enqueue(delegatedProgressEvent(6, {
+                type: "tool_result",
+                name: "read_file",
+                call_id: "child-read-1",
+                status: "ok",
+            }));
+
+            await waitFor(
+                () =>
+                    state.delegatedActivities[0]?.latestDetail?.kind === "tool" &&
+                    state.delegatedActivities[0].latestDetail.status === "completed",
+            );
+            expect(state.delegatedActivities[0]?.latestDetail).toEqual({
+                kind: "tool",
+                name: "read_file",
+                callId: "child-read-1",
+                detail: "web/src/lib/ChatComposer.svelte · L440 +80",
+                status: "completed",
+            });
+        } finally {
+            controller.destroy();
+        }
+    });
+
 });
+
+function delegatedProgressEvent(
+    id: number,
+    event: Record<string, unknown>,
+): string {
+    return [
+        `id: ${id}`,
+        "event: tool_execution.progress",
+        `data: ${JSON.stringify({
+            call_id: "parent-start-1",
+            step: 1,
+            index: 0,
+            data: {
+                kind: "delegated_session",
+                session_id: "child-1",
+                event,
+            },
+        })}`,
+        "",
+        "",
+    ].join("\n");
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+    const deadline = Date.now() + 1_000;
+    while (!predicate()) {
+        if (Date.now() >= deadline) throw new Error("condition timed out");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+}
+
+function controllableEventStream(): {
+    stream: ReadableStream<Uint8Array>;
+    enqueue: (event: string) => void;
+} {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+        start(nextController) {
+            controller = nextController;
+        },
+    });
+    const encoder = new TextEncoder();
+    return {
+        stream,
+        enqueue(event) {
+            controller.enqueue(encoder.encode(event));
+        },
+    };
+}
 
 function controllerState(): SessionControllerState & {
     workingSessionIds: string[];
@@ -394,6 +705,7 @@ function controllerState(): SessionControllerState & {
         streamToken: 0,
         stopEvents: null,
         availableModels: [],
+        delegatedActivities: [],
     };
     return state;
 }

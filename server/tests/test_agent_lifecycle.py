@@ -5,6 +5,8 @@ from collections import defaultdict, deque
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from ai_query.types import Message, StepResult, ToolCall, ToolResult, Usage
 
 from chump_server.agent import ChumpAgent
@@ -15,6 +17,7 @@ def make_agent() -> ChumpAgent:
     agent = object.__new__(ChumpAgent)
     agent._usage_summary = default_usage_summary()
     agent._usage_summary["current_turn"] = zero_usage_dict()
+    agent._state = {}
     agent._last_step_records = []
     agent._pending_tool_result_details = defaultdict(deque)
     agent._correlated_tool_result_details = {}
@@ -225,6 +228,36 @@ def test_finalize_turn_keeps_accumulated_usage_instead_of_final_step_only():
     assert agent._usage_summary["session_total"]["total_tokens"] == 35
 
 
+def test_delegated_turn_rejects_tool_only_completion_fallback():
+    agent = make_agent()
+    agent._state = {"delegated_task_status": "running"}
+    tool_call = ToolCall(
+        id="call-read",
+        name="read_file",
+        arguments={"path": "x"},
+    )
+    result = SimpleNamespace(
+        usage=None,
+        steps=[
+            StepResult(
+                text="",
+                tool_calls=[tool_call],
+                tool_results=[
+                    ToolResult(
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        result="contents",
+                    )
+                ],
+            )
+        ],
+    )
+
+    for streamed_text in ["", "I will inspect the file first."]:
+        with pytest.raises(RuntimeError, match="ended without a final answer"):
+            asyncio.run(agent._finalize_turn(result, streamed_text))
+
+
 def test_finalize_reconciles_missing_assistant_message_after_tool_steps():
     agent = make_agent()
     agent._messages = [
@@ -414,3 +447,43 @@ def test_same_name_parallel_results_keep_call_id_and_completion_metadata():
         "first output\nfirst detail",
         "second output\nsecond detail",
     ]
+
+
+def test_start_session_execution_completion_is_durable_before_tool_result():
+    agent = make_agent()
+    call = ToolCall(
+        id="parent-delegation",
+        name="start_session",
+        arguments={"session_id": "child-session"},
+    )
+    agent.capture_tool_result_detail(
+        "start_session",
+        ok=True,
+        preview='{"delegated_task_status":"completed"}',
+        metadata={"delegated_task_status": "completed"},
+        result='{"delegated_task_status":"completed"}',
+    )
+
+    asyncio.run(
+        agent._on_tool_lifecycle(
+            SimpleNamespace(
+                type="tool_execution.finished",
+                step_number=3,
+                index=0,
+                tool_call=call,
+                tool_result=ToolResult(
+                    tool_call_id=call.id,
+                    tool_name="start_session",
+                    result='{"delegated_task_status":"completed"}',
+                ),
+                duration=1.25,
+                error=None,
+                aborted=False,
+            )
+        )
+    )
+
+    emitted = agent.emit.await_args
+    assert emitted.args[0] == "tool_execution.finished"
+    assert emitted.args[1]["call_id"] == "parent-delegation"
+    assert emitted.kwargs["replay"] is True

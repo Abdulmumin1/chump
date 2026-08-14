@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
     CHUMP_EVENT_TYPES,
+    parseDelegatedSessionProgress,
     parseChumpEvent,
 } from "$lib/chump/events";
 
@@ -42,5 +43,48 @@ describe("Chump collaboration event contract", () => {
             }),
         ).toBeNull();
         expect(parseChumpEvent("turn_status", { running: "yes" })).toBeNull();
+    });
+
+    it("parses transient delegated-session progress envelopes", () => {
+        expect(
+            parseDelegatedSessionProgress({
+                call_id: "start-1",
+                step: 2,
+                index: 0,
+                data: {
+                    kind: "delegated_session",
+                    session_id: "child-1",
+                    event: {
+                        type: "tool_call",
+                        name: "read_file",
+                        call_id: "child-call-1",
+                        args: { path: "README.md" },
+                    },
+                },
+            }),
+        ).toEqual({
+            parentCallId: "start-1",
+            parentStep: 2,
+            parentIndex: 0,
+            sessionId: "child-1",
+            event: {
+                type: "tool_call",
+                name: "read_file",
+                callId: "child-call-1",
+                args: { path: "README.md" },
+            },
+        });
+        expect(
+            parseDelegatedSessionProgress({
+                call_id: "start-1",
+                step: 2,
+                index: 0,
+                data: {
+                    kind: "delegated_session",
+                    session_id: "child-1",
+                    event: { type: "unknown" },
+                },
+            }),
+        ).toBeNull();
     });
 });

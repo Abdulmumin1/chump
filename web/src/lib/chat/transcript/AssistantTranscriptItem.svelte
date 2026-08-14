@@ -1,96 +1,85 @@
 <script lang="ts">
+    import { flip } from "svelte/animate";
     import { slide } from "svelte/transition";
     import MarkdownText from "$lib/MarkdownText.svelte";
     import ToolBlock from "$lib/ToolBlock.svelte";
+    import ReasoningBlock from "$lib/chat/transcript/ReasoningBlock.svelte";
+    import { isTerminalActivityBlock } from "$lib/chat/transcript";
     import type { TranscriptBlock, TranscriptMessage } from "$lib/chat/types";
 
     let {
         item,
+        active,
         expandedBlocks,
+        expandedReasoning,
         onToggleBlock,
+        onToggleReasoning,
+        reasoningSummary,
     } = $props<{
         item: TranscriptMessage;
+        active: boolean;
         expandedBlocks: Record<string, boolean>;
+        expandedReasoning: Record<string, boolean>;
         onToggleBlock: (id: string) => void;
+        onToggleReasoning: (id: string, defaultExpanded?: boolean) => void;
+        reasoningSummary: (...texts: string[]) => string;
     }>();
 
     type BlockGroup =
         | { kind: "single"; block: TranscriptBlock; index: number }
-        | { kind: "tools"; blocks: Array<{ block: TranscriptBlock; index: number }> };
+        | { kind: "activity"; blocks: Array<{ block: TranscriptBlock; index: number }> };
 
-    let expandedToolGroups = $state<Record<string, boolean>>({});
+    let expandedActivityGroups = $state<Record<string, boolean>>({});
 
-    let blockGroups = $derived.by(() => groupBlocks(item.blocks));
+    let blockGroups = $derived.by(() => groupBlocks(item.blocks, active));
 
-    function isToolBlock(block: TranscriptBlock): boolean {
-        return block.kind === "tool-call" || block.kind === "tool-result";
-    }
-
-    function canCollapseToolBlock(block: TranscriptBlock): boolean {
-        return (
-            isToolBlock(block) &&
-            (block.status === "completed" ||
-                block.status === "error" ||
-                block.status === "aborted" ||
-                block.hasResult === true)
-        );
-    }
-
-    function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
+    function groupBlocks(blocks: TranscriptBlock[], isActive: boolean): BlockGroup[] {
         const groups: BlockGroup[] = [];
         let index = 0;
 
         while (index < blocks.length) {
             const block = blocks[index];
-            if (!canCollapseToolBlock(block)) {
+            const isActiveReasoning =
+                isActive &&
+                index === blocks.length - 1 &&
+                block.kind === "reasoning";
+            if (isActiveReasoning || !isTerminalActivityBlock(block)) {
                 groups.push({ kind: "single", block, index });
                 index += 1;
                 continue;
             }
 
-            const toolBlocks: Array<{ block: TranscriptBlock; index: number }> = [];
-            while (index < blocks.length && canCollapseToolBlock(blocks[index])) {
-                toolBlocks.push({ block: blocks[index], index });
+            const activityBlocks: Array<{ block: TranscriptBlock; index: number }> = [];
+            while (
+                index < blocks.length &&
+                !(isActive && index === blocks.length - 1 && blocks[index].kind === "reasoning") &&
+                isTerminalActivityBlock(blocks[index])
+            ) {
+                activityBlocks.push({ block: blocks[index], index });
                 index += 1;
             }
 
-            if (toolBlocks.length > 1) {
-                groups.push({ kind: "tools", blocks: toolBlocks });
+            if (activityBlocks.length > 1) {
+                groups.push({ kind: "activity", blocks: activityBlocks });
             } else {
-                groups.push({ kind: "single", block: toolBlocks[0].block, index: toolBlocks[0].index });
+                groups.push({ kind: "single", block: activityBlocks[0].block, index: activityBlocks[0].index });
             }
         }
 
         return groups;
     }
 
-    function groupKey(group: Extract<BlockGroup, { kind: "tools" }>): string {
-        return `${item.id}-tools-${group.blocks[0].index}`;
+    function groupKey(group: Extract<BlockGroup, { kind: "activity" }>): string {
+        return `${item.id}-activity-${group.blocks[0].index}`;
     }
 
-    function isGroupExpanded(group: Extract<BlockGroup, { kind: "tools" }>): boolean {
-        return expandedToolGroups[groupKey(group)] ?? false;
+    function isGroupExpanded(group: Extract<BlockGroup, { kind: "activity" }>): boolean {
+        return expandedActivityGroups[groupKey(group)] ?? false;
     }
 
-    function toggleToolGroup(group: Extract<BlockGroup, { kind: "tools" }>) {
+    function toggleActivityGroup(group: Extract<BlockGroup, { kind: "activity" }>) {
         const key = groupKey(group);
-        expandedToolGroups[key] = !(expandedToolGroups[key] ?? false);
-    }
-
-    function toolLabel(block: TranscriptBlock): string {
-        if (block.originalToolName === "bash" || block.originalToolName === "execute_command") return "$";
-        if (block.originalToolName === "read_file" || block.originalToolName === "view_file") return "Read file";
-        if (block.originalToolName === "view_image") return "View image";
-        if (block.originalToolName === "write_file" || block.originalToolName === "create_file") return "Write file";
-        if (block.originalToolName === "apply_patch") return "Edited";
-        if (block.originalToolName === "search") return "Search";
-        if (block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch") return "Web";
-        if (block.originalToolName === "skill" || block.originalToolName === "load_skill") return "Skill";
-        if (block.originalToolName === "mcp") return "MCP";
-        if (block.originalToolName === "list_sessions") return "List sessions";
-        if (block.originalToolName === "inspect_session") return "Inspect session";
-        if (block.originalToolName === "start_session") return "Start session";
-        return block.originalToolName || block.toolName || "tool";
+        expandedActivityGroups[key] = !(expandedActivityGroups[key] ?? false);
     }
 
     function toolPreview(block: TranscriptBlock): string {
@@ -134,19 +123,33 @@
         return `${count} action${count === 1 ? "" : "s"}`;
     }
 
-    function groupSummary(group: Extract<BlockGroup, { kind: "tools" }>): string {
-        const counts = new Map<string, number>();
+    function groupSummary(group: Extract<BlockGroup, { kind: "activity" }>): string {
+        const counts: Record<string, number> = {};
+        const orderedKinds: string[] = [];
+        const reasoningText: string[] = [];
+
         for (const { block } of group.blocks) {
+            if (block.kind === "reasoning") {
+                reasoningText.push(block.text);
+                continue;
+            }
             const kind = toolSummaryKind(block);
-            counts.set(kind, (counts.get(kind) ?? 0) + 1);
+            if (!(kind in counts)) {
+                orderedKinds.push(kind);
+            }
+            counts[kind] = (counts[kind] ?? 0) + 1;
         }
 
-        return [...counts.entries()]
-            .map(([kind, count]) => formatSummaryPart(kind, count))
-            .join(", ");
+        const toolParts = orderedKinds.map((kind) =>
+            formatSummaryPart(kind, counts[kind]),
+        );
+        const thoughtPart = reasoningText.length > 0
+            ? [reasoningSummary(...reasoningText)]
+            : [];
+        return [...thoughtPart, ...toolParts].join(", ");
     }
 
-    function groupPreview(group: Extract<BlockGroup, { kind: "tools" }>): string {
+    function groupPreview(group: Extract<BlockGroup, { kind: "activity" }>): string {
         return group.blocks
             .map(({ block }) => toolPreview(block))
             .filter(Boolean)
@@ -156,8 +159,12 @@
 </script>
 
 <div class="flex flex-col min-w-0 {item.live ? 'opacity-90' : ''}">
-    {#each blockGroups as group, groupIndex (`${item.id}-${group.kind}-${group.kind === 'single' ? group.index : group.blocks[0].index}`)}
-        <div class={groupIndex > 0 ? "mt-2" : ""}>
+    {#each blockGroups as group, groupIndex (`${item.id}-${group.kind === 'single' ? group.index : group.blocks[0].index}`)}
+        <div
+            class={`${groupIndex > 0 ? "mt-2" : ""} min-h-[36px]`}
+            animate:flip={{ duration: 180 }}
+            out:slide={{ duration: 180 }}
+        >
         {#if group.kind === "single"}
             {@const block = group.block}
             {@const index = group.index}
@@ -170,6 +177,15 @@
                     {block}
                     expanded={expandedBlocks[`${item.id}-${index}`]}
                     onToggle={() => onToggleBlock(`${item.id}-${index}`)}
+                />
+            {:else if block.kind === "reasoning"}
+                <ReasoningBlock
+                    id={`${item.id}-${index}`}
+                    text={block.text}
+                    active={active && index === item.blocks.length - 1}
+                    expanded={expandedReasoning[`${item.id}-${index}`]}
+                    onToggle={onToggleReasoning}
+                    summary={reasoningSummary}
                 />
             {:else if block.kind === "image"}
                 <div
@@ -194,10 +210,10 @@
         {:else}
             <button
                 class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
-                onclick={() => toggleToolGroup(group)}
+                onclick={() => toggleActivityGroup(group)}
             >
                 <div class="flex min-w-0 items-center gap-3 overflow-hidden">
-                    <span class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-highlight">{groupSummary(group)}</span>
+                    <span class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary">{groupSummary(group)}</span>
                     {#if groupPreview(group)}
                         <span class="min-w-0 truncate font-mono text-[11px] text-text-secondary">{groupPreview(group)}</span>
                     {/if}
@@ -207,11 +223,21 @@
             {#if isGroupExpanded(group)}
                 <div transition:slide={{ duration: 160 }} class="mt-1.5 space-y-2 pl-4">
                     {#each group.blocks as { block, index } (`${item.id}-${index}`)}
-                        <ToolBlock
-                            {block}
-                            expanded={expandedBlocks[`${item.id}-${index}`]}
-                            onToggle={() => onToggleBlock(`${item.id}-${index}`)}
-                        />
+                        {#if block.kind === "reasoning"}
+                            <ReasoningBlock
+                                id={`${item.id}-${index}`}
+                                text={block.text}
+                                expanded={expandedReasoning[`${item.id}-${index}`]}
+                                onToggle={onToggleReasoning}
+                                summary={reasoningSummary}
+                            />
+                        {:else}
+                            <ToolBlock
+                                {block}
+                                expanded={expandedBlocks[`${item.id}-${index}`]}
+                                onToggle={() => onToggleBlock(`${item.id}-${index}`)}
+                            />
+                        {/if}
                     {/each}
                 </div>
             {/if}

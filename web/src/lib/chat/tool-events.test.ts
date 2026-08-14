@@ -5,7 +5,11 @@ import {
     applyLiveEventToMessages,
     removeSteeredQueueItem,
 } from "$lib/chat/events";
-import { buildTranscript } from "$lib/chat/transcript";
+import {
+    buildTranscript,
+    isTerminalActivityBlock,
+    reasoningSummary,
+} from "$lib/chat/transcript";
 
 function apply(
     messages: StoredMessage[],
@@ -16,6 +20,35 @@ function apply(
 }
 
 describe("live tool lifecycle events", () => {
+    it("adds the rounded duration of each reasoning block", () => {
+        expect(reasoningSummary("First thought.", "Second thought.")).toBe(
+            "Thought for 2 seconds",
+        );
+    });
+
+    it("keeps running tools expanded until a terminal result exists", () => {
+        for (const status of ["streaming", "ready", "running"] as const) {
+            expect(
+                isTerminalActivityBlock({
+                    kind: "tool-call",
+                    text: "",
+                    originalToolName: "apply_patch",
+                    status,
+                }),
+            ).toBe(false);
+        }
+
+        expect(
+            isTerminalActivityBlock({
+                kind: "tool-call",
+                text: "",
+                originalToolName: "apply_patch",
+                status: "completed",
+                hasResult: true,
+            }),
+        ).toBe(true);
+    });
+
     it("renders partial bash and write arguments before their JSON is complete", () => {
         let messages: StoredMessage[] = [];
         messages = apply(messages, "tool_call.started", {
@@ -325,6 +358,69 @@ describe("live tool lifecycle events", () => {
             args: { command: "printf second" },
             result: "second output",
             hasResult: true,
+        });
+    });
+
+    it("keeps completed reasoning and tools in one collapsible activity sequence", () => {
+        const messages: StoredMessage[] = [
+            {
+                role: "assistant",
+                content: [
+                    { type: "reasoning", text: "I should inspect the file." },
+                    {
+                        type: "tool_call",
+                        tool_call: {
+                            id: "call_read",
+                            name: "read_file",
+                            arguments: { path: "demo.ts" },
+                            status: "completed",
+                        },
+                    },
+                ],
+            },
+            {
+                role: "tool",
+                content: [
+                    {
+                        type: "tool_result",
+                        tool_result: {
+                            tool_call_id: "call_read",
+                            tool_name: "read_file",
+                            result: "export const demo = true;",
+                            is_error: false,
+                            status: "completed",
+                        },
+                    },
+                ],
+            },
+            {
+                role: "assistant",
+                content: [
+                    { type: "reasoning", text: "Now I can make the change." },
+                    {
+                        type: "tool_call",
+                        tool_call: {
+                            id: "call_patch",
+                            name: "apply_patch",
+                            arguments: { patch: "*** Begin Patch" },
+                            status: "completed",
+                        },
+                    },
+                ],
+            },
+        ];
+
+        const transcript = buildTranscript(messages);
+
+        expect(transcript).toHaveLength(1);
+        expect(transcript[0]).toMatchObject({
+            role: "assistant",
+            blocks: [
+                { kind: "reasoning", text: "I should inspect the file." },
+                { kind: "tool-call", toolCallId: "call_read", hasResult: true },
+                { kind: "reasoning", text: "Now I can make the change." },
+                { kind: "tool-call", toolCallId: "call_patch" },
+            ],
         });
     });
 
