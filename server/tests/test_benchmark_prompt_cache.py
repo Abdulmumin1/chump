@@ -46,7 +46,7 @@ def test_aggregates_cache_usage_by_model_and_tracks_switches(tmp_path):
             status("codex", "gpt-5.4"),
             step(2_000, 0),
             step(2_500, 2_000),
-            status("google", "gemini-3.6-flash"),
+            status("google", "gemini-3.7-flash"),
             step(5_000, 4_000),
         ],
     )
@@ -62,7 +62,7 @@ def test_aggregates_cache_usage_by_model_and_tracks_switches(tmp_path):
     assert codex.request_hit_rate == 0.5
     assert codex.token_hit_rate == 2_000 / 4_500
 
-    gemini = stats[("google", "gemini-3.6-flash")]
+    gemini = stats[("google", "gemini-3.7-flash")]
     assert gemini.calls == 1
     assert gemini.hit_calls == 1
     assert gemini.token_hit_rate == 0.8

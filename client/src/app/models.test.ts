@@ -16,8 +16,8 @@ test("filters model suggestions to server-advertised capabilities", async () => 
         id: "google",
         name: "Google",
         models: {
-          "gemini-3.6-flash": {
-            id: "gemini-3.6-flash",
+          "gemini-3.7-flash": {
+            id: "gemini-3.7-flash",
             reasoning: true,
           },
           "gemini-3.5-flash": {

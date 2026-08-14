@@ -44,7 +44,7 @@ def test_chump_cloud_resolves_every_model_to_the_same_gateway(monkeypatch):
     monkeypatch.setattr("chump_server.runtime.model.load_auth_config", lambda: {})
 
     gemini = resolve_model(
-        SimpleNamespace(provider="chump_cloud", model="gemini-3.6-flash")
+        SimpleNamespace(provider="chump_cloud", model="gemini-3.7-flash")
     )
     deepseek = resolve_model(
         SimpleNamespace(provider="chump_cloud", model="deepseek-v4-flash")
@@ -79,7 +79,7 @@ async def test_chump_cloud_uses_gateway_session_affinity_without_openai_cache_fi
     provider.cache_key = "running-session"
 
     await provider.generate(
-        model="gemini-3.6-flash",
+        model="gemini-3.7-flash",
         messages=[Message(role="user", content="hello")],
     )
     deepseek_options = provider._build_request_options(
@@ -113,7 +113,7 @@ async def test_chump_cloud_projects_image_tool_results_for_gateway_chat():
     )
     model = LanguageModel(
         provider=provider,
-        model_id="gemini-3.6-flash",
+        model_id="gemini-3.7-flash",
         input_modalities=("text", "image"),
     )
     message = Message(
@@ -175,7 +175,7 @@ async def test_chump_cloud_projects_history_for_each_selected_model(monkeypatch)
         SimpleNamespace(provider="chump_cloud", model="deepseek-v4-flash")
     )
     gemini = resolve_model(
-        SimpleNamespace(provider="chump_cloud", model="gemini-3.6-flash")
+        SimpleNamespace(provider="chump_cloud", model="gemini-3.7-flash")
     )
 
     deepseek_history = transform_messages_for_model(history, deepseek)

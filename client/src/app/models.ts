@@ -33,7 +33,11 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5.4-mini",
     "gpt-5.4-nano",
   ]),
-  chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash", "gemini-3.6-flash"]),
+  chump_cloud: new Set([
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "gemini-3.7-flash",
+  ]),
   opencode: new Set([
     "gpt-5.5",
     "gpt-5.4",
@@ -64,7 +68,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "qwen/qwen3.6-plus",
   ]),
   google: new Set([
-    "gemini-3.6-flash",
+    "gemini-3.7-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
@@ -215,9 +219,9 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
       },
-      "gemini-3.6-flash": {
-        id: "gemini-3.6-flash",
-        name: "Gemini 3.6 Flash",
+      "gemini-3.7-flash": {
+        id: "gemini-3.7-flash",
+        name: "Gemini 3.7 Flash",
         reasoning: true,
         limit: { context: 1_048_576, output: 65_536 },
       },
@@ -394,9 +398,9 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "google",
     name: "Google",
     models: {
-      "gemini-3.6-flash": {
-        id: "gemini-3.6-flash",
-        name: "Gemini 3.6 Flash",
+      "gemini-3.7-flash": {
+        id: "gemini-3.7-flash",
+        name: "Gemini 3.7 Flash",
         reasoning: true,
         limit: { context: 1_048_576, output: 65_536 },
       },
@@ -856,7 +860,7 @@ function modelRank(provider: string, model: string): number {
     chump_cloud: [
       "deepseek-v4-pro",
       "deepseek-v4-flash",
-      "gemini-3.6-flash",
+      "gemini-3.7-flash",
     ],
     opencode: [
       "gpt-5.5",
@@ -900,7 +904,7 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.4",
     ],
     google: [
-      "gemini-3.6-flash",
+      "gemini-3.7-flash",
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
