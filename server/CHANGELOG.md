@@ -2,7 +2,7 @@
 
 ## 0.1.23
 
-- Add Gemini 3.7 Flash from models.dev to the Google model catalog, make it the default Google model, and keep Chump Cloud limited to currently supported models.
+- Add Gemini 3.7 Flash from models.dev to the Google and Chump Cloud model catalogs, make it the default Google model, and remove Gemini 3.6 Flash from selectable catalogs.
 - Let delegated `start_session` runs own their full lifecycle: remove child step caps, require a terminal final answer instead of treating tool-only turns as success, and preserve truthful completed or failed delegated-task state when a provider stops before the child replies.
 - Persist `start_session` parent `tool_execution.finished` events durably and treat those terminal lifecycle events as valid snapshot settlement input so rehydrated sessions can recover completed delegated runs even before the final tool result is replayed.
 - Increase interactive session pagination defaults from six to ten entries so session browsers expose more recent history per page without changing the bounded query behavior.

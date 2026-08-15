@@ -53,7 +53,7 @@ def test_normalize_model_name_rejects_limited_access_google_models():
         normalize_model_name("google", "gemini-3.5-flash-cyber")
 
 
-@pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro"])
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "gemini-3.7-flash"])
 def test_normalize_model_name_accepts_chump_cloud_provider_model_pair(model):
     assert normalize_model_name("chump_cloud", model) == model
 

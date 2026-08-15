@@ -33,7 +33,11 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5.4-mini",
     "gpt-5.4-nano",
   ]),
-  chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+  chump_cloud: new Set([
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "gemini-3.7-flash",
+  ]),
   opencode: new Set([
     "gpt-5.5",
     "gpt-5.4",
@@ -214,6 +218,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         name: "DeepSeek V4 Flash",
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
+      },
+      "gemini-3.7-flash": {
+        id: "gemini-3.7-flash",
+        name: "Gemini 3.7 Flash",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
       },
     },
   },
@@ -850,6 +860,7 @@ function modelRank(provider: string, model: string): number {
     chump_cloud: [
       "deepseek-v4-pro",
       "deepseek-v4-flash",
+      "gemini-3.7-flash",
     ],
     opencode: [
       "gpt-5.5",

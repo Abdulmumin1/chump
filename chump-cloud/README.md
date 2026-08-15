@@ -7,7 +7,7 @@ Cloudflare AI Gateway and built with Hono.
 
 - `deepseek-v4-flash`
 - `deepseek-v4-pro`
-- `gemini-3.6-flash`
+- `gemini-3.7-flash`
 
 All model requests use the Worker's `AI` binding and the
 `chump_cloud_ai_gateway` gateway. The gateway must have active stored provider

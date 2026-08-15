@@ -34,7 +34,7 @@ from ..providers.xai import xai_model
 
 IMAGE_INPUT_MODELS = {
     "anthropic": frozenset({"claude-sonnet-4-20250514"}),
-    "chump_cloud": frozenset(),
+    "chump_cloud": frozenset({"gemini-3.7-flash"}),
     "codex": frozenset(
         {
             "gpt-5.4",

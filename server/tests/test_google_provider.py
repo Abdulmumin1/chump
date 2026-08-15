@@ -39,16 +39,22 @@ def test_chump_cloud_uses_openai_compatible_gateway_endpoint():
     assert provider.base_url == "https://cloud.chmp.dev/v1"
 
 
-def test_chump_cloud_resolves_supported_models_to_the_gateway(monkeypatch):
+def test_chump_cloud_resolves_every_model_to_the_same_gateway(monkeypatch):
     monkeypatch.setattr("chump_server.runtime.model.auth_file_path", lambda: None)
     monkeypatch.setattr("chump_server.runtime.model.load_auth_config", lambda: {})
 
+    gemini = resolve_model(
+        SimpleNamespace(provider="chump_cloud", model="gemini-3.7-flash")
+    )
     deepseek = resolve_model(
         SimpleNamespace(provider="chump_cloud", model="deepseek-v4-flash")
     )
 
+    assert isinstance(gemini.provider, ChumpCloudProvider)
     assert isinstance(deepseek.provider, ChumpCloudProvider)
-    assert deepseek.provider.base_url == "https://cloud.chmp.dev/v1"
+    assert gemini.provider.base_url == deepseek.provider.base_url
+    assert gemini.provider.base_url == "https://cloud.chmp.dev/v1"
+    assert gemini.input_modalities == ("text", "image", "file")
     assert deepseek.input_modalities == ("text",)
 
 
@@ -141,7 +147,7 @@ async def test_chump_cloud_projects_image_tool_results_for_gateway_chat():
 
 
 @pytest.mark.asyncio
-async def test_chump_cloud_projects_history_for_supported_text_model(monkeypatch):
+async def test_chump_cloud_projects_history_for_each_selected_model(monkeypatch):
     monkeypatch.setattr("chump_server.runtime.model.auth_file_path", lambda: None)
     monkeypatch.setattr("chump_server.runtime.model.load_auth_config", lambda: {})
 
@@ -168,13 +174,20 @@ async def test_chump_cloud_projects_history_for_supported_text_model(monkeypatch
     deepseek = resolve_model(
         SimpleNamespace(provider="chump_cloud", model="deepseek-v4-flash")
     )
+    gemini = resolve_model(
+        SimpleNamespace(provider="chump_cloud", model="gemini-3.7-flash")
+    )
 
     deepseek_history = transform_messages_for_model(history, deepseek)
     deepseek_result = deepseek_history[0].content[0].tool_result.result
     deepseek_request = await deepseek.provider._convert_messages(deepseek_history)
+    gemini_history = transform_messages_for_model(history, gemini)
+    gemini_request = await gemini.provider._convert_messages(gemini_history)
 
     assert isinstance(deepseek_result, str)
     assert "Image loaded from screenshot.png." in deepseek_result
     assert "tool image omitted" in deepseek_result
     assert deepseek_request[0]["content"] == deepseek_result
+    assert [message["role"] for message in gemini_request] == ["tool", "user"]
+    assert gemini_request[1]["content"][1]["type"] == "image_url"
     assert message.content[0].tool_result.result is output

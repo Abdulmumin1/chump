@@ -30,11 +30,11 @@ export const SUPPORTED_MODELS: Record<string, UpstreamTarget> = {
     model: "deepseek-v4-pro",
     byokAlias: "default",
   },
-  "gemini-3.6-flash": {
+  "gemini-3.7-flash": {
     provider: "google",
     gatewayProvider: "google-ai-studio",
     endpoint: "v1beta/openai/chat/completions",
-    model: "gemini-3.6-flash",
+    model: "gemini-3.7-flash",
     byokAlias: "default2",
   },
 };
