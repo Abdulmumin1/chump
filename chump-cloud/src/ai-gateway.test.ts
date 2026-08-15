@@ -47,14 +47,14 @@ test("builds Gemini requests with the explicit Google BYOK alias", () => {
     },
   ];
   const request = buildGatewayRequest(
-    { model: "gemini-3.6-flash", messages },
-    SUPPORTED_MODELS["gemini-3.6-flash"],
+    { model: "gemini-3.7-flash", messages },
+    SUPPORTED_MODELS["gemini-3.7-flash"],
   );
 
   assert.equal(request.provider, "google-ai-studio");
   assert.equal(request.endpoint, "v1beta/openai/chat/completions");
   assert.equal(request.headers["cf-aig-byok-alias"], "default2");
-  assert.equal(request.query.model, "gemini-3.6-flash");
+  assert.equal(request.query.model, "gemini-3.7-flash");
   assert.deepEqual(
     (request.query as Record<string, unknown>).messages,
     messages,
@@ -73,13 +73,13 @@ test("builds native streaming Gemini requests without changing the body", () => 
 
   const request = buildGeminiGatewayRequest(
     body,
-    SUPPORTED_MODELS["gemini-3.6-flash"],
+    SUPPORTED_MODELS["gemini-3.7-flash"],
     "streamGenerateContent",
   );
 
   assert.deepEqual(request, {
     provider: "google-ai-studio",
-    endpoint: "v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse",
+    endpoint: "v1beta/models/gemini-3.7-flash:streamGenerateContent?alt=sse",
     headers: {
       "Content-Type": "application/json",
       "cf-aig-byok-alias": "default2",
