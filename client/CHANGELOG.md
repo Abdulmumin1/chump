@@ -6,7 +6,7 @@
 
 - d6526d1: Improve delegated-session release readiness across the web app and bundled runtime: resume completed child runs from reconciled session snapshots, show live delegated thinking and tool activity while a sub-agent is running, refresh completed turns from the snapshot endpoint, and raise session list pagination from six to ten entries.
 
-  Add Gemini 3.7 Flash from models.dev to the Google and Chump Cloud model catalogs and make it the default Google model while removing Gemini 3.6 Flash from selectable catalogs.
+  Add Gemini 3.7 Flash from models.dev to the Google model catalog and make it the default Google model while keeping Chump Cloud limited to currently supported models.
 
   Polish transcript and shell-adjacent UI presentation by grouping completed reasoning with terminal tool activity, refining tool labels and loading indicators, and adding optional body-font switching for the web interface.
 

@@ -72,7 +72,6 @@ PROVIDER_MODELS = {
     "chump_cloud": {
         "deepseek-v4-pro",
         "deepseek-v4-flash",
-        "gemini-3.7-flash",
     },
     "google": {
         "gemini-3.7-flash",
