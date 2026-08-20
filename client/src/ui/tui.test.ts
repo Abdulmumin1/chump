@@ -232,7 +232,11 @@ test("Pi TUI command activities expand globally and new commands inherit the sta
 
   const collapsed = stripTestAnsi(transcript.render(80).join("\n"));
   assert.match(collapsed, /line 1/u);
-  assert.doesNotMatch(collapsed, /line 12/u);
+  assert.match(collapsed, /line 2/u);
+  assert.match(collapsed, /… \+8 lines \(ctrl\+o to expand\)/u);
+  assert.match(collapsed, /line 11/u);
+  assert.match(collapsed, /line 12/u);
+  assert.doesNotMatch(collapsed, /line 6/u);
   assert.match(collapsed, /ctrl\+o to expand/u);
 
   transcript.setToolsExpanded(true);
@@ -263,7 +267,7 @@ test("Pi TUI expansion restores wrapped single-line commands and output", () => 
 
   const collapsed = stripTestAnsi(transcript.render(24).join("\n"));
   assert.doesNotMatch(collapsed, new RegExp(commandTail, "u"));
-  assert.doesNotMatch(collapsed, new RegExp(outputTail, "u"));
+  assert.match(collapsed, new RegExp(outputTail, "u"));
 
   transcript.setToolsExpanded(true);
   const expanded = stripTestAnsi(transcript.render(24).join("\n"));
@@ -317,6 +321,29 @@ test("Pi TUI thinking blocks toggle globally and inherit hidden state", () => {
   );
 });
 
+test("Pi TUI thinking Markdown remains fully muted", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  transcript.appendReasoning(
+    "Everything is published:\n\n- npm **chump-agent@0.3.5** and `chump-server`",
+  );
+
+  const rendered = transcript.render(100);
+  const labelIndex = rendered.findIndex((line) =>
+    stripTestAnsi(line).trim() === "Thinking:"
+  );
+  const body = rendered.slice(labelIndex + 1).filter((line) =>
+    stripTestAnsi(line).trim().length > 0
+  );
+  const mutedColor = /\x1b\[38;2;\d+;\d+;\d+m/u.exec(renderTuiMuted("muted"))?.[0];
+  assert.ok(mutedColor);
+  assert.ok(body.length > 0);
+  for (const line of body) {
+    const colors = line.match(/\x1b\[38;2;\d+;\d+;\d+m/gu) ?? [];
+    assert.ok(colors.length > 0, `expected muted color in ${JSON.stringify(line)}`);
+    assert.deepEqual([...new Set(colors)], [mutedColor]);
+  }
+});
+
 test("Pi TUI transcript shortcuts are consumed without affecting other input", () => {
   const transcript = new TuiTranscript(createTuiMarkdownTheme());
   let renders = 0;
@@ -359,6 +386,38 @@ test("wrapped user messages keep the compact surface and alignment", () => {
   for (const line of rendered.slice(1)) {
     assert.match(stripTestAnsi(line), /^ {2}\S/u);
   }
+});
+
+test("Pi TUI user-message surfaces follow the current viewport width", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  transcript.appendUserMessage("responsive");
+
+  const wide = transcript.render(40).filter((line) => line.length > 0);
+  const narrow = transcript.render(20).filter((line) => line.length > 0);
+  assert.equal(visibleWidth(wide[0] ?? ""), 40);
+  assert.equal(visibleWidth(narrow[0] ?? ""), 20);
+  assert.match(stripTestAnsi(wide[0] ?? ""), /^› responsive\s+$/u);
+  assert.match(stripTestAnsi(narrow[0] ?? ""), /^› responsive\s+$/u);
+});
+
+test("Pi TUI reuses an unchanged transcript render while typing", () => {
+  const transcript = new TuiTranscript(createTuiMarkdownTheme());
+  for (let index = 0; index < 200; index += 1) {
+    transcript.appendUserMessage(`message ${index}`);
+    transcript.append(`response ${index}\n`);
+  }
+
+  const initial = transcript.render(80);
+  assert.equal(transcript.render(80), initial);
+
+  const resized = transcript.render(60);
+  assert.notEqual(resized, initial);
+  assert.equal(transcript.render(60), resized);
+
+  transcript.append("new response");
+  const updated = transcript.render(60);
+  assert.notEqual(updated, resized);
+  assert.equal(transcript.render(60), updated);
 });
 
 test("built-in Pi autocomplete serves slash commands and file mentions", async () => {
@@ -717,6 +776,22 @@ test("CompactToolGroup marks a grouped failure in its header", () => {
   assert.match(rendered[0] ?? "", /^× Read/u);
   assert.match(rendered[1] ?? "", /├─ × missing-a/u);
   assert.match(rendered[2] ?? "", /└─ × missing-b/u);
+});
+
+test("CompactToolGroup renders a completed session with its result preview", () => {
+  const group = new CompactToolGroup({
+    toolName: "start_session",
+    label: "Session",
+    status: "ok",
+    args: "child-session",
+    preview: "Child final answer.",
+    fallbackLine: "○ Session child-session · Child final answer.",
+  });
+
+  assert.deepEqual(group.render(80).map((line) => stripTestAnsi(line)), [
+    "○ Session child-session",
+    "  └─ Child final answer.",
+  ]);
 });
 
 function stripTestAnsi(value: string): string {

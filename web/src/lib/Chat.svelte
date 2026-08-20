@@ -1179,7 +1179,7 @@
 </svelte:head>
 
 <div
-    class="flex h-[100dvh] w-full bg-bg-surface text-text-main font-sans overflow-hidden selection:bg-accent-bg selection:text-text-inverse relative"
+    class="relative flex h-[100dvh] min-h-0 w-full overflow-hidden bg-bg-surface font-sans text-text-main selection:bg-accent-bg selection:text-text-inverse"
 >
     <div
         class="hidden md:flex flex-col h-[100dvh] shrink-0 transition-[width,opacity] duration-200 ease-in-out {sidebarOpen
@@ -1276,7 +1276,7 @@
         </div>
     {/if}
 
-    <main class="flex-1 flex flex-col bg-bg-surface relative min-w-0 h-[100dvh] overflow-hidden">
+    <main class="relative flex h-[100dvh] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface">
         <div
             class="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-bg-surface via-bg-surface/80 to-transparent z-10 pointer-events-none"
         ></div>

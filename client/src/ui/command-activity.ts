@@ -95,42 +95,27 @@ export function formatCommandOutput(
     return content ? `${lineNumber}  ${content}` : lineNumber;
   });
 
-  const localTruncatedCount = Math.max(0, lines.length - maxLines);
-  let visibleLines = lines.slice(0, maxLines);
+  let visibleLines = compactOutputLines(lines, maxLines, options);
   const joinedVisible = visibleLines.join("\n");
   let characterTruncated = false;
   if (joinedVisible.length > limit) {
     characterTruncated = true;
-    const suffix = options.interactive && options.canExpand && !options.expanded
-      ? " ...[truncated] (ctrl+o to expand)"
-      : " ...[truncated]";
-    visibleLines = [
-      `${joinedVisible.slice(0, Math.max(0, limit - suffix.length))}${suffix}`,
-    ];
+    visibleLines = [compactOutputCharacters(joinedVisible, limit, options)];
   }
 
   if (!options.interactive) {
     if (characterTruncated) {
       return visibleLines.join("\n");
     }
-    const truncatedCount = localTruncatedCount + serverTruncatedCount;
-    if (truncatedCount > 0) {
+    if (serverTruncatedCount > 0) {
       visibleLines.push("");
       visibleLines.push(
-        `... +${truncatedCount.toLocaleString()} lines truncated`,
+        `... +${serverTruncatedCount.toLocaleString()} lines truncated`,
       );
     }
     return visibleLines.join("\n");
   }
 
-  if (!characterTruncated && localTruncatedCount > 0) {
-    visibleLines.push("");
-    visibleLines.push(
-      options.canExpand && !options.expanded
-        ? `... +${localTruncatedCount.toLocaleString()} lines hidden (ctrl+o to expand)`
-        : `... +${localTruncatedCount.toLocaleString()} lines hidden`,
-    );
-  }
   if (serverTruncatedCount > 0) {
     visibleLines.push("");
     visibleLines.push(
@@ -156,6 +141,68 @@ export function formatCommandOutput(
     visibleLines.push("... additional output unavailable");
   }
   return visibleLines.join("\n");
+}
+
+function compactOutputLines(
+  lines: string[],
+  maxLines: number,
+  options: {
+    interactive: boolean;
+    canExpand: boolean;
+    expanded: boolean;
+  },
+): string[] {
+  if (!Number.isFinite(maxLines) || lines.length <= maxLines) {
+    return lines;
+  }
+
+  const lineBudget = Math.max(1, Math.floor(maxLines));
+  if (lineBudget === 1) {
+    return [lines[0] ?? ""];
+  }
+  if (lineBudget === 2) {
+    return [lines[0] ?? "", lines.at(-1) ?? ""];
+  }
+
+  const contentBudget = lineBudget - 1;
+  const headCount = Math.ceil(contentBudget / 2);
+  const tailCount = Math.floor(contentBudget / 2);
+  const omitted = Math.max(0, lines.length - headCount - tailCount);
+  const marker = options.interactive
+    ? options.canExpand && !options.expanded
+      ? `… +${omitted.toLocaleString()} lines (ctrl+o to expand)`
+      : `… +${omitted.toLocaleString()} lines`
+    : `... +${omitted.toLocaleString()} lines truncated`;
+  return [
+    ...lines.slice(0, headCount),
+    marker,
+    ...lines.slice(-tailCount),
+  ];
+}
+
+function compactOutputCharacters(
+  value: string,
+  limit: number,
+  options: {
+    interactive: boolean;
+    canExpand: boolean;
+    expanded: boolean;
+  },
+): string {
+  if (!Number.isFinite(limit) || value.length <= limit) {
+    return value;
+  }
+  const marker = options.interactive && options.canExpand && !options.expanded
+    ? " … (ctrl+o to expand) … "
+    : " ...[middle truncated]... ";
+  if (limit <= marker.length + 2) {
+    return value.slice(0, Math.max(0, limit));
+  }
+
+  const available = limit - marker.length;
+  const headLength = Math.ceil(available * 0.6);
+  const tailLength = available - headLength;
+  return `${value.slice(0, headLength)}${marker}${value.slice(-tailLength)}`;
 }
 
 function stripHtmlSpans(value: string): string {

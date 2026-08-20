@@ -229,6 +229,40 @@ export class ToolActivityRenderer {
         ? payload.preview
         : compactJson(payload);
     const visiblePreview = userFacingToolPreview(toolName, ok, preview);
+    if (toolName === "start_session") {
+      this.takePendingTool(toolName, payload);
+      const sessionId = readStartedSessionId(payload) ?? "delegated session";
+      const resultPreview = readStartedSessionResultPreview(payload) ??
+        (ok === "ok" ? "Completed" : visiblePreview);
+      const detail = [sessionId, resultPreview].filter(Boolean).join(" · ");
+      this.writeCompactEmission({
+        toolName,
+        label: "Session",
+        status: ok,
+        args: sessionId,
+        preview: resultPreview,
+        fallbackLine: renderToolResult(ok, "Session", detail),
+      });
+      this.activity = true;
+      return;
+    }
+    if (toolName === "search_models") {
+      const pending = this.takePendingTool(toolName, payload);
+      const summary = ok === "ok"
+        ? searchModelsResultSummary(visiblePreview)
+        : visiblePreview.split("\n", 1)[0] ?? "Search models failed";
+      const detail = [pending?.args, summary].filter(Boolean).join(" · ");
+      this.writeCompactEmission({
+        toolName,
+        label,
+        status: ok,
+        args: pending?.args ?? "",
+        preview: detail,
+        fallbackLine: renderToolResult(ok, label, detail),
+      });
+      this.activity = true;
+      return;
+    }
     if (toolName === "bash") {
       this.compactToolRunActive = false;
       const pending = this.takePendingTool(toolName, payload);
@@ -422,7 +456,11 @@ export class ToolActivityRenderer {
     this.writeLine(
       renderCommandOutput(
         activity.status,
-        formatCommandOutput(activity.preview, commandOutputPreviewLimit(), 5),
+        formatCommandOutput(
+          activity.displayOutput ?? activity.preview,
+          commandOutputPreviewLimit(),
+          5,
+        ),
       ),
     );
     this.writeLine("");
@@ -484,7 +522,7 @@ export type StartedSessionPayload = {
   name: "start_session";
   args?: StartedSessionArguments;
   payload?: StartedSessionArguments;
-  result?: StartedSessionResult | string;
+  result?: StartedSessionResult;
   preview?: string;
 };
 
@@ -497,6 +535,11 @@ type StartedSessionArguments = {
 
 type StartedSessionResult = {
   session_id?: string;
+  response?: string;
+  provider?: string;
+  model?: string;
+  delegated_task_status?: string;
+  error?: string;
 };
 
 export function readStartedSessionId(
@@ -518,6 +561,31 @@ export function readStartedSessionId(
   return typeof resultId === "string" && resultId.trim()
     ? resultId.trim()
     : null;
+}
+
+/** Return a compact user-facing result from a completed delegated session. */
+export function readStartedSessionResultPreview(value: unknown): string | null {
+  const payload = parseStartedSessionPayload(value);
+  if (!payload) {
+    return null;
+  }
+
+  const resultPreview = payload.result?.response ?? payload.result?.error;
+  const plainPreview = payload.preview && !payload.preview.trimStart().startsWith("{")
+    ? payload.preview
+    : null;
+  const preview = resultPreview ?? plainPreview;
+  if (!preview) {
+    return null;
+  }
+
+  const compact = preview.replace(/\s+/gu, " ").trim();
+  if (!compact) {
+    return null;
+  }
+  return compact.length > 180
+    ? `${compact.slice(0, 179).trimEnd()}…`
+    : compact;
 }
 
 type StartedSessionCandidate = {
@@ -587,21 +655,34 @@ function isStartedSessionResult(value: unknown): value is StartedSessionResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
-  return typeof (value as { session_id?: unknown }).session_id === "string";
+  const candidate = value as Record<string, unknown>;
+  return [
+    candidate.session_id,
+    candidate.response,
+    candidate.provider,
+    candidate.model,
+    candidate.delegated_task_status,
+    candidate.error,
+  ].some((item) => typeof item === "string");
 }
 
 function resultObjectFrom(
-  value: StartedSessionPayload["result"],
+  value: unknown,
 ): StartedSessionResult | null {
   if (isStartedSessionResult(value)) {
-    return { session_id: value.session_id };
+    return {
+      session_id: optionalString(value.session_id),
+      response: optionalString(value.response),
+      provider: optionalString(value.provider),
+      model: optionalString(value.model),
+      delegated_task_status: optionalString(value.delegated_task_status),
+      error: optionalString(value.error),
+    };
   }
   if (typeof value !== "string") return null;
   try {
     const parsed: unknown = JSON.parse(value);
-    return isStartedSessionResult(parsed)
-      ? { session_id: parsed.session_id }
-      : null;
+    return resultObjectFrom(parsed);
   } catch {
     return null;
   }
@@ -1031,6 +1112,41 @@ function searchModelsActivityLabel(args: Record<string, unknown>): string {
   const provider = typeof args.provider === "string" ? args.provider.trim() : "";
   const query = typeof args.query === "string" ? args.query.trim() : "";
   return [provider, query].filter(Boolean).join(" · ");
+}
+
+function searchModelsResultSummary(value: string): string {
+  let count: number | null = null;
+  let providerCount: number | null = null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const result = parsed as Record<string, unknown>;
+      count = typeof result.count === "number"
+        ? result.count
+        : Array.isArray(result.models)
+          ? result.models.length
+          : null;
+      providerCount = Array.isArray(result.connected_providers)
+        ? result.connected_providers.length
+        : null;
+    }
+  } catch {
+    const countMatch = /["']count["']\s*:\s*(\d+)/u.exec(value);
+    count = countMatch?.[1] ? Number.parseInt(countMatch[1], 10) : null;
+    const providersMatch = /["']connected_providers["']\s*:\s*\[([^\]]*)\]/su.exec(value);
+    providerCount = providersMatch?.[1]
+      ? [...providersMatch[1].matchAll(/["'][^"']+["']/gu)].length
+      : null;
+  }
+
+  if (count === null) {
+    return "Models found";
+  }
+  const models = `${count.toLocaleString()} model${count === 1 ? "" : "s"}`;
+  if (providerCount === null) {
+    return models;
+  }
+  return `${models} across ${providerCount.toLocaleString()} provider${providerCount === 1 ? "" : "s"}`;
 }
 
 export function compactJson(value: unknown): string {

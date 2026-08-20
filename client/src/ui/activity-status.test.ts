@@ -208,6 +208,22 @@ test("renders delegated sessions as nested activity rows", () => {
     "   └─ Thinking: Reviewing type boundaries",
   ]);
 
+  controller.noteToolResult({
+    ...call(0),
+    name: "start_session",
+    status: "ok",
+    preview: JSON.stringify({
+      session_id: "inspect-api",
+      response: "Mapped the API boundaries.",
+    }),
+  });
+  assert.deepEqual(visible(statuses.at(-1) ?? null).slice(1), [
+    "├─ ✓ Session: inspect-api · google/gemini-3.5-flash-lite",
+    "│  └─ Result: Mapped the API boundaries.",
+    "└─ ◐ Session: review-types · codex/gpt-5.6-mini",
+    "   └─ Thinking: Reviewing type boundaries",
+  ]);
+
   controller.stop();
 });
 

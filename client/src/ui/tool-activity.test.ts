@@ -709,13 +709,69 @@ test("caps long single-line command output to roughly five terminal rows", () =>
   renderer.renderToolResult({
     name: "bash",
     status: "ok",
-    preview: "x".repeat(5000),
+    preview: `output-start-${"x".repeat(5000)}-output-end`,
     call_id: "call_health",
   });
 
   const renderedOutput = stripTestAnsi(output[1] ?? "");
-  assert.match(renderedOutput, /\.\.\.\[truncated\]$/u);
+  assert.match(renderedOutput, /output-start/u);
+  assert.match(renderedOutput, /\.\.\.\[middle\s+truncated\]\.\.\./u);
+  assert.match(renderedOutput, /output-end/u);
   assert.ok(renderedOutput.length <= 420);
+});
+
+test("keeps the beginning and end of multiline command output", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "bash",
+    args: { command: "printf ten-lines" },
+    call_id: "call_lines",
+  });
+  renderer.renderToolResult({
+    name: "bash",
+    status: "ok",
+    preview: "line 1\nline 2\n...[truncated]",
+    display_output: Array.from(
+      { length: 10 },
+      (_, index) => `line ${index + 1}`,
+    ).join("\n"),
+    call_id: "call_lines",
+  });
+
+  const renderedOutput = stripTestAnsi(output[1] ?? "");
+  assert.match(renderedOutput, /line 1/u);
+  assert.match(renderedOutput, /line 2/u);
+  assert.match(renderedOutput, /\.\.\. \+6 lines truncated/u);
+  assert.match(renderedOutput, /line 9/u);
+  assert.match(renderedOutput, /line 10/u);
+  assert.doesNotMatch(renderedOutput, /line 5/u);
+});
+
+test("renders search_models as a concise semantic result", () => {
+  const output: string[] = [];
+  const renderer = new ToolActivityRenderer((value = "") => output.push(value));
+
+  renderer.renderToolCall({
+    name: "search_models",
+    args: { query: "flash" },
+    call_id: "call_models",
+  });
+  renderer.renderToolResult({
+    name: "search_models",
+    status: "ok",
+    preview: JSON.stringify({
+      connected_providers: ["chump_cloud", "codex"],
+      models: [{ model: "first" }, { model: "second" }],
+      count: 2,
+    }),
+    call_id: "call_models",
+  });
+
+  const rendered = stripTestAnsi(output.join("\n"));
+  assert.match(rendered, /○ Search models flash · 2 models across 2 providers/u);
+  assert.doesNotMatch(rendered, /connected_providers|[{}]/u);
 });
 
 test("cleans, formats, and indents multiline command output with tree markers", () => {

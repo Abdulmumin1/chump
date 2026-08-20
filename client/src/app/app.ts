@@ -77,7 +77,11 @@ import {
   renderUserMessage,
   renderWorkedFor,
 } from "../ui/render.ts";
-import { clearTerminal, writeOutput } from "../ui/terminal.ts";
+import {
+  clearTerminal,
+  writeOutput,
+  writeUserMessage,
+} from "../ui/terminal.ts";
 import {
   readStartedSessionId,
   ToolActivityRenderer,
@@ -643,7 +647,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       }
       const parsedSlashCommand = parseSlashCommand(line);
       if (parsedSlashCommand && parsedSlashCommand.command !== "skill") {
-        writeOutput(`${renderUserMessage(line)}\n`);
+        if (!writeUserMessage(line)) {
+          writeOutput(`${renderUserMessage(line)}\n`);
+        }
       }
 
       const commandResult = await handleSlashCommand(line, {

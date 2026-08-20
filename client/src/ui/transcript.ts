@@ -12,6 +12,7 @@ import {
   writeCompactToolRun,
   writeOutput,
   writeOutputLine,
+  writeUserMessage,
 } from "./terminal.ts";
 import { compactJson, ToolActivityRenderer } from "./tool-activity.ts";
 import { parseChumpEvent } from "../core/events.ts";
@@ -179,7 +180,9 @@ export class TranscriptRenderer {
     }
     const content = userMessageDisplayFromPayload(payload);
     if (content.trim()) {
-      writeOutputLine(renderUserMessage(content));
+      if (!writeUserMessage(content)) {
+        writeOutputLine(renderUserMessage(content));
+      }
     }
   }
 
