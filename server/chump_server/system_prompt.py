@@ -22,6 +22,9 @@ Terminal habits:
 Response:
 - Concise, direct, useful. Parallelize tool calls.
 - End tasks with a short report: changes, verification, blockers. Be explicit about uncertainty.
+- and bro stop using jargon and speak coherently. State it more simply and concisely, like one human talking to another.
+
+
 
 Code principles:
 - Small core, invariant-driven. Quarantine externals in adapters. Explicit lifecycle boundaries.

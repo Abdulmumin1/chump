@@ -29,7 +29,7 @@
     }
 
     :global(.markdown-body strong) {
-        font-weight: 700;
+        font-weight: 600;
         color: var(--text-inverse);
     }
 
@@ -112,7 +112,7 @@
     :global(.markdown-body h3),
     :global(.markdown-body h4) {
         margin: 0 0 0.75rem 0;
-        font-weight: 700;
+        font-weight: 600;
         color: var(--text-inverse);
     }
 

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.3.5
+
+### Patch Changes
+
+- Fix TUI tool result rendering. Delegated `start_session` runs now show the sub-agent's final answer after they complete; parallel tool results render as they arrive instead of being withheld until every sibling finishes (which left them stuck when one call never completed); and result deduplication is keyed by tool call id so nothing is dropped when step numbers reset between turns. Removes the parallel result buffering machinery.
+
 ## 0.3.4
 
 ### Patch Changes

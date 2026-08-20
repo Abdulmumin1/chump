@@ -129,7 +129,6 @@ export class TranscriptRenderer {
       case "stream_end":
         this.finishReasoning();
         this.flushAssistantStream();
-        this.toolActivityRenderer.flushPendingBatches();
         if (event.fallback) {
           writeOutput(`${renderMuted(event.fallback)}\n`);
         }
@@ -137,7 +136,6 @@ export class TranscriptRenderer {
       case "stream_error":
         this.finishReasoning();
         this.flushAssistantStream();
-        this.toolActivityRenderer.flushPendingBatches();
         writeOutput(
           event.aborted
             ? `${renderMuted("(aborted)")}\n`
@@ -158,7 +156,6 @@ export class TranscriptRenderer {
   finish(): void {
     this.flushAssistantStream();
     this.finishReasoning();
-    this.toolActivityRenderer.flushPendingBatches();
   }
 
   private renderAssistantText(content: string): void {

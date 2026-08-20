@@ -30,6 +30,13 @@ export const FONT_OPTIONS: FontOption[] = [
         family: '"Supreme Local", sans-serif',
     },
     {
+        id: "clash-grotesk-local",
+        name: "Clash Grotesk (Local)",
+        category: "Grotesque",
+        description: "Modern grotesque sans by Indian Type Foundry, self-hosted variable font",
+        family: '"Clash Grotesk", sans-serif',
+    },
+    {
         id: "special-gothic",
         name: "Special Gothic",
         category: "Grotesque",
@@ -123,8 +130,8 @@ export function loadFontStylesheet(url: string) {
 }
 
 export function getActiveFontId(): string {
-    if (typeof localStorage === "undefined") return "supreme-local";
-    return localStorage.getItem("bodyFont") || "supreme-local";
+    if (typeof localStorage === "undefined") return "clash-grotesk-local";
+    return localStorage.getItem("bodyFont") || "clash-grotesk-local";
 }
 
 export function setBodyFont(fontId: string): FontOption {

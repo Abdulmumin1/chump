@@ -19,7 +19,7 @@ import {
 type ToolActivityEmission =
   | { type: "line"; value: string }
   | { type: "command"; activity: CommandActivity }
-  | { type: "compact"; activity: CompactActivityEmission; suppressLeadingGap?: boolean };
+  | { type: "compact"; activity: CompactActivityEmission };
 
 export type CompactActivityEmission = { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string };
 
@@ -32,7 +32,6 @@ export class ToolActivityRenderer {
     | ((activity: CompactActivityEmission) => boolean)
     | null;
   private workspaceRoot: string;
-  private capturedOutput: ToolActivityEmission[] | null = null;
 
   private pendingTools: Array<{
     name: string;
@@ -42,10 +41,6 @@ export class ToolActivityRenderer {
     index: number | null;
     deferredDiffs?: FileEditDiff[];
   }> = [];
-  private readonly bufferedParallelResults = new Map<
-    number,
-    Array<{ index: number; output: ToolActivityEmission[] }>
-  >();
   private readonly completedTools = new Set<string>();
   private readonly streamingCalls = new Map<
     string,
@@ -97,8 +92,11 @@ export class ToolActivityRenderer {
     const key = readToolIdentity(payload);
     if (key) {
       this.streamingCalls.delete(key);
-      this.completedTools.delete(key);
       this.pendingTools = this.pendingTools.filter((tool) => tool.key !== key);
+    }
+    const callId = readToolCallId(payload);
+    if (callId) {
+      this.completedTools.delete(callId);
     }
     const label = displayToolName(toolName);
     const renderedArgs = formatToolArgs(
@@ -202,76 +200,19 @@ export class ToolActivityRenderer {
   }
 
   renderToolResult(payload: Record<string, unknown>): boolean {
-    const key = readToolIdentity(payload);
-    if (key && this.completedTools.has(key)) {
+    // Results are deduplicated by tool call id. The server emits both
+    // tool_execution.finished and the correlated tool_result for the same
+    // call; the first one wins. Position-based keys (step/index) reset every
+    // turn and would silently drop unrelated results that reuse the slot.
+    const callId = readToolCallId(payload);
+    if (callId && this.completedTools.has(callId)) {
       return false;
     }
-    if (key) {
-      this.completedTools.add(key);
+    if (callId) {
+      this.completedTools.add(callId);
     }
-    this.renderToolResultInInvocationOrder(payload);
+    this.renderToolResultOnce(payload);
     return true;
-  }
-
-  flushPendingBatches(): void {
-    for (const step of [...this.bufferedParallelResults.keys()].sort((a, b) => a - b)) {
-      this.flushParallelBatch(step);
-    }
-  }
-
-  private renderToolResultInInvocationOrder(
-    payload: Record<string, unknown>,
-  ): void {
-    const step = finiteNumber(payload.step);
-    const index = finiteNumber(payload.index);
-    if (step === null || index === null) {
-      this.renderToolResultOnce(payload);
-      return;
-    }
-
-    const pendingInStep = this.pendingTools.filter((tool) => tool.step === step).length;
-    const buffered = this.bufferedParallelResults.get(step);
-    const isParallel = pendingInStep > 1 || buffered !== undefined;
-    if (!isParallel) {
-      this.renderToolResultOnce(payload);
-      return;
-    }
-
-    const previousCompactState = this.compactToolRunActive;
-    this.compactToolRunActive = false;
-    const output: ToolActivityEmission[] = [];
-    this.capturedOutput = output;
-    try {
-      this.renderToolResultOnce(payload);
-    } finally {
-      this.capturedOutput = null;
-      this.compactToolRunActive = previousCompactState;
-    }
-
-    const batch = buffered ?? [];
-    batch.push({ index, output });
-    this.bufferedParallelResults.set(step, batch);
-    if (!this.pendingTools.some((tool) => tool.step === step)) {
-      this.flushParallelBatch(step);
-    }
-  }
-
-  private flushParallelBatch(step: number): void {
-    const batch = this.bufferedParallelResults.get(step);
-    if (!batch) {
-      return;
-    }
-    this.bufferedParallelResults.delete(step);
-    this.compactToolRunActive = false;
-    for (const [resultIndex, result] of batch
-      .sort((a, b) => a.index - b.index)
-      .entries()) {
-      for (const [emissionIndex, emission] of result.output.entries()) {
-        const suppressLeadingGap = resultIndex > 0 && emissionIndex === 0;
-        const effectiveEmission = emission.type === "compact" && suppressLeadingGap ? { ...emission, suppressLeadingGap } : emission;
-        this.writeEmission(effectiveEmission, suppressLeadingGap);
-      }
-    }
   }
 
   private renderToolResultOnce(payload: Record<string, unknown>): void {
@@ -399,7 +340,15 @@ export class ToolActivityRenderer {
 
     if (ok === "ok" && pending) {
       this.compactToolRunActive = false;
-      this.emit(`\n${renderToolDone(label, pending.args)}`);
+      const resultLine =
+        typeof payload.preview === "string" && payload.preview.length > 0
+          ? renderToolResult(
+              ok,
+              label,
+              [pending.args, visiblePreview].filter(Boolean).join(" "),
+            )
+          : renderToolDone(label, pending.args);
+      this.emit(`\n${resultLine}`);
       this.emit("");
       this.activity = true;
       return;
@@ -440,35 +389,20 @@ export class ToolActivityRenderer {
   }
 
   private emit(value = ""): void {
-    if (this.capturedOutput) {
-      this.capturedOutput.push({ type: "line", value });
-      return;
-    }
     this.writeLine(value);
   }
 
   private emitCompact(activity: CompactActivityEmission): void {
-    if (this.capturedOutput) {
-      this.capturedOutput.push({ type: "compact", activity });
-      return;
-    }
-    this.writeEmission({ type: "compact", activity }, false);
+    this.writeEmission({ type: "compact", activity });
   }
 
   private emitCommand(activity: CommandActivity): void {
-    if (this.capturedOutput) {
-      this.capturedOutput.push({ type: "command", activity });
-      return;
-    }
-    this.writeCommand(activity, false);
+    this.writeCommand(activity);
   }
 
-  private writeEmission(
-    emission: ToolActivityEmission,
-    suppressLeadingGap: boolean,
-  ): void {
+  private writeEmission(emission: ToolActivityEmission): void {
     if (emission.type === "command") {
-      this.writeCommand(emission.activity, suppressLeadingGap);
+      this.writeCommand(emission.activity);
       return;
     }
     if (emission.type === "compact") {
@@ -477,21 +411,14 @@ export class ToolActivityRenderer {
       }
       return;
     }
-    const value = suppressLeadingGap && emission.value.startsWith("\n")
-      ? emission.value.slice(1)
-      : emission.value;
-    this.writeLine(value);
+    this.writeLine(emission.value);
   }
 
-  private writeCommand(
-    activity: CommandActivity,
-    suppressLeadingGap: boolean,
-  ): void {
+  private writeCommand(activity: CommandActivity): void {
     if (this.writeCommandActivity?.(activity)) {
       return;
     }
-    const prefix = suppressLeadingGap ? "" : "\n";
-    this.writeLine(`${prefix}${renderCommand(activity.command)}`);
+    this.writeLine(`\n${renderCommand(activity.command)}`);
     this.writeLine(
       renderCommandOutput(
         activity.status,
