@@ -610,9 +610,19 @@ install_from_binary() {
 
     step "Installing local binary"
     run mkdir -p "$INSTALL_DIR"
+    local staged_app="$INSTALL_DIR/.$APP.install-${$}"
+    run cp "$binary_path" "$staged_app"
+    run chmod 755 "$staged_app"
+    if [[ "$dry_run" == "true" ]]; then
+        return 0
+    fi
+    if ! "$staged_app" version >/dev/null 2>&1; then
+        run rm -f "$staged_app"
+        fail "Local chump binary cannot run; the existing installation was left unchanged"
+        exit 1
+    fi
+    run mv -f "$staged_app" "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
-    run cp "$binary_path" "$INSTALL_DIR/$APP"
-    run chmod 755 "$INSTALL_DIR/$APP"
 }
 
 download_binary() {
@@ -707,10 +717,15 @@ install_from_release() {
     fi
     run chmod 755 "$staged_app"
     run find "$staged_server" -type f -name 'chump-server*' -exec chmod 755 {} \;
+    if ! "$staged_app" version >/dev/null 2>&1; then
+        run rm -f "$staged_app"
+        run rm -rf "$staged_server" "$extract_dir" "$tmp_file"
+        fail "Downloaded chump binary cannot run; the existing installation was left unchanged"
+        exit 1
+    fi
     run mv -f "$staged_app" "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
     run rm -rf "$INSTALL_DIR/server"
-    run rm -rf "$INSTALL_DIR/completions"
     run mv -f "$staged_server" "$INSTALL_DIR/server"
     run rm -rf "$extract_dir" "$tmp_file"
 }
@@ -720,6 +735,7 @@ uninstall_chump() {
     run rm -f "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
     run rm -rf "$INSTALL_DIR/server"
+    run rm -rf "$INSTALL_DIR/completions"
     if [[ -d "$INSTALL_DIR" ]]; then
         run rmdir "$INSTALL_DIR" 2>/dev/null || true
     fi

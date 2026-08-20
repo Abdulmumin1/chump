@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.3.7
+
+### Patch Changes
+
+- Repair macOS standalone releases by re-signing Bun-compiled binaries before packaging and smoke-testing every platform artifact. Installers now validate staged binaries before replacing an existing installation and preserve working shell completions when generation fails.
+
 ## 0.3.6
 
 ### Patch Changes
