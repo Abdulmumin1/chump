@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { flip } from "svelte/animate";
     import { slide } from "svelte/transition";
     import MarkdownText from "$lib/MarkdownText.svelte";
     import ToolBlock from "$lib/ToolBlock.svelte";
@@ -160,11 +159,7 @@
 
 <div class="flex flex-col min-w-0 {item.live ? 'opacity-90' : ''}">
     {#each blockGroups as group, groupIndex (`${item.id}-${group.kind === 'single' ? group.index : group.blocks[0].index}`)}
-        <div
-            class={`${groupIndex > 0 ? "mt-2" : ""} min-h-[36px]`}
-            animate:flip={{ duration: 180 }}
-            out:slide={{ duration: 180 }}
-        >
+        <div class={`${groupIndex > 0 ? "mt-2" : ""} min-h-[36px]`}>
         {#if group.kind === "single"}
             {@const block = group.block}
             {@const index = group.index}

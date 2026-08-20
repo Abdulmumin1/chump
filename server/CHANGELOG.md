@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.1.24
+
+- Add explicit response-style guidance to the built-in system prompt: plain, concise, jargon-free replies written like one human talking to another.
+
 ## 0.1.23
 
 - Add Gemini 3.7 Flash from models.dev to the Google and Chump Cloud model catalogs, make it the default Google model, and remove Gemini 3.6 Flash from selectable catalogs.

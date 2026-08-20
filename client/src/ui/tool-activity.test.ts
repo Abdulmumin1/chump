@@ -591,8 +591,9 @@ test("correlates reverse-completing same-name tools by lifecycle identity", () =
     index: 0,
   });
 
-  assert.match(output[0] ?? "", /first/);
-  assert.match(output[1] ?? "", /second/);
+  // Results render in arrival order: second finishes first, then first.
+  assert.match(output[0] ?? "", /second/);
+  assert.match(output[1] ?? "", /first/);
 });
 
 test("keeps each concurrent bash result with its originating command", () => {
@@ -632,10 +633,10 @@ test("keeps each concurrent bash result with its originating command", () => {
   });
 
   assert.equal(output.length, 6);
-  assert.match(stripTestAnsi(output[0] ?? ""), /printf first/);
-  assert.match(output[1] ?? "", /first output/);
-  assert.match(stripTestAnsi(output[3] ?? ""), /printf second/);
-  assert.match(output[4] ?? "", /second output/);
+  assert.match(stripTestAnsi(output[0] ?? ""), /printf second/);
+  assert.match(output[1] ?? "", /second output/);
+  assert.match(stripTestAnsi(output[3] ?? ""), /printf first/);
+  assert.match(output[4] ?? "", /first output/);
 });
 
 test("passes bounded command output to the semantic TUI renderer", () => {
