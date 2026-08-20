@@ -13,6 +13,7 @@ console.log(`Building chump package for ${target.platform}...`);
 
 const outfile = path.join("dist", "bin", cliAssetName(target.platform));
 await $`bun build ./src/chump.ts --compile --target ${target.bunTarget} --outfile ${outfile}`;
+await prepareCliBinary(outfile, target.platform);
 await packageTarget({ platform: target.platform, cliBinary: outfile, cliName: target.cliName });
 
 console.log("Build complete!");
@@ -22,6 +23,19 @@ type BuildTarget = {
   platform: string;
   cliName: string;
 };
+
+async function prepareCliBinary(cliBinary: string, platform: string): Promise<void> {
+  if (platform.startsWith("darwin")) {
+    // Bun's compiled Mach-O can retain a stale linker signature after its
+    // embedded payload is appended. macOS terminates that binary with SIGKILL,
+    // so replace the stale signature before the artifact is packaged.
+    await $`codesign --force --sign - ${cliBinary}`;
+    await $`codesign --verify --strict --verbose=2 ${cliBinary}`;
+  }
+
+  // Never publish an archive whose CLI cannot start on its build platform.
+  await $`${path.resolve(cliBinary)} version`;
+}
 
 function currentTarget(): BuildTarget {
   const platform = platformSuffix();
