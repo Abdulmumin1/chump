@@ -240,6 +240,11 @@ class PiTuiShell implements PiPromptReader {
     this.tui.requestRender();
   };
 
+  writeUserMessage = (content: string): void => {
+    this.transcript.appendUserMessage(content);
+    this.tui.requestRender();
+  };
+
   async read(): Promise<PromptSubmission | null> {
     await this.extensionReady;
     if (this.closed || this.inputEnded) {

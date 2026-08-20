@@ -233,15 +233,26 @@
     async function scrollToFile(path: string): Promise<void> {
         if (!browser) return;
         await tick();
-        const sections = document.querySelectorAll<HTMLElement>(
-            "[data-workspace-diff-path]",
+        const scrollContainers =
+            document.querySelectorAll<HTMLElement>(
+                "[data-workspace-diff-scroll]",
+            );
+        const scrollContainer = Array.from(scrollContainers).find(
+            (container) => container.getClientRects().length > 0,
         );
-        const target = Array.from(sections).find(
-            (section) =>
-                section.dataset.workspaceDiffPath === path &&
-                section.getClientRects().length > 0,
-        );
-        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        const target = Array.from(
+            scrollContainer?.querySelectorAll<HTMLElement>(
+                "[data-workspace-diff-path]",
+            ) ?? [],
+        ).find((section) => section.dataset.workspaceDiffPath === path);
+        if (!scrollContainer || !target) return;
+
+        const scrollRect = scrollContainer.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        scrollContainer.scrollTo({
+            behavior: "smooth",
+            top: scrollContainer.scrollTop + targetRect.top - scrollRect.top,
+        });
     }
 
     function closeModal(): void {
@@ -403,7 +414,7 @@
 
 {#snippet diffPanel()}
     <div
-        class="flex min-w-0 flex-1 flex-col bg-bg-surface h-full overflow-hidden"
+        class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface"
     >
         <div
             class="flex items-center justify-between border-b border-border-subtle px-4 md:px-6 py-2 md:py-3 shrink-0 bg-bg-surface"
@@ -578,7 +589,8 @@
         {/if}
 
         <div
-            class="min-h-0 flex-1 overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0"
+            class="min-h-0 flex-1 overscroll-contain overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0"
+            data-workspace-diff-scroll
         >
             {#if stackedFiles.length === 0}
                 <div
@@ -687,14 +699,14 @@
 
 {#if useInlineDiff && selectedPath && selectedFile && !isCollapsed}
     <div
-        class="flex min-w-[550px] flex-1 flex-col border-l border-border-subtle bg-bg-surface text-text-main"
+        class="flex h-full min-h-0 min-w-[550px] flex-1 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface text-text-main"
     >
         {@render diffPanel()}
     </div>
 {/if}
 
 <aside
-    class="hidden md:flex h-full flex-shrink-0 flex-col border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all duration-200"
+    class="hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all duration-200 md:flex"
     class:w-[420px]={!isCollapsed}
     class:w-0={isCollapsed}
     class:overflow-hidden={isCollapsed}
@@ -839,7 +851,7 @@
         </div>
     </div>
 
-    <div class="flex-1 overflow-y-auto py-1">
+    <div class="min-h-0 flex-1 overscroll-contain overflow-y-auto py-1">
         {#if filesCount === 0}
             <div class="px-4 py-12 text-center">
                 <div class="text-[11px] font-medium text-text-tertiary">
@@ -938,12 +950,12 @@
 {#if modalOpen && groupedFiles.length > 0}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay/60 p-0 md:p-3 backdrop-blur-[2px]"
+        class="fixed inset-0 z-50 flex min-h-0 items-center justify-center overflow-hidden bg-bg-overlay/60 p-0 backdrop-blur-[2px] md:p-3"
         onclick={closeModal}
         role="presentation"
     >
         <div
-            class="flex h-full w-full overflow-hidden rounded-none border-border-default bg-bg-surface text-text-main shadow-2xl md:rounded-xl md:border"
+            class="flex h-full min-h-0 w-full overflow-hidden rounded-none border-border-default bg-bg-surface text-text-main shadow-2xl md:rounded-xl md:border"
             onclick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -951,7 +963,7 @@
             aria-label="Workspace Changes"
         >
             <div
-                class="flex w-full flex-shrink-0 flex-col border-border-subtle bg-bg-surface-alt md:order-2 md:w-80 md:border-l {selectedPath
+                class="min-h-0 w-full flex-shrink-0 flex-col overflow-hidden border-border-subtle bg-bg-surface-alt md:order-2 md:w-80 md:border-l {selectedPath
                     ? 'hidden md:flex'
                     : 'flex'}"
             >
@@ -983,7 +995,7 @@
                         </svg>
                     </button>
                 </div>
-                <div class="flex-1 overflow-y-auto py-1">
+                <div class="min-h-0 flex-1 overscroll-contain overflow-y-auto py-1">
                     <div class="flex flex-col pb-24 md:pb-0">
                         {#each filteredFiles as file (file.path)}
                             {@const { dir, name } = splitPath(file.path)}
@@ -1026,7 +1038,7 @@
             </div>
 
             <div
-                class="flex min-w-0 flex-1 flex-col bg-bg-surface md:order-1 {!selectedPath
+                class="min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface md:order-1 {!selectedPath
                     ? 'hidden md:flex'
                     : 'flex'}"
             >

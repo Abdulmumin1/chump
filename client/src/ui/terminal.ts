@@ -12,6 +12,7 @@ export type TerminalOutputSink = {
   writeCommandActivity?: (activity: CommandActivity) => void;
   writeCompactToolRun?: (activity: { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string }) => void;
   writeReasoning?: (content: string) => void;
+  writeUserMessage?: (content: string) => void;
 };
 
 let activeOutputSink: TerminalOutputSink | null = null;
@@ -57,6 +58,14 @@ export function writeReasoning(content: string): boolean {
     return false;
   }
   activeOutputSink.writeReasoning(content);
+  return true;
+}
+
+export function writeUserMessage(content: string): boolean {
+  if (!activeOutputSink?.writeUserMessage) {
+    return false;
+  }
+  activeOutputSink.writeUserMessage(content);
   return true;
 }
 

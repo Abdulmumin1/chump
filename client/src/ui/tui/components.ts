@@ -14,7 +14,11 @@ import {
   type CommandActivity,
   renderCommandActivityLines,
 } from "../command-activity.ts";
-import { renderThinkingLabel, renderTuiMuted } from "../render.ts";
+import {
+  renderThinkingLabel,
+  renderTuiMuted,
+  renderUserMessage,
+} from "../render.ts";
 import type { TerminalMarkdownStream } from "../terminal.ts";
 import { renderToolDone, renderToolResult } from "../render.ts";
 
@@ -84,10 +88,37 @@ export class TuiTranscript extends Container {
   private trailingGap = false;
   private toolsExpanded = false;
   private thinkingVisible = true;
+  private cachedWidth = 0;
+  private cachedLines: string[] | null = null;
 
   constructor(markdownTheme: MarkdownTheme) {
     super();
     this.markdownTheme = markdownTheme;
+  }
+
+  override addChild(component: Component): void {
+    super.addChild(component);
+    this.invalidateRenderCache();
+  }
+
+  override removeChild(component: Component): void {
+    super.removeChild(component);
+    this.invalidateRenderCache();
+  }
+
+  override invalidate(): void {
+    super.invalidate();
+    this.invalidateRenderCache();
+  }
+
+  override render(width: number): string[] {
+    const renderWidth = Math.max(1, width);
+    if (this.cachedLines && this.cachedWidth === renderWidth) {
+      return this.cachedLines;
+    }
+    this.cachedWidth = renderWidth;
+    this.cachedLines = super.render(renderWidth);
+    return this.cachedLines;
   }
 
   append(value: string): void {
@@ -100,6 +131,7 @@ export class TuiTranscript extends Container {
       this.addChild(this.currentText);
     }
     this.currentText.append(value);
+    this.invalidateRenderCache();
     this.hasContent = true;
     this.trailingGap = this.currentText.endsWithBlankLine();
   }
@@ -135,10 +167,22 @@ export class TuiTranscript extends Container {
     this.trailingGap = false;
   }
 
+  appendUserMessage(content: string): void {
+    if (!content.trim()) {
+      return;
+    }
+    this.currentText = null;
+    this.currentCompactGroup = null;
+    this.addChild(new ResponsiveUserMessage(content));
+    this.hasContent = true;
+    this.trailingGap = false;
+  }
+
   appendCompactToolRun(activity: { toolName: string, label: string, status: string, args: string, preview: string, fallbackLine: string }): void {
     this.currentText = null;
     if (this.currentCompactGroup?.getToolName() === activity.toolName) {
       this.currentCompactGroup.addRun(activity);
+      this.invalidateRenderCache();
     } else {
       if (!this.currentCompactGroup && this.hasContent && !this.trailingGap) {
         this.addChild(new Spacer(1));
@@ -151,10 +195,14 @@ export class TuiTranscript extends Container {
   }
 
   setToolsExpanded(expanded: boolean): void {
+    if (this.toolsExpanded === expanded) {
+      return;
+    }
     this.toolsExpanded = expanded;
     for (const activity of this.commandActivities) {
       activity.setExpanded(expanded);
     }
+    this.invalidateRenderCache();
   }
 
   areToolsExpanded(): boolean {
@@ -162,10 +210,14 @@ export class TuiTranscript extends Container {
   }
 
   setThinkingVisible(visible: boolean): void {
+    if (this.thinkingVisible === visible) {
+      return;
+    }
     this.thinkingVisible = visible;
     for (const reasoning of this.reasoningBlocks) {
       reasoning.setVisible(visible);
     }
+    this.invalidateRenderCache();
   }
 
   isThinkingVisible(): boolean {
@@ -193,6 +245,7 @@ export class TuiTranscript extends Container {
         }
         value += transform(chunk);
         markdown.setText(value);
+        this.invalidateRenderCache();
         this.hasContent = true;
         this.trailingGap = false;
         onChange();
@@ -212,10 +265,15 @@ export class TuiTranscript extends Container {
     this.trailingGap = false;
     this.commandActivities.length = 0;
     this.reasoningBlocks.length = 0;
+    this.invalidateRenderCache();
   }
 
   hasTrailingGap(): boolean {
     return this.trailingGap;
+  }
+
+  private invalidateRenderCache(): void {
+    this.cachedLines = null;
   }
 }
 
@@ -243,6 +301,20 @@ export class ExpandableCommandActivity implements Component {
   }
 }
 
+export class ResponsiveUserMessage implements Component {
+  private readonly content: string;
+
+  constructor(content: string) {
+    this.content = content;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    return renderUserMessage(this.content, Math.max(3, width)).split("\n");
+  }
+}
+
 export class ToggleableReasoning implements Component {
   private readonly markdown: Markdown;
   private visible: boolean;
@@ -252,7 +324,13 @@ export class ToggleableReasoning implements Component {
     markdownTheme: MarkdownTheme,
     visible = true,
   ) {
-    this.markdown = new Markdown(content, 0, 0, markdownTheme);
+    this.markdown = new Markdown(
+      content,
+      0,
+      0,
+      mutedMarkdownTheme(markdownTheme),
+      { color: renderTuiMuted },
+    );
     this.visible = visible;
   }
 
@@ -274,10 +352,32 @@ export class ToggleableReasoning implements Component {
       "",
       renderThinkingLabel(),
       ...this.markdown.render(bodyWidth).map((line) =>
-        truncateToWidth(renderTuiMuted(`  ${line}`), renderWidth)
+        truncateToWidth(`  ${line}`, renderWidth)
       ),
     ];
   }
+}
+
+function mutedMarkdownTheme(theme: MarkdownTheme): MarkdownTheme {
+  const muted = (value: string): string => renderTuiMuted(value);
+  return {
+    ...theme,
+    heading: muted,
+    link: muted,
+    linkUrl: muted,
+    code: muted,
+    codeBlock: muted,
+    codeBlockBorder: muted,
+    quote: muted,
+    quoteBorder: muted,
+    hr: muted,
+    listBullet: muted,
+    bold: muted,
+    italic: muted,
+    strikethrough: muted,
+    underline: muted,
+    highlightCode: undefined,
+  };
 }
 
 class CachedAnsiLine {
@@ -474,6 +574,9 @@ export class CompactToolGroup implements Component {
       return [];
     }
     const renderWidth = Math.max(1, width);
+    if (this.toolName === "start_session") {
+      return this.renderSessionResults(renderWidth);
+    }
     if (this.runs.length === 1) {
       return [truncateToWidth(singleTerminalLine(this.runs[0].fallbackLine), renderWidth)];
     }
@@ -494,6 +597,30 @@ export class CompactToolGroup implements Component {
         : `${prefix}× ${content}`;
       
       lines.push(truncateToWidth(singleTerminalLine(renderTuiMuted(contentLine)), renderWidth));
+    }
+    return lines;
+  }
+
+  private renderSessionResults(width: number): string[] {
+    const allSucceeded = this.runs.every((run) => run.status === "ok");
+    const singleSession = this.runs.length === 1 ? this.runs[0]?.args ?? "" : "";
+    const header = allSucceeded
+      ? renderToolDone(this.label, singleSession)
+      : renderToolResult("error", this.label, singleSession);
+    const lines = [truncateToWidth(singleTerminalLine(header), width)];
+
+    for (let index = 0; index < this.runs.length; index += 1) {
+      const run = this.runs[index];
+      if (!run) continue;
+      const prefix = index === this.runs.length - 1 ? "  └─ " : "  ├─ ";
+      const sessionPrefix = this.runs.length > 1 && run.args
+        ? `${run.args} · `
+        : "";
+      const failurePrefix = run.status === "ok" ? "" : "× ";
+      const detail = `${prefix}${failurePrefix}${sessionPrefix}${run.preview}`;
+      lines.push(
+        truncateToWidth(singleTerminalLine(renderTuiMuted(detail)), width),
+      );
     }
     return lines;
   }

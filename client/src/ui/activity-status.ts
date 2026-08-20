@@ -21,6 +21,7 @@ import {
 import {
   formatDelegatedToolPreview,
   readStartedSessionId,
+  readStartedSessionResultPreview,
   parseStartedSessionPayload,
   readToolCallId,
   readToolIdentity,
@@ -193,7 +194,11 @@ export function createActivityStatusController(
     if (!tool) {
       return false;
     }
-    tool.state = toolResultSucceeded(payload) ? "completed" : "failed";
+    const succeeded = toolResultSucceeded(payload);
+    tool.state = succeeded ? "completed" : "failed";
+    if (tool.delegated) {
+      settleDelegatedSession(tool.delegated, payload, succeeded, clock);
+    }
     return true;
   }
 
@@ -460,6 +465,31 @@ function delegatedSessionFrom(
       shownAt: now,
     },
     statusTimer: null,
+  };
+}
+
+function settleDelegatedSession(
+  delegated: DelegatedSessionActivity,
+  payload: Record<string, unknown>,
+  succeeded: boolean,
+  clock: ActivityClock,
+): void {
+  if (delegated.statusTimer !== null) {
+    clock.clearTimeout(delegated.statusTimer);
+    delegated.statusTimer = null;
+  }
+  delegated.tools.clear();
+  delegated.reasoningText = "";
+  delegated.phase = succeeded ? "Completed" : "Failed";
+
+  const result = readStartedSessionResultPreview(payload);
+  const value = succeeded
+    ? `Result: ${result ?? "Completed"}`
+    : `Failed: ${result ?? "Delegated session failed"}`;
+  delegated.visibleStatus = {
+    key: `result:${succeeded ? "ok" : "error"}:${result ?? ""}`,
+    value: renderMuted(value),
+    shownAt: clock.now(),
   };
 }
 

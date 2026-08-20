@@ -152,7 +152,8 @@ test("delegated start_session run renders call and result in real server order",
   console.log("DELEGATED PROGRESS COUNT: " + delegatedProgressSeen.length);
 
   const joined = lines.join("\n");
-  assert.ok(joined.includes("Start session"), "expected a start_session tool row");
+  assert.ok(joined.includes("Session"), "expected a completed session row");
+  assert.ok(!joined.includes("Start session"), "expected the completed semantic label");
   assert.ok(joined.includes("Child final answer"), "expected the delegated result");
   assert.equal(delegatedProgressSeen.length, 5, "expected all child progress forwarded");
 });
