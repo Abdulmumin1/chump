@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getSessionSnapshot, getSessions, openEventStream } from '$lib/chump/api';
+import {
+	getSessionSnapshot,
+	getSessions,
+	openEventStream,
+	terminalTargetIdentity,
+	terminalWebSocketConnection
+} from '$lib/chump/api';
 
 const originalFetch = globalThis.fetch;
 
@@ -22,6 +28,58 @@ describe('session listing', () => {
 		await getSessions({ kind: 'direct', serverUrl: 'http://127.0.0.1:8000' });
 
 		expect(requestUrl.searchParams.get('limit')).toBe('10');
+	});
+});
+
+describe('terminal websocket connection', () => {
+	it('builds a direct websocket URL without putting credentials in it', () => {
+		const connection = terminalWebSocketConnection(
+			{ kind: 'direct', serverUrl: 'https://share.example/' },
+			{ cols: 100, rows: 30, theme: 'light' }
+		);
+
+		expect(connection.url).toBe('wss://share.example/terminal?cols=100&rows=30&theme=light');
+		expect(connection.protocols).toEqual(['chump-terminal-v1']);
+	});
+
+	it('carries daemon auth in a websocket subprotocol instead of the URL', () => {
+		const connection = terminalWebSocketConnection(
+			{
+				kind: 'daemon',
+				daemonUrl: 'http://127.0.0.1:38136',
+				token: 'secret-token',
+				projectId: 'project one'
+			},
+			{ cols: 80, rows: 24, theme: 'dark' }
+		);
+
+		expect(connection.url).toBe(
+			'ws://127.0.0.1:38136/projects/project%20one/terminal?cols=80&rows=24&theme=dark'
+		);
+		expect(connection.url).not.toContain('secret-token');
+		expect(connection.protocols).toEqual(['chump-terminal-v1', 'chump-auth.secret-token']);
+	});
+
+	it('changes identity when a terminal is retargeted', () => {
+		const direct = terminalTargetIdentity({
+			kind: 'direct',
+			serverUrl: 'http://127.0.0.1:8000/'
+		});
+		const daemon = terminalTargetIdentity({
+			kind: 'daemon',
+			daemonUrl: 'http://127.0.0.1:38136',
+			token: 'token-one',
+			projectId: 'project-one'
+		});
+		const rotatedToken = terminalTargetIdentity({
+			kind: 'daemon',
+			daemonUrl: 'http://127.0.0.1:38136',
+			token: 'token-two',
+			projectId: 'project-one'
+		});
+
+		expect(direct).not.toBe(daemon);
+		expect(daemon).not.toBe(rotatedToken);
 	});
 });
 
