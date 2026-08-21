@@ -19,10 +19,12 @@
         state: sessionState,
         target,
         sidebarOpen = false,
+        onCollapsedChange,
     } = $props<{
         state: ChumpState | null;
         target: ChumpApiTarget | null;
         sidebarOpen?: boolean;
+        onCollapsedChange?: (collapsed: boolean) => void;
     }>();
 
     const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
@@ -43,6 +45,10 @@
             );
         }
     }
+
+    $effect(() => {
+        onCollapsedChange?.(isCollapsed);
+    });
 
     let modalOpen = $state(false);
     let selectedPath: string | null = $state(null);

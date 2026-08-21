@@ -94,6 +94,10 @@
     let health = $state<ChumpHealth | null>(null);
     let status = $state<ChumpStatus | null>(null);
     let sessionState = $state<ChumpState | null>(null);
+    let workspacePane = $state<{
+        collapse: () => void;
+        expand: () => void;
+    } | null>(null);
     let sessions = $state<SessionSummary[]>([]);
     let sessionPage = $state(1);
     let sessionTotalPages = $state(1);
@@ -415,6 +419,14 @@
 
     function toggleSidebar() {
         sidebarOpen = !sidebarOpen;
+    }
+
+    function handleWorkspaceCollapsed(collapsed: boolean): void {
+        if (collapsed) {
+            workspacePane?.collapse();
+        } else {
+            workspacePane?.expand();
+        }
     }
 
     function closeSidebar() {
@@ -1365,13 +1377,20 @@
                 {@render chatPane()}
             </Pane>
             <PaneResizer class="workspace-pane-resizer hidden md:block" />
-            <Pane defaultSize={42} minSize={25}>
+            <Pane
+                bind:this={workspacePane}
+                defaultSize={42}
+                minSize={25}
+                collapsible
+                collapsedSize={0}
+            >
                 {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
                     {#key activeSessionId}
                         <WorkspaceState
                             state={sessionState}
                             target={apiTarget}
                             {sidebarOpen}
+                            onCollapsedChange={handleWorkspaceCollapsed}
                         />
                     {/key}
                 {/await}
