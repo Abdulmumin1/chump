@@ -1367,10 +1367,12 @@
             <PaneResizer class="workspace-pane-resizer hidden md:block" />
             <Pane defaultSize={42} minSize={25}>
                 {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
-                    <WorkspaceState
-                        state={sessionState}
-                        {sidebarOpen}
-                    />
+                    {#key activeSessionId}
+                        <WorkspaceState
+                            state={sessionState}
+                            {sidebarOpen}
+                        />
+                    {/key}
                 {/await}
             </Pane>
         </PaneGroup>

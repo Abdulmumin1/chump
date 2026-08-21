@@ -484,17 +484,21 @@
                         </button>
                     {/each}
                 </div>
-                <div
-                    class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex"
-                >
-                    {#if totalAdded > 0}<span class="text-text-success"
-                            >+{totalAdded}</span
-                        >{/if}
-                    {#if totalRemoved > 0}<span class="text-text-error"
-                            >-{totalRemoved}</span
-                        >{/if}
-                    <span class="text-text-tertiary">~{totalChangesCount}</span>
-                </div>
+                {#if totalAdded > 0 || totalRemoved > 0 || totalChangesCount > 0}
+                    <div
+                        class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex"
+                    >
+                        {#if totalAdded > 0}<span class="text-text-success"
+                                >+{totalAdded}</span
+                            >{/if}
+                        {#if totalRemoved > 0}<span class="text-text-error"
+                                >-{totalRemoved}</span
+                            >{/if}
+                        <span class="text-text-tertiary"
+                            >~{totalChangesCount}</span
+                        >
+                    </div>
+                {/if}
             </div>
             <div class="flex items-center gap-2">
                 <div
@@ -682,11 +686,31 @@
             class="min-h-0 flex-1 overscroll-contain overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0"
             data-workspace-diff-scroll
         >
-            {#if stackedFiles.length === 0}
+            {#if filesCount === 0}
                 <div
-                    class="flex h-full items-center justify-center text-[13px] text-text-tertiary"
+                    class="flex h-full items-center justify-center px-8 text-center"
                 >
-                    Summary counts available. Full diffs for new edits.
+                    <div>
+                        <div class="text-[13px] font-medium text-text-secondary">
+                            No changes yet
+                        </div>
+                        <div class="mt-1 text-[11px] text-text-tertiary">
+                            Edited files will appear here.
+                        </div>
+                    </div>
+                </div>
+            {:else if stackedFiles.length === 0}
+                <div
+                    class="flex h-full items-center justify-center px-8 text-center"
+                >
+                    <div>
+                        <div class="text-[13px] font-medium text-text-secondary">
+                            Changes tracked
+                        </div>
+                        <div class="mt-1 text-[11px] text-text-tertiary">
+                            Full diffs will appear for new edits.
+                        </div>
+                    </div>
                 </div>
             {:else}
                 <div class="flex flex-col">
@@ -789,7 +813,7 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="hidden h-full min-h-0 min-w-0 md:flex">
-{#if useInlineDiff && selectedPath && selectedFile && !isCollapsed}
+{#if useInlineDiff && !isCollapsed}
     <div
         class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface text-text-main"
     >
@@ -797,7 +821,7 @@
     </div>
 {/if}
 
-{#if !useInlineDiff || activeTab === "changes"}
+{#if !useInlineDiff || (activeTab === "changes" && filesCount > 0)}
 <aside
     class="hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all duration-200 md:flex"
     class:w-0={isCollapsed}
