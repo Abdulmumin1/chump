@@ -40,11 +40,22 @@
     let selectedPath: string | null = $state(null);
     let userClosedDiff = $state(false);
     let searchQuery = $state("");
+    let browserInput = $state("");
+    let browserUrl = $state("");
     let mobileDiffFontSize = $state(11);
     let useInlineDiff = $state(
         browser && window.matchMedia(INLINE_DIFF_MEDIA_QUERY).matches,
     );
     let appTheme = $state<AppTheme>(getDocumentTheme());
+
+    function openBrowserUrl(): void {
+        const value = browserInput.trim();
+        if (!value) return;
+        browserUrl = /^[a-z][a-z0-9+.-]*:/i.test(value)
+            ? value
+            : `https://${value}`;
+        browserInput = browserUrl;
+    }
 
     type DiffRow = {
         kind: "add" | "remove" | "context" | "meta";
@@ -61,6 +72,17 @@
         records: ChangeRecord[];
         lastIndex: number;
     };
+
+    type WorkspaceTab = "terminal" | "browser" | "processes" | "changes";
+
+    const workspaceTabs: Array<{ id: WorkspaceTab; label: string }> = [
+        { id: "terminal", label: "Terminal" },
+        { id: "browser", label: "Browser" },
+        { id: "processes", label: "Processes" },
+        { id: "changes", label: "Changes" },
+    ];
+
+    let activeTab = $state<WorkspaceTab>("changes");
 
     let groupedFiles = $derived(buildFileGroups(sessionState));
     let filteredFiles = $derived(
@@ -439,22 +461,44 @@
                         />
                     </svg>
                 </button>
-                <div
-                    class="truncate font-mono text-[11px] md:text-[13px] font-medium text-text-main"
-                >
-                    All changes
+                <div class="workspace-tabs" role="tablist" aria-label="Workspace panel">
+                    {#each workspaceTabs as tab (tab.id)}
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={activeTab === tab.id}
+                            class:workspace-tab-active={activeTab === tab.id}
+                            class="workspace-tab"
+                            onclick={() => (activeTab = tab.id)}
+                        >
+                            {#if tab.id === "terminal"}
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z" /><path d="m8 9 3 3-3 3" /><path d="M13 15h4" /></svg>
+                            {:else if tab.id === "browser"}
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z" /><path d="M4 9h16" /></svg>
+                            {:else if tab.id === "processes"}
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 8h10v10H8z" /><path d="M6 16H4V4h12v2" /></svg>
+                            {:else}
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4" /><path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" /><path d="M7 9h10M7 15h10" /></svg>
+                            {/if}
+                            <span>{tab.label}</span>
+                        </button>
+                    {/each}
                 </div>
-                <div
-                    class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex"
-                >
-                    {#if totalAdded > 0}<span class="text-text-success"
-                            >+{totalAdded}</span
-                        >{/if}
-                    {#if totalRemoved > 0}<span class="text-text-error"
-                            >-{totalRemoved}</span
-                        >{/if}
-                    <span class="text-text-tertiary">~{totalChangesCount}</span>
-                </div>
+                {#if totalAdded > 0 || totalRemoved > 0 || totalChangesCount > 0}
+                    <div
+                        class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex"
+                    >
+                        {#if totalAdded > 0}<span class="text-text-success"
+                                >+{totalAdded}</span
+                            >{/if}
+                        {#if totalRemoved > 0}<span class="text-text-error"
+                                >-{totalRemoved}</span
+                            >{/if}
+                        <span class="text-text-tertiary"
+                            >~{totalChangesCount}</span
+                        >
+                    </div>
+                {/if}
             </div>
             <div class="flex items-center gap-2">
                 <div
@@ -541,6 +585,56 @@
             </div>
         </div>
 
+        {#if activeTab === "browser"}
+            <div class="flex min-h-0 flex-1 flex-col bg-bg-surface">
+                <form
+                    class="flex h-8 shrink-0 items-center gap-1 border-b border-border-subtle px-1.5 py-1"
+                    onsubmit={(event) => {
+                        event.preventDefault();
+                        openBrowserUrl();
+                    }}
+                >
+                    <button
+                        type="button"
+                        class="workspace-icon-button"
+                        aria-label="Reload browser"
+                        onclick={openBrowserUrl}
+                    >
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
+                    </button>
+                    <input
+                        type="text"
+                        bind:value={browserInput}
+                        class="h-6 min-w-0 flex-1 rounded border border-border-subtle bg-bg-elevated/40 px-1.5 text-[11px] text-text-main outline-none transition-colors placeholder:text-text-muted/60 focus:border-border-hover"
+                        placeholder="Enter URL..."
+                        aria-label="Browser URL"
+                    />
+                    <button
+                        type="submit"
+                        class="h-6 rounded bg-bg-elevated px-1.5 text-[10px] font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-main"
+                    >
+                        Go
+                    </button>
+                </form>
+                <iframe
+                    title="Workspace browser"
+                    src={browserUrl}
+                    class="min-h-0 flex-1 border-0 bg-white"
+                    sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                ></iframe>
+            </div>
+        {:else if activeTab !== "changes"}
+            <div class="flex min-h-0 flex-1 items-center justify-center px-8 text-center">
+                <div>
+                    <div class="text-[12px] font-medium text-text-secondary">
+                        {workspaceTabs.find((tab) => tab.id === activeTab)?.label}
+                    </div>
+                    <div class="mt-1 text-[11px] text-text-tertiary">
+                        Coming next. Browser has a first pass now.
+                    </div>
+                </div>
+            </div>
+        {:else}
         {#if stackedFiles.length > 0}
             <div
                 class="md:hidden flex flex-col gap-3 border-b border-border-subtle px-5 py-3 shrink-0"
@@ -592,11 +686,31 @@
             class="min-h-0 flex-1 overscroll-contain overflow-y-auto bg-bg-surface-alt/10 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0"
             data-workspace-diff-scroll
         >
-            {#if stackedFiles.length === 0}
+            {#if filesCount === 0}
                 <div
-                    class="flex h-full items-center justify-center text-[13px] text-text-tertiary"
+                    class="flex h-full items-center justify-center px-8 text-center"
                 >
-                    Summary counts available. Full diffs for new edits.
+                    <div>
+                        <div class="text-[13px] font-medium text-text-secondary">
+                            No changes yet
+                        </div>
+                        <div class="mt-1 text-[11px] text-text-tertiary">
+                            Edited files will appear here.
+                        </div>
+                    </div>
+                </div>
+            {:else if stackedFiles.length === 0}
+                <div
+                    class="flex h-full items-center justify-center px-8 text-center"
+                >
+                    <div>
+                        <div class="text-[13px] font-medium text-text-secondary">
+                            Changes tracked
+                        </div>
+                        <div class="mt-1 text-[11px] text-text-tertiary">
+                            Full diffs will appear for new edits.
+                        </div>
+                    </div>
                 </div>
             {:else}
                 <div class="flex flex-col">
@@ -692,28 +806,32 @@
                 </div>
             {/if}
         </div>
+        {/if}
     </div>
 {/snippet}
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-{#if useInlineDiff && selectedPath && selectedFile && !isCollapsed}
+<div class="hidden h-full min-h-0 min-w-0 md:flex">
+{#if useInlineDiff && !isCollapsed}
     <div
-        class="flex h-full min-h-0 min-w-[550px] flex-1 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface text-text-main"
+        class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface text-text-main"
     >
         {@render diffPanel()}
     </div>
 {/if}
 
+{#if !useInlineDiff || (activeTab === "changes" && filesCount > 0)}
 <aside
     class="hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all duration-200 md:flex"
-    class:w-[420px]={!isCollapsed}
     class:w-0={isCollapsed}
     class:overflow-hidden={isCollapsed}
     class:border-l-0={isCollapsed}
+    class:w-[420px]={!isCollapsed && useInlineDiff}
+    class:w-full={!isCollapsed && !useInlineDiff}
 >
-    <div class="border-b border-border-subtle px-4 py-2.5">
-        <div class="flex min-w-0 items-center justify-end">
+    <div class="border-b border-border-subtle bg-bg-surface/95">
+        <div class="flex min-w-0 items-center justify-end gap-2 px-3 py-3.5">
             <div class="flex items-center gap-1 text-text-tertiary">
                 <button
                     class="workspace-icon-button"
@@ -818,7 +936,8 @@
         </div>
     </div>
 
-    <div class="px-4 mb-2">
+    {#if activeTab === "changes"}
+    <div class="px-4 mb-2 mt-2">
         <div class="relative flex items-center">
             <input
                 id="changes-search"
@@ -945,7 +1064,10 @@
             </div>
         {/if}
     </div>
+    {/if}
 </aside>
+{/if}
+</div>
 
 {#if modalOpen && groupedFiles.length > 0}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1138,6 +1260,46 @@
     .workspace-icon-button:hover:not(:disabled) {
         background: var(--bg-hover);
         color: var(--text-secondary);
+    }
+
+    .workspace-tabs {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 2px;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .workspace-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .workspace-tab {
+        display: inline-flex;
+        height: 30px;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 6px;
+        border-radius: 8px;
+        padding: 0 9px;
+        color: var(--text-tertiary);
+        font-size: 11px;
+        font-weight: 650;
+        transition:
+            background-color 150ms ease,
+            color 150ms ease;
+    }
+
+    .workspace-tab:hover {
+        background: var(--bg-hover);
+        color: var(--text-secondary);
+    }
+
+    .workspace-tab-active {
+        background: var(--bg-elevated);
+        color: var(--text-main);
+        box-shadow: inset 0 0 0 1px var(--border-subtle);
     }
 
     .workspace-icon-button:disabled {

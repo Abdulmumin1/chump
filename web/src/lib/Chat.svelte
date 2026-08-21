@@ -1,6 +1,7 @@
 <script lang="ts">
     import { browser, dev } from "$app/environment";
     import { onMount, tick } from "svelte";
+    import { Pane, PaneGroup, PaneResizer } from "paneforge";
     import SessionsSidebar from "$lib/SessionsSidebar.svelte";
     import TranscriptPane from "$lib/TranscriptPane.svelte";
     import ChatComposer from "$lib/ChatComposer.svelte";
@@ -1276,6 +1277,7 @@
         </div>
     {/if}
 
+    {#snippet chatPane()}
     <main class="relative flex h-[100dvh] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface">
         <div
             class="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-bg-surface via-bg-surface/80 to-transparent z-10 pointer-events-none"
@@ -1355,14 +1357,27 @@
             />
         {/if}
     </main>
+    {/snippet}
 
     {#if sessionState}
-        {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
-            <WorkspaceState
-                state={sessionState}
-                {sidebarOpen}
-            />
-        {/await}
+        <PaneGroup direction="horizontal" class="min-h-0 min-w-0 flex-1">
+            <Pane defaultSize={58} minSize={25}>
+                {@render chatPane()}
+            </Pane>
+            <PaneResizer class="workspace-pane-resizer hidden md:block" />
+            <Pane defaultSize={42} minSize={25}>
+                {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
+                    {#key activeSessionId}
+                        <WorkspaceState
+                            state={sessionState}
+                            {sidebarOpen}
+                        />
+                    {/key}
+                {/await}
+            </Pane>
+        </PaneGroup>
+    {:else}
+        {@render chatPane()}
     {/if}
 </div>
 
@@ -1441,5 +1456,25 @@
     }
     .animate-toast-in {
         animation: toast-in 0.2s ease-out forwards;
+    }
+
+    :global(.workspace-pane-resizer) {
+        position: relative;
+        z-index: 20;
+        width: 1px;
+        flex-shrink: 0;
+        background: var(--border-subtle);
+        cursor: col-resize;
+    }
+
+    :global(.workspace-pane-resizer::after) {
+        content: "";
+        position: absolute;
+        inset: 0 -4px;
+    }
+
+    :global(.workspace-pane-resizer:hover),
+    :global(.workspace-pane-resizer[data-active]) {
+        background: var(--text-highlight);
     }
 </style>
