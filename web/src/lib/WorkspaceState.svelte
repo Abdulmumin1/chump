@@ -25,6 +25,7 @@
         sidebarOpen?: boolean;
     }>();
 
+    const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
     const INLINE_DIFF_MEDIA_QUERY = "(min-width: 1800px)";
 
     let isCollapsed = $state(
@@ -50,6 +51,9 @@
     let browserInput = $state("");
     let browserUrl = $state("");
     let mobileDiffFontSize = $state(11);
+    let isMobileViewport = $state(
+        browser && window.matchMedia(MOBILE_MEDIA_QUERY).matches,
+    );
     let useInlineDiff = $state(
         browser && window.matchMedia(INLINE_DIFF_MEDIA_QUERY).matches,
     );
@@ -143,13 +147,18 @@
         if (!browser) return;
         const media = window.matchMedia(INLINE_DIFF_MEDIA_QUERY);
         const listener = (event: MediaQueryListEvent) => {
-            const wasInline = useInlineDiff;
             useInlineDiff = event.matches;
-            if (event.matches) {
-                modalOpen = false;
-            } else if (wasInline && selectedPath && !userClosedDiff) {
-                modalOpen = true;
-            }
+        };
+        media.addEventListener("change", listener);
+        return () => media.removeEventListener("change", listener);
+    });
+
+    $effect(() => {
+        if (!browser) return;
+        const media = window.matchMedia(MOBILE_MEDIA_QUERY);
+        const listener = (event: MediaQueryListEvent) => {
+            isMobileViewport = event.matches;
+            if (!event.matches) modalOpen = false;
         };
         media.addEventListener("change", listener);
         return () => media.removeEventListener("change", listener);
@@ -258,7 +267,7 @@
     function openFile(path: string): void {
         selectedPath = path;
         userClosedDiff = false;
-        modalOpen = !useInlineDiff;
+        modalOpen = isMobileViewport;
         void scrollToFile(path);
     }
 
@@ -293,12 +302,9 @@
     }
 
     function closeDiffView(): void {
-        if (useInlineDiff) {
-            selectedPath = null;
-            userClosedDiff = true;
-            return;
-        }
-        closeModal();
+        selectedPath = null;
+        userClosedDiff = true;
+        modalOpen = false;
     }
 
     function handleWindowKeydown(event: KeyboardEvent): void {
@@ -444,6 +450,32 @@
     }
 </script>
 
+{#snippet workspaceTabBar()}
+    <div class="workspace-tabs" role="tablist" aria-label="Workspace panel">
+        {#each workspaceTabs as tab (tab.id)}
+            <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                class:workspace-tab-active={activeTab === tab.id}
+                class="workspace-tab"
+                onclick={() => (activeTab = tab.id)}
+            >
+                {#if tab.id === "terminal"}
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z" /><path d="m8 9 3 3-3 3" /><path d="M13 15h4" /></svg>
+                {:else if tab.id === "browser"}
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z" /><path d="M4 9h16" /></svg>
+                {:else if tab.id === "processes"}
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 8h10v10H8z" /><path d="M6 16H4V4h12v2" /></svg>
+                {:else}
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4" /><path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" /><path d="M7 9h10M7 15h10" /></svg>
+                {/if}
+                <span>{tab.label}</span>
+            </button>
+        {/each}
+    </div>
+{/snippet}
+
 {#snippet diffPanel()}
     <div
         class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface"
@@ -471,29 +503,7 @@
                         />
                     </svg>
                 </button>
-                <div class="workspace-tabs" role="tablist" aria-label="Workspace panel">
-                    {#each workspaceTabs as tab (tab.id)}
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={activeTab === tab.id}
-                            class:workspace-tab-active={activeTab === tab.id}
-                            class="workspace-tab"
-                            onclick={() => (activeTab = tab.id)}
-                        >
-                            {#if tab.id === "terminal"}
-                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z" /><path d="m8 9 3 3-3 3" /><path d="M13 15h4" /></svg>
-                            {:else if tab.id === "browser"}
-                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z" /><path d="M4 9h16" /></svg>
-                            {:else if tab.id === "processes"}
-                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 8h10v10H8z" /><path d="M6 16H4V4h12v2" /></svg>
-                            {:else}
-                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4" /><path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" /><path d="M7 9h10M7 15h10" /></svg>
-                            {/if}
-                            <span>{tab.label}</span>
-                        </button>
-                    {/each}
-                </div>
+                {@render workspaceTabBar()}
                 {#if totalAdded > 0 || totalRemoved > 0 || totalChangesCount > 0}
                     <div
                         class="hidden items-center gap-3 font-mono text-[11px] tabular-nums md:flex"
@@ -845,7 +855,7 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="hidden h-full min-h-0 min-w-0 md:flex">
-{#if useInlineDiff && !isCollapsed}
+{#if !isCollapsed && (activeTab !== "changes" || selectedPath)}
     <div
         class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-surface text-text-main"
     >
@@ -853,7 +863,7 @@
     </div>
 {/if}
 
-{#if !useInlineDiff || (activeTab === "changes" && filesCount > 0)}
+{#if activeTab === "changes" && (useInlineDiff || !selectedPath)}
 <aside
     class="hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all duration-200 md:flex"
     class:w-0={isCollapsed}
@@ -863,8 +873,11 @@
     class:w-full={!isCollapsed && !useInlineDiff}
 >
     <div class="border-b border-border-subtle bg-bg-surface/95">
-        <div class="flex min-w-0 items-center justify-end gap-2 px-3 py-3.5">
-            <div class="flex items-center gap-1 text-text-tertiary">
+        <div class="flex min-w-0 items-center gap-2 px-3 py-3.5">
+            {#if !useInlineDiff}
+                {@render workspaceTabBar()}
+            {/if}
+            <div class="ml-auto flex shrink-0 items-center gap-1 text-text-tertiary">
                 <button
                     class="workspace-icon-button"
                     aria-label="Previous changed file"
