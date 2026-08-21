@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.4.0
+
+### Minor Changes
+
+- Add a browser workspace terminal backed by secure server-side PTY sessions and authenticated local-daemon proxying.
+
 ## 0.3.7
 
 ### Patch Changes
