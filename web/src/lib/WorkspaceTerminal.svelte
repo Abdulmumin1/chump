@@ -245,7 +245,9 @@
     });
 </script>
 
-<div class="relative flex min-h-0 min-w-0 w-full flex-1 flex-col bg-bg-surface">
+<div
+    class="workspace-terminal relative flex min-h-0 min-w-0 w-full flex-1 flex-col bg-bg-surface"
+>
     <div class="min-h-0 min-w-0 w-full flex-1 overflow-x-auto overflow-y-hidden">
         <div
             bind:this={host}
@@ -305,6 +307,10 @@
 </div>
 
 <style>
+    .workspace-terminal {
+        letter-spacing: normal;
+    }
+
     .terminal-host {
         caret-color: transparent;
     }
