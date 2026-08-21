@@ -187,7 +187,7 @@ html, body, .font-sans {
     background: var(--bg-body);
     color: var(--text-main);
     font-family: var(--body-font-family, var(--font-sans, system-ui, sans-serif)) !important;
-    letter-spacing: 0.025em;
+    /*letter-spacing: 0.015em;*/
     @apply h-full w-full m-0 p-0;
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
