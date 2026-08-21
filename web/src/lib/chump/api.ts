@@ -18,6 +18,13 @@ export type ChumpApiTarget =
 	| { kind: 'direct'; serverUrl: string }
 	| { kind: 'daemon'; daemonUrl: string; token: string; projectId: string };
 
+export type TerminalWebSocketConnection = {
+	url: string;
+	protocols: string[];
+};
+
+export type TerminalTheme = 'light' | 'dark';
+
 export function normalizeServerUrl(value: string): string {
 	return value.trim().replace(/\/+$/, '');
 }
@@ -27,6 +34,30 @@ export function createSessionId(workspaceRoot: string): string {
 	const stamp = Date.now().toString(36);
 	const suffix = crypto.randomUUID().slice(0, 8);
 	return `${workspaceName}-${stamp}-${suffix}`;
+}
+
+export function terminalWebSocketConnection(
+	target: ChumpApiTarget,
+	options: { cols: number; rows: number; theme: TerminalTheme }
+): TerminalWebSocketConnection {
+	const endpoint = new URL(projectUrl(target, 'terminal'));
+	endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+	endpoint.searchParams.set('cols', String(options.cols));
+	endpoint.searchParams.set('rows', String(options.rows));
+	endpoint.searchParams.set('theme', options.theme);
+	return {
+		url: endpoint.toString(),
+		protocols:
+			target.kind === 'daemon'
+				? ['chump-terminal-v1', `chump-auth.${target.token}`]
+				: ['chump-terminal-v1']
+	};
+}
+
+export function terminalTargetIdentity(target: ChumpApiTarget): string {
+	return target.kind === 'direct'
+		? `direct:${normalizeServerUrl(target.serverUrl)}`
+		: `daemon:${normalizeServerUrl(target.daemonUrl)}:${target.projectId}:${target.token}`;
 }
 
 export async function getHealth(target: ChumpApiTarget): Promise<ChumpHealth> {

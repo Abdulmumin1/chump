@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.2.0
+
+- Add a secure, origin-restricted WebSocket terminal endpoint backed by an isolated PTY in the workspace. It negotiates an explicit protocol, validates terminal dimensions and theme settings, streams binary terminal data, handles resize controls, and cleans up the shell process group on disconnect.
+- Add authenticated local-daemon terminal proxying so browser clients can reach each managed workspace runtime without exposing daemon credentials in the WebSocket URL.
+
 ## 0.1.24
 
 - Add explicit response-style guidance to the built-in system prompt: plain, concise, jargon-free replies written like one human talking to another.

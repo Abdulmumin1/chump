@@ -3,7 +3,12 @@
     import { tick } from "svelte";
     import { processPatch } from "@pierre/diffs";
     import type { ChangeRecord, ChumpState } from "$lib/chump/types";
+    import {
+        terminalTargetIdentity as identifyTerminalTarget,
+        type ChumpApiTarget,
+    } from "$lib/chump/api";
     import PierreDiff from "$lib/PierreDiff.svelte";
+    import WorkspaceTerminal from "$lib/WorkspaceTerminal.svelte";
     import {
         getDocumentTheme,
         observeDocumentTheme,
@@ -12,9 +17,11 @@
 
     let {
         state: sessionState,
+        target,
         sidebarOpen = false,
     } = $props<{
         state: ChumpState | null;
+        target: ChumpApiTarget | null;
         sidebarOpen?: boolean;
     }>();
 
@@ -47,6 +54,9 @@
         browser && window.matchMedia(INLINE_DIFF_MEDIA_QUERY).matches,
     );
     let appTheme = $state<AppTheme>(getDocumentTheme());
+    let terminalTargetIdentity = $derived.by(() => {
+        return target ? identifyTerminalTarget(target) : "disconnected";
+    });
 
     function openBrowserUrl(): void {
         const value = browserInput.trim();
@@ -585,7 +595,29 @@
             </div>
         </div>
 
-        {#if activeTab === "browser"}
+        {#if target}
+            <div
+                class={activeTab === "terminal"
+                    ? "flex min-h-0 min-w-0 flex-1"
+                    : "hidden"}
+            >
+                {#key terminalTargetIdentity}
+                    <WorkspaceTerminal
+                        {target}
+                        theme={appTheme}
+                        active={activeTab === "terminal"}
+                    />
+                {/key}
+            </div>
+        {/if}
+
+        {#if activeTab === "terminal"}
+            {#if !target}
+                <div class="flex min-h-0 flex-1 items-center justify-center px-8 text-center text-[11px] text-text-tertiary">
+                    Connect to a workspace to open its terminal.
+                </div>
+            {/if}
+        {:else if activeTab === "browser"}
             <div class="flex min-h-0 flex-1 flex-col bg-bg-surface">
                 <form
                     class="flex h-8 shrink-0 items-center gap-1 border-b border-border-subtle px-1.5 py-1"

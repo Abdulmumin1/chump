@@ -1370,6 +1370,7 @@
                     {#key activeSessionId}
                         <WorkspaceState
                             state={sessionState}
+                            target={apiTarget}
                             {sidebarOpen}
                         />
                     {/key}

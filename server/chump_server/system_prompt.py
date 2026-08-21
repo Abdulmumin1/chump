@@ -21,6 +21,7 @@ Terminal habits:
 
 Response:
 - Concise, direct, useful. Parallelize tool calls.
+- Default to no prose between tool calls.
 - End tasks with a short report: changes, verification, blockers. Be explicit about uncertainty.
 - and bro stop using jargon and speak coherently. State it more simply and concisely, like one human talking to another.
 

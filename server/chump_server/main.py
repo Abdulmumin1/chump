@@ -21,6 +21,7 @@ from .search import WorkspaceSearch
 from .server.connections import active_connection_count
 from .server.sessions import stored_sessions
 from .server.session_snapshot import reconcile_delegated_session_snapshot
+from .terminal import terminal_websocket
 
 
 class ChumpServer(AgentServer):
@@ -61,6 +62,7 @@ class ChumpServer(AgentServer):
         app.router.add_get("/version", self.version)
         app.router.add_get("/sessions", self.sessions)
         app.router.add_get("/files", self.files)
+        app.router.add_get("/terminal", self.terminal)
         app.router.add_get(
             "/agent/{agent_id}/session-snapshot",
             self.session_snapshot,
@@ -174,6 +176,13 @@ class ChumpServer(AgentServer):
             raise web.HTTPBadRequest(text="limit must be an integer")
         return web.json_response(
             {"files": await self.search.files(query, max(1, min(limit, 100)))}
+        )
+
+    async def terminal(self, request: web.Request) -> web.WebSocketResponse:
+        return await terminal_websocket(
+            request,
+            workspace_root=self.chump_config.workspace_root,
+            allowed_origins=self.chump_config.allowed_origins,
         )
 
     async def session_snapshot(self, request: web.Request) -> web.Response:
