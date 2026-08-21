@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream";
 import {
   WebSocket,
   WebSocketServer,
+  type ClientOptions,
   type RawData,
 } from "ws";
 
@@ -128,10 +129,10 @@ async function connectProjectTerminal(
     if (value) upstreamUrl.searchParams.set(name, value);
   }
 
-  const upstream = new WebSocket(upstreamUrl, [TERMINAL_PROTOCOL], {
-    origin,
-    maxPayload: MAX_TERMINAL_FRAME_BYTES,
-  });
+  const upstreamInit = terminalUpstreamWebSocketInit(origin);
+  const upstream = upstreamInit.protocols
+    ? new WebSocket(upstreamUrl, upstreamInit.protocols, upstreamInit.options)
+    : new WebSocket(upstreamUrl, upstreamInit.options);
   const queuedInput: Array<{ data: RawData; isBinary: boolean }> = [];
   let queuedInputBytes = 0;
 
@@ -180,6 +181,35 @@ async function connectProjectTerminal(
       client.close(1011, "terminal connection failed");
     }
   });
+}
+
+export function terminalUpstreamWebSocketInit(
+  origin: string,
+  isBun = typeof globalThis.Bun !== "undefined",
+): { protocols: string[] | null; options: ClientOptions } {
+  if (isBun) {
+    // Bun implements the `ws` import with its native WebSocket client. Its
+    // compatibility constructor ignores the third `ws` options argument, so
+    // pass both required handshake headers through the native two-argument
+    // form used by compiled standalone clients.
+    return {
+      protocols: null,
+      options: {
+        headers: {
+          Origin: origin,
+          "Sec-WebSocket-Protocol": TERMINAL_PROTOCOL,
+        },
+        maxPayload: MAX_TERMINAL_FRAME_BYTES,
+      },
+    };
+  }
+  return {
+    protocols: [TERMINAL_PROTOCOL],
+    options: {
+      origin,
+      maxPayload: MAX_TERMINAL_FRAME_BYTES,
+    },
+  };
 }
 
 function sendControl(client: WebSocket, value: object): void {

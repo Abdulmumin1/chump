@@ -6,9 +6,26 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import { startDaemonServer } from "./daemon-server.ts";
 import type { ProjectRuntimeSupervisor } from "./project-runtime.ts";
+import { terminalUpstreamWebSocketInit } from "./terminal-proxy.ts";
 
 const AUTH_TOKEN = "test-token-that-is-long-enough-for-auth";
 const PROTOCOLS = ["chump-terminal-v1", `chump-auth.${AUTH_TOKEN}`];
+
+test("uses handshake headers for Bun's standalone WebSocket client", () => {
+  assert.deepEqual(
+    terminalUpstreamWebSocketInit("https://chmp.dev", true),
+    {
+      protocols: null,
+      options: {
+        headers: {
+          Origin: "https://chmp.dev",
+          "Sec-WebSocket-Protocol": "chump-terminal-v1",
+        },
+        maxPayload: 1024 * 1024,
+      },
+    },
+  );
+});
 
 test("proxies authenticated terminal websocket bytes", async (t) => {
   const upstream = new WebSocketServer({ host: "127.0.0.1", port: 0 });
