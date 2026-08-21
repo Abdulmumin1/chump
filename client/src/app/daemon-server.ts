@@ -19,6 +19,7 @@ import {
 } from "./project-sessions.ts";
 import { ProjectRegistryStore } from "./projects.ts";
 import { pickDirectory } from "./directory-picker.ts";
+import { createTerminalProxy } from "./terminal-proxy.ts";
 
 const DAEMON_HOST = "127.0.0.1";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
@@ -65,6 +66,16 @@ export async function startDaemonServer(
       pickDirectory: options.pickDirectory ?? pickDirectory,
     });
   });
+  const terminalProxy = createTerminalProxy({
+    authToken,
+    runtimeSupervisor,
+    isAllowedOrigin: isAllowedBrowserOrigin,
+  });
+  server.on("upgrade", (request, socket, head) => {
+    if (!terminalProxy.handleUpgrade(request, socket, head)) {
+      socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+    }
+  });
 
   await listen(server, options.port ?? 0);
   const address = server.address();
@@ -77,7 +88,10 @@ export async function startDaemonServer(
     host: DAEMON_HOST,
     port: address.port,
     url: `http://${DAEMON_HOST}:${address.port}`,
-    close: () => closeServer(server),
+    close: async () => {
+      await terminalProxy.close();
+      await closeServer(server);
+    },
   };
 }
 
