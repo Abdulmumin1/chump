@@ -658,12 +658,41 @@
                         Go
                     </button>
                 </form>
-                <iframe
-                    title="Workspace browser"
-                    src={browserUrl}
-                    class="min-h-0 flex-1 border-0 bg-white"
-                    sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-                ></iframe>
+                {#if browserUrl}
+                    <iframe
+                        title="Workspace browser"
+                        src={browserUrl}
+                        class="min-h-0 flex-1 border-0 bg-bg-surface"
+                        sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                    ></iframe>
+                {:else}
+                    <div
+                        class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-bg-surface-alt px-6 text-center"
+                    >
+                        <div
+                            class="flex h-10 w-10 items-center justify-center rounded-xl border border-border-subtle bg-bg-elevated text-text-tertiary"
+                        >
+                            <svg
+                                class="h-5 w-5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.7"
+                            >
+                                <path d="M4 5h16v14H4z" />
+                                <path d="M4 9h16M8 7h.01M11 7h.01" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="text-[12px] font-medium text-text-secondary">
+                                No page open
+                            </div>
+                            <div class="mt-1 text-[11px] text-text-tertiary">
+                                Enter a URL above to open it here.
+                            </div>
+                        </div>
+                    </div>
+                {/if}
             </div>
         {:else if activeTab !== "changes"}
             <div class="flex min-h-0 flex-1 items-center justify-center px-8 text-center">
