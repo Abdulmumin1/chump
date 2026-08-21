@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { rotateManagedLog, workspaceLockIsStale } from "./runtime.ts";
+import {
+  managedServerVersionIsReusable,
+  rotateManagedLog,
+  workspaceLockIsStale,
+} from "./runtime.ts";
 
 test("detects workspace locks left by exited processes", async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-lock-"));
@@ -40,4 +44,14 @@ test("rotates only one previous managed server log", async () => {
 
   assert.equal(await readFile(`${logPath}.previous`, "utf8"), "current log");
   await assert.rejects(readFile(logPath, "utf8"), { code: "ENOENT" });
+});
+
+test("restarts bundled managed servers after a server version upgrade", () => {
+  assert.equal(managedServerVersionIsReusable("bundled", "0.1.24", "0.2.0"), false);
+  assert.equal(managedServerVersionIsReusable("bundled", "0.2.0", "0.2.0"), true);
+});
+
+test("does not impose the bundled version on local or overridden servers", () => {
+  assert.equal(managedServerVersionIsReusable("local", "0.1.24", "0.2.0"), true);
+  assert.equal(managedServerVersionIsReusable("env", undefined, "0.2.0"), true);
 });

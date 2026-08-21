@@ -29,6 +29,7 @@ import {
   installedServerRuntimePath,
   prepareNpmServerRuntime,
 } from "./server-runtime-install.ts";
+import { CHUMP_SERVER_VERSION } from "./generated-version.ts";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:8080";
 const LOCK_STALE_MS = 30_000;
@@ -1184,7 +1185,11 @@ function processIdFromHealth(health: Record<string, unknown> | null): number | n
   return pid;
 }
 
-async function managedServerMatchesEnvironment(url: string, workspaceRoot: string): Promise<boolean> {
+async function managedServerMatchesEnvironment(
+  url: string,
+  workspaceRoot: string,
+  commandSource: ManagedServerMetadata["command_source"],
+): Promise<boolean> {
   const health = await readServerHealth(url);
   if (!health) {
     return false;
@@ -1192,6 +1197,7 @@ async function managedServerMatchesEnvironment(url: string, workspaceRoot: strin
   const resolved = getResolvedConfig(workspaceRoot);
 
   return [
+    managedServerVersionIsReusable(commandSource, health.version),
     matchesValueString(resolved.provider, health.provider),
     matchesValueString(resolved.model, health.model),
     matchesValueNumber(resolved.max_steps, health.max_steps),
@@ -1202,7 +1208,19 @@ async function managedServerMatchesEnvironment(url: string, workspaceRoot: strin
 
 async function managedServerIsReusable(metadata: ManagedServerMetadata, workspaceRoot: string): Promise<boolean> {
   return await managedServerMatchesCommand(metadata) &&
-    await managedServerMatchesEnvironment(metadata.url, workspaceRoot);
+    await managedServerMatchesEnvironment(
+      metadata.url,
+      workspaceRoot,
+      metadata.command_source,
+    );
+}
+
+export function managedServerVersionIsReusable(
+  commandSource: ManagedServerMetadata["command_source"],
+  actualVersion: unknown,
+  expectedVersion = CHUMP_SERVER_VERSION,
+): boolean {
+  return commandSource !== "bundled" || actualVersion === expectedVersion;
 }
 
 async function managedServerMatchesCommand(metadata: ManagedServerMetadata): Promise<boolean> {

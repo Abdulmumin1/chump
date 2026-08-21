@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.4.1
+
+### Patch Changes
+
+- Fix terminal proxy handshakes in standalone Bun builds, restart a running local daemon during release installs, and replace stale bundled project runtimes when their server version no longer matches the client.
+
 ## 0.4.0
 
 ### Minor Changes

@@ -602,6 +602,37 @@ remove_path_blocks() {
     done
 }
 
+daemon_was_running=false
+
+stop_daemon_for_upgrade() {
+    local installed_app="$INSTALL_DIR/$APP"
+    [[ -x "$installed_app" ]] || return 0
+
+    local daemon_status
+    daemon_status=$("$installed_app" daemon status 2>/dev/null || true)
+    [[ "$daemon_status" == daemon\ running\ at* ]] || return 0
+
+    daemon_was_running=true
+    step "Stopping the local daemon for upgrade"
+    if ! "$installed_app" daemon stop >/dev/null; then
+        fail "Could not stop the running Chump daemon; the existing installation was left unchanged"
+        exit 1
+    fi
+}
+
+restart_daemon_after_upgrade() {
+    [[ "$daemon_was_running" == "true" ]] || return 0
+
+    step "Restarting the local daemon"
+    if "$INSTALL_DIR/$APP" daemon start >/dev/null; then
+        success "Restarted the local daemon with the new version"
+    else
+        warn "Chump was updated, but the local daemon could not be restarted"
+        warn "Run: chump daemon start"
+    fi
+    daemon_was_running=false
+}
+
 install_from_binary() {
     if [[ ! -f "$binary_path" ]]; then
         fail "Binary not found: $binary_path"
@@ -723,11 +754,13 @@ install_from_release() {
         fail "Downloaded chump binary cannot run; the existing installation was left unchanged"
         exit 1
     fi
+    stop_daemon_for_upgrade
     run mv -f "$staged_app" "$INSTALL_DIR/$APP"
     run rm -f "$INSTALL_DIR"/chump-server-*
     run rm -rf "$INSTALL_DIR/server"
     run mv -f "$staged_server" "$INSTALL_DIR/server"
     run rm -rf "$extract_dir" "$tmp_file"
+    restart_daemon_after_upgrade
 }
 
 uninstall_chump() {
