@@ -78,6 +78,54 @@ def test_reconciles_orphaned_start_session_from_terminal_child_state(tmp_path):
     }
 
 
+def test_reconciles_generated_child_from_durable_parent_link_without_event(tmp_path):
+    db_path = tmp_path / "chump.sqlite3"
+    _store_child_state(db_path, "generated-child", "aborted", "cancelled")
+    durable_links = {
+        "generated-start": {
+            "session_id": "generated-child",
+            "event_id": 40,
+            "step": 5,
+            "index": 0,
+        }
+    }
+
+    reconciled = reconcile_delegated_session_lifecycles(
+        db_path,
+        [],
+        durable_links,
+    )
+
+    assert [event["type"] for event in reconciled] == ["tool_call", "tool_result"]
+    assert reconciled[0]["data"]["call_id"] == "generated-start"
+    assert reconciled[0]["data"]["args"] == {"session_id": "generated-child"}
+    assert reconciled[1]["data"]["aborted"] is True
+    assert "generated-child" in reconciled[1]["data"]["preview"]
+
+
+def test_projects_generated_child_link_while_child_is_active(tmp_path):
+    db_path = tmp_path / "chump.sqlite3"
+    _store_child_state(db_path, "generated-child", "running")
+    durable_links = {
+        "generated-start": {
+            "session_id": "generated-child",
+            "event_id": 40,
+            "step": 5,
+            "index": 0,
+        }
+    }
+
+    reconciled = reconcile_delegated_session_lifecycles(
+        db_path,
+        [],
+        durable_links,
+    )
+
+    assert len(reconciled) == 1
+    assert reconciled[0]["type"] == "tool_call"
+    assert reconciled[0]["data"]["call_id"] == "generated-start"
+
+
 def test_preserves_failed_child_status_and_error(tmp_path):
     db_path = tmp_path / "chump.sqlite3"
     _store_child_state(db_path, "issue-228", "failed", "provider overloaded")

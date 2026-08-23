@@ -285,11 +285,7 @@ class ChumpServer(AgentServer):
         return active_connection_count(list(self._agents.values()))
 
     def _has_active_turn(self) -> bool:
-        for meta in self._agents.values():
-            turn = getattr(meta.agent, "_current_turn", None)
-            if turn is not None and not bool(getattr(turn, "done", False)):
-                return True
-        return False
+        return any(self.is_agent_busy(agent_id) for agent_id in self._agents)
 
 
 def main() -> None:

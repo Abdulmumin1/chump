@@ -30,6 +30,11 @@ from .runtime.compaction import (
     leading_system_message_count,
     replace_compacted_messages,
 )
+from .runtime.delegated_progress import (
+    PENDING_DELEGATED_SESSIONS_STATE_KEY,
+    delegated_session_start_id,
+    parse_pending_delegated_sessions,
+)
 from .runtime.messages import (
     build_session_title,
     build_user_content,
@@ -324,6 +329,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 "status": self._status_snapshot(),
                 "messages": [message.to_dict() for message in self.messages],
                 "events": list(self._event_log),
+                PENDING_DELEGATED_SESSIONS_STATE_KEY: parse_pending_delegated_sessions(
+                    self.state.get(PENDING_DELEGATED_SESSIONS_STATE_KEY)
+                ),
             }
         )
 
@@ -1103,6 +1111,15 @@ class ChumpAgent(Agent[dict[str, Any]]):
                         "data": event.data,
                     }
                 )
+                session_id = delegated_session_start_id(event.data)
+                if session_id is not None:
+                    await self._record_pending_delegated_session(
+                        call_id=call.id,
+                        session_id=session_id,
+                        event_id=self._tool_call_event_id(call.id),
+                        step=event.step_number,
+                        index=event.index,
+                    )
             elif event.type == "tool_execution.finished":
                 key = self._tool_lifecycle_key(event)
                 detail = self._take_tool_result_detail(
@@ -1132,6 +1149,63 @@ class ChumpAgent(Agent[dict[str, Any]]):
         # cancellation cannot erase a completed child before tool_result arrives.
         replay = event.type == "tool_execution.finished" and call.name == "start_session"
         await self.emit(event.type, payload, replay=replay)
+
+    def _tool_call_event_id(self, call_id: str) -> int:
+        for event in reversed(self._event_log):
+            if event.get("type") != "tool_call":
+                continue
+            data = event.get("data")
+            if isinstance(data, dict) and data.get("call_id") == call_id:
+                event_id = event.get("id")
+                if isinstance(event_id, int) and not isinstance(event_id, bool):
+                    return event_id
+        return self._event_counter
+
+    async def _record_pending_delegated_session(
+        self,
+        *,
+        call_id: str,
+        session_id: str,
+        event_id: int,
+        step: int,
+        index: int,
+    ) -> None:
+        pending = parse_pending_delegated_sessions(
+            self.state.get(PENDING_DELEGATED_SESSIONS_STATE_KEY)
+        )
+        pending[call_id] = {
+            "session_id": session_id,
+            "event_id": event_id,
+            "step": step,
+            "index": index,
+        }
+        await self.update_state(**{PENDING_DELEGATED_SESSIONS_STATE_KEY: pending})
+
+    async def _clear_settled_delegated_sessions(self, event: Any) -> None:
+        result_call_ids = {
+            result.tool_call_id
+            for result in event.step.tool_results
+            if isinstance(result.tool_call_id, str)
+        }
+        settled_call_ids = {
+            call.id
+            for call in event.step.tool_calls
+            if call.name == "start_session" and call.id in result_call_ids
+        }
+        if not settled_call_ids:
+            return
+        pending = parse_pending_delegated_sessions(
+            self.state.get(PENDING_DELEGATED_SESSIONS_STATE_KEY)
+        )
+        remaining = {
+            call_id: lifecycle
+            for call_id, lifecycle in pending.items()
+            if call_id not in settled_call_ids
+        }
+        if len(remaining) != len(pending):
+            await self.update_state(
+                **{PENDING_DELEGATED_SESSIONS_STATE_KEY: remaining}
+            )
 
     def capture_tool_result_detail(
         self,
@@ -1216,6 +1290,9 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
 
     async def _on_step_finish(self, event) -> None:
+        # ai-query has persisted this step's tool messages before publishing
+        # step.finished, so its durable parent/child links can now be released.
+        await self._clear_settled_delegated_sessions(event)
         raw_step_usage = getattr(event.step, "usage", None) or getattr(
             event, "usage", None
         )

@@ -10,6 +10,9 @@ import pytest
 from ai_query.types import Message, StepResult, ToolCall, ToolResult, Usage
 
 from chump_server.agent import ChumpAgent
+from chump_server.runtime.delegated_progress import (
+    PENDING_DELEGATED_SESSIONS_STATE_KEY,
+)
 from chump_server.runtime.usage import default_usage_summary, zero_usage_dict
 
 
@@ -21,6 +24,8 @@ def make_agent() -> ChumpAgent:
     agent._last_step_records = []
     agent._pending_tool_result_details = defaultdict(deque)
     agent._correlated_tool_result_details = {}
+    agent._event_log = []
+    agent._event_counter = 0
     agent._persist_usage_summary = AsyncMock()
     agent._persist_messages = AsyncMock()
     agent.emit = AsyncMock()
@@ -63,6 +68,7 @@ def test_session_snapshot_captures_messages_status_and_event_cursor_together():
         "events": [
             {"id": 7, "type": "turn_status", "data": {"running": True}}
         ],
+        PENDING_DELEGATED_SESSIONS_STATE_KEY: {},
     }
     agent._event_log[0]["data"]["running"] = False
     assert snapshot["events"][0]["data"]["running"] is True
@@ -487,3 +493,93 @@ def test_start_session_execution_completion_is_durable_before_tool_result():
     assert emitted.args[0] == "tool_execution.finished"
     assert emitted.args[1]["call_id"] == "parent-delegation"
     assert emitted.kwargs["replay"] is True
+
+
+def test_generated_start_session_link_is_saved_in_parent_state():
+    agent = make_agent()
+    call = ToolCall(
+        id="parent-delegation",
+        name="start_session",
+        arguments={"prompt": "Investigate this"},
+    )
+    agent._event_log = [
+        {
+            "id": 41,
+            "type": "tool_call",
+            "data": {"call_id": call.id, "name": call.name},
+        }
+    ]
+
+    async def update_state(**changes):
+        agent._state.update(changes)
+
+    agent.update_state = AsyncMock(side_effect=update_state)
+
+    asyncio.run(
+        agent._on_tool_lifecycle(
+            SimpleNamespace(
+                type="tool_execution.progress",
+                step_number=3,
+                index=0,
+                tool_call=call,
+                message="Delegated session started",
+                data={
+                    "kind": "delegated_session",
+                    "session_id": "generated-child",
+                    "event": {"type": "session_starting"},
+                },
+            )
+        )
+    )
+
+    assert agent.state[PENDING_DELEGATED_SESSIONS_STATE_KEY] == {
+        "parent-delegation": {
+            "session_id": "generated-child",
+            "event_id": 41,
+            "step": 3,
+            "index": 0,
+        }
+    }
+
+
+def test_persisted_step_result_clears_parent_child_link():
+    agent = make_agent()
+    agent._state[PENDING_DELEGATED_SESSIONS_STATE_KEY] = {
+        "parent-delegation": {
+            "session_id": "generated-child",
+            "event_id": 41,
+            "step": 3,
+            "index": 0,
+        }
+    }
+
+    async def update_state(**changes):
+        agent._state.update(changes)
+
+    agent.update_state = AsyncMock(side_effect=update_state)
+    step = StepResult(
+        text="",
+        tool_calls=[
+            ToolCall(
+                id="parent-delegation",
+                name="start_session",
+                arguments={"prompt": "Investigate this"},
+            )
+        ],
+        tool_results=[
+            ToolResult(
+                tool_call_id="parent-delegation",
+                tool_name="start_session",
+                result="done",
+            )
+        ],
+        usage=Usage(input_tokens=1, output_tokens=1, total_tokens=2),
+    )
+
+    asyncio.run(
+        agent._on_step_finish(
+            SimpleNamespace(step_number=3, step=step, usage=step.usage)
+        )
+    )
+
+    assert agent.state[PENDING_DELEGATED_SESSIONS_STATE_KEY] == {}

@@ -5,6 +5,7 @@ from typing import Literal, TypedDict
 
 
 SUBAGENT_PROGRESS_KIND = "delegated_session"
+PENDING_DELEGATED_SESSIONS_STATE_KEY = "pending_delegated_sessions"
 
 type JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -64,6 +65,13 @@ class DelegatedSessionProgress(TypedDict):
     event: DelegatedChildEvent
 
 
+class PendingDelegatedSession(TypedDict):
+    session_id: str
+    event_id: int
+    step: int
+    index: int
+
+
 def delegated_session_progress(
     session_id: str,
     event: DelegatedChildEvent,
@@ -73,6 +81,53 @@ def delegated_session_progress(
         "session_id": session_id,
         "event": event,
     }
+
+
+def delegated_session_start_id(value: object) -> str | None:
+    """Parse a generated child ID from the start-session progress boundary."""
+    if not isinstance(value, Mapping) or value.get("kind") != SUBAGENT_PROGRESS_KIND:
+        return None
+    session_id = value.get("session_id")
+    event = value.get("event")
+    if (
+        not isinstance(session_id, str)
+        or not session_id.strip()
+        or not isinstance(event, Mapping)
+        or event.get("type") != "session_starting"
+    ):
+        return None
+    return session_id.strip()
+
+
+def parse_pending_delegated_sessions(
+    value: object,
+) -> dict[str, PendingDelegatedSession]:
+    """Parse the durable parent-call to child-session lifecycle ledger."""
+    if not isinstance(value, Mapping):
+        return {}
+    parsed: dict[str, PendingDelegatedSession] = {}
+    for call_id, item in value.items():
+        if not isinstance(call_id, str) or not call_id or not isinstance(item, Mapping):
+            continue
+        session_id = item.get("session_id")
+        event_id = item.get("event_id")
+        step = item.get("step")
+        index = item.get("index")
+        if (
+            not isinstance(session_id, str)
+            or not session_id.strip()
+            or not _plain_int(event_id)
+            or not _plain_int(step)
+            or not _plain_int(index)
+        ):
+            continue
+        parsed[call_id] = {
+            "session_id": session_id.strip(),
+            "event_id": event_id,
+            "step": step,
+            "index": index,
+        }
+    return parsed
 
 
 def parse_delegated_child_event(
@@ -127,6 +182,10 @@ def parse_delegated_child_event(
         message = data.get("message")
         return {"type": "turn_error", "message": message} if isinstance(message, str) else None
     return None
+
+
+def _plain_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _json_object(value: object) -> dict[str, JsonValue] | None:

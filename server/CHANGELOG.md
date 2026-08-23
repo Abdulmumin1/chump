@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.2.1
+
+- Upgrade to `ai-query==1.12.2` so active HTTP requests and mailbox invocations are visible through native agent activity state, are protected from idle eviction, and have pending callers settled during explicit shutdown.
+- Persist generated delegated-session IDs in the parent state until the corresponding tool messages are durable, allowing interrupted `start_session` calls to reconcile completed, failed, or aborted children even after bounded replay events are gone.
+
 ## 0.2.0
 
 - Add a secure, origin-restricted WebSocket terminal endpoint backed by an isolated PTY in the workspace. It negotiates an explicit protocol, validates terminal dimensions and theme settings, streams binary terminal data, handles resize controls, and cleans up the shell process group on disconnect.

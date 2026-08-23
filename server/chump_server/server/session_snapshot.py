@@ -6,6 +6,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, TypedDict
 
+from ..runtime.delegated_progress import (
+    PENDING_DELEGATED_SESSIONS_STATE_KEY,
+    PendingDelegatedSession,
+    parse_pending_delegated_sessions,
+)
 from .sessions import table_exists
 
 
@@ -29,7 +34,11 @@ def reconcile_delegated_session_snapshot(
     if not isinstance(events, list) or not isinstance(messages, list):
         return snapshot
 
-    reconciled_events = reconcile_delegated_session_lifecycles(db_path, events)
+    reconciled_events = reconcile_delegated_session_lifecycles(
+        db_path,
+        events,
+        snapshot.get(PENDING_DELEGATED_SESSIONS_STATE_KEY),
+    )
     projected_messages = _append_reconciled_delegated_messages(
         messages,
         reconciled_events,
@@ -67,20 +76,42 @@ def reconcile_delegated_session_snapshot(
 def reconcile_delegated_session_lifecycles(
     db_path: Path,
     events: list[Any],
+    durable_links: object = None,
 ) -> list[Any]:
     """Settle orphaned start_session calls from durable child-session state."""
-    pending = _pending_start_session_calls(events)
-    if not pending or not db_path.exists():
+    pending = _pending_start_session_calls(events, durable_links)
+    if not pending:
         return events
+
+    missing_calls = [
+        (call_id, lifecycle)
+        for call_id, lifecycle in pending.items()
+        if not _has_tool_call(events, call_id)
+    ]
+    reconciled = deepcopy(events) if missing_calls else events
+    for call_id, (session_id, event_id, step, index) in missing_calls:
+        reconciled.append(
+            _reconciled_tool_call_event(
+                event_id=event_id,
+                call_id=call_id,
+                step=step,
+                index=index,
+                session_id=session_id,
+            )
+        )
+
+    if not db_path.exists():
+        return reconciled
 
     terminal_states = _read_terminal_child_states(
         db_path,
         {call[0] for call in pending.values()},
     )
     if not terminal_states:
-        return events
+        return reconciled
 
-    reconciled = deepcopy(events)
+    if reconciled is events:
+        reconciled = deepcopy(events)
     for call_id, (session_id, event_id, step, index) in pending.items():
         state = terminal_states.get(session_id)
         if state is None:
@@ -103,6 +134,33 @@ def reconcile_delegated_session_lifecycles(
             )
         )
     return reconciled
+
+
+def _reconciled_tool_call_event(
+    *,
+    event_id: int,
+    call_id: str,
+    step: int,
+    index: int,
+    session_id: str,
+) -> dict[str, Any]:
+    return {
+        "id": event_id,
+        "type": "tool_call",
+        "data": {
+            "tool": "start_session",
+            "name": "start_session",
+            "call_id": call_id,
+            "tool_call_id": call_id,
+            "args": {"session_id": session_id},
+            "payload": {"session_id": session_id},
+            "step": step,
+            "index": index,
+            "status": "ready",
+            "schema_version": 1,
+            "reconciled_from_parent_state": True,
+        },
+    }
 
 
 def _terminal_result_event(
@@ -145,8 +203,14 @@ def _terminal_result_event(
 
 def _pending_start_session_calls(
     events: list[Any],
+    durable_links: object,
 ) -> dict[str, PendingDelegatedCall]:
-    pending: dict[str, PendingDelegatedCall] = {}
+    pending = {
+        call_id: _pending_call_tuple(lifecycle)
+        for call_id, lifecycle in parse_pending_delegated_sessions(
+            durable_links
+        ).items()
+    }
     for event in events:
         if not isinstance(event, dict):
             continue
@@ -176,6 +240,27 @@ def _pending_start_session_calls(
         ):
             pending[call_id] = (session_id, event_id, step, index)
     return pending
+
+
+def _pending_call_tuple(
+    lifecycle: PendingDelegatedSession,
+) -> PendingDelegatedCall:
+    return (
+        lifecycle["session_id"],
+        lifecycle["event_id"],
+        lifecycle["step"],
+        lifecycle["index"],
+    )
+
+
+def _has_tool_call(events: list[Any], call_id: str) -> bool:
+    return any(
+        isinstance(event, dict)
+        and event.get("type") == "tool_call"
+        and isinstance((data := event.get("data")), dict)
+        and _call_id(data) == call_id
+        for event in events
+    )
 
 
 def _read_terminal_child_states(
