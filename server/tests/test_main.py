@@ -11,6 +11,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.managed_idle import is_resume_gap
+from chump_server.config import ChumpConfig
 from chump_server.main import ChumpServer, parse_positive_int
 from aiohttp import web
 
@@ -27,26 +28,56 @@ class ManagedIdleShutdownTests(unittest.TestCase):
 
     def test_active_agent_turn_prevents_managed_idle_shutdown(self) -> None:
         server = object.__new__(ChumpServer)
-        server._agents = {
-            "parent": SimpleNamespace(
-                agent=SimpleNamespace(_current_turn=SimpleNamespace(done=True))
-            ),
-            "delegated-child": SimpleNamespace(
-                agent=SimpleNamespace(_current_turn=SimpleNamespace(done=False))
-            ),
-        }
+        server._agents = {"parent": object(), "delegated-child": object()}
+        server.is_agent_busy = lambda agent_id: agent_id == "delegated-child"
 
         self.assertTrue(server._has_active_turn())
 
     def test_completed_agent_turn_allows_managed_idle_shutdown(self) -> None:
         server = object.__new__(ChumpServer)
-        server._agents = {
-            "parent": SimpleNamespace(
-                agent=SimpleNamespace(_current_turn=SimpleNamespace(done=True))
-            )
-        }
+        server._agents = {"parent": object()}
+        server.is_agent_busy = lambda _agent_id: False
 
         self.assertFalse(server._has_active_turn())
+
+
+class AgentEvictionConfigTests(unittest.TestCase):
+    def test_keeps_activity_aware_per_agent_eviction_enabled(self) -> None:
+        workspace_root = Path("/workspace")
+        config = ChumpConfig(
+            host="127.0.0.1",
+            port=0,
+            workspace_root=workspace_root,
+            data_dir=workspace_root / ".chump-test",
+            provider="faux",
+            model="faux-1",
+            max_steps=4,
+            retry_max_attempts=1,
+            retry_initial_delay=0,
+            retry_max_delay=0,
+            retry_backoff=1,
+            retry_jitter=False,
+            command_timeout=10,
+            managed_idle_timeout=30,
+            compaction_tokens=None,
+            compaction_keep_recent_tokens=1_000,
+            reasoning=None,
+            verbose=False,
+            allowed_origins=("https://chump.example",),
+            available_providers=("faux",),
+        )
+
+        with (
+            patch("chump_server.main.ChumpAgent.configure"),
+            patch("chump_server.main.WorkspaceSearch"),
+            patch("chump_server.main.MCPManager"),
+            patch("chump_server.main.AgentServer.__init__") as server_init,
+        ):
+            ChumpServer(config, resources=SimpleNamespace())
+
+        agent_config = server_init.call_args.kwargs["config"]
+        self.assertEqual(agent_config.idle_timeout, 300.0)
+        self.assertEqual(agent_config.allowed_origins, ["https://chump.example"])
 
 
 class ActiveRequestTrackingTests(unittest.IsolatedAsyncioTestCase):
