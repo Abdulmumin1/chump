@@ -13,11 +13,9 @@ test("global state can be isolated from workspace server state", () => {
   try {
     const paths = getGlobalStatePaths();
     assert.equal(paths.dataDir, path.resolve("./tmp/global-state"));
-    assert.equal(paths.daemonAuthPath, path.resolve("./tmp/global-state/daemon-auth.json"));
-    assert.equal(paths.daemonMetadataPath, path.resolve("./tmp/global-state/daemon.json"));
-    assert.equal(paths.daemonLockDir, path.resolve("./tmp/global-state/daemon.lock"));
-    assert.equal(paths.daemonLogPath, path.resolve("./tmp/global-state/daemon.log"));
-    assert.equal(paths.projectsPath, path.resolve("./tmp/global-state/projects.json"));
+    assert.equal(paths.serviceRegistrationPath, path.resolve("./tmp/global-state/service.json"));
+    assert.equal(paths.serviceLockDir, path.resolve("./tmp/global-state/service.lock"));
+    assert.equal(paths.serviceLogPath, path.resolve("./tmp/global-state/service.log"));
   } finally {
     restoreEnvironment("CHUMP_GLOBAL_STATE_DIR", previousGlobalStateDir);
     restoreEnvironment("CHUMP_STATE_DIR", previousWorkspaceStateDir);

@@ -1,5 +1,13 @@
 # chump-server
 
+## 0.3.0
+
+- Run one authenticated shared server for the CLI, web app, and API, with a lazy in-process workspace runtime per registered project instead of a daemon and per-project child servers.
+- Add a persistent project registry and project-scoped health, session, file, search, MCP, storage, terminal, and agent routes, plus project CRUD and Git actions.
+- Publish a private service registration with URL, bearer token, PID, version, and instance identity, and expose only service identity from unauthenticated health checks in registered mode.
+- Reject sessions whose persisted workspace differs from the requested project so a session cannot move between workspaces.
+- Remove the local-daemon terminal proxy, the per-project child-server model, and session snapshot routes with delegated-snapshot reconciliation.
+
 ## 0.2.1
 
 - Upgrade to `ai-query==1.12.2` so active HTTP requests and mailbox invocations are visible through native agent activity state, are protected from idle eviction, and have pending callers settled during explicit shutdown.

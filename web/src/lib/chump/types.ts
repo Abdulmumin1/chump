@@ -9,7 +9,6 @@ export type ChumpHealth = {
 	model: string;
 	max_steps: number;
 	command_timeout: number;
-	managed_idle_timeout: number | null;
 	reasoning: Record<string, unknown> | null;
 	verbose: boolean;
 	active_sessions: number;
@@ -211,7 +210,6 @@ export type ChumpStatus = {
 	model: string;
 	max_steps: number;
 	command_timeout: number;
-	managed_idle_timeout: number | null;
 	compaction?: CompactionStatus | null;
 	reasoning: Record<string, unknown> | null;
 	verbose: boolean;
@@ -265,12 +263,6 @@ export type DelegatedSessionActivityDetail =
 			detail: string;
 			status: "running" | "completed" | "error";
 	  };
-
-export type AgentSessionSnapshotResponse = {
-	status: ChumpStatus;
-	messages: StoredMessage[];
-	events: StoredEvent[];
-};
 
 export type SseEvent = {
 	event: string;

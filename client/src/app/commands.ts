@@ -28,12 +28,6 @@ const ROOT_COMMANDS: Array<{
     action: "submit",
   },
   {
-    label: "/reload",
-    command: "/reload",
-    description: "restart and reconnect to the managed server",
-    action: "submit",
-  },
-  {
     label: "/sessions",
     command: "/session ",
     description: "pick a stored session",
@@ -511,7 +505,6 @@ export function parseSlashCommand(input: string): {
   switch (command) {
     case "help":
     case "status":
-    case "reload":
     case "sessions":
     case "clear":
     case "compact":

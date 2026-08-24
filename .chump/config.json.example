@@ -5,7 +5,6 @@
   "theme": "dark",
   "max_steps": 64,
   "command_timeout": 120,
-  "managed_idle_timeout": 30,
   "verbose": true,
   "compaction": {
     "tokens": 200000,

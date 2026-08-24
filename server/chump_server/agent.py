@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-from copy import deepcopy
 import hashlib
 import json
+from pathlib import Path
 import time
 import traceback
 from dataclasses import replace
@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator
 
 from ai_query import RetryPolicy, step_count_is
 from ai_query.agents import Agent, AgentTurn, SQLiteStorage, TurnOptions, action
+from ai_query.agents.storage import Storage
 from ai_query.types import (
     AbortError,
     AbortSignal,
@@ -41,7 +42,6 @@ from .runtime.messages import (
     build_user_display_content,
     is_image_attachment,
     message_content_text,
-    remove_queued_message_at,
     summarize_attachments,
 )
 from .runtime.model import resolve_model
@@ -65,32 +65,60 @@ def delegated_task_is_terminal_only(_steps: list[Any]) -> bool:
     return False
 
 
+def bind_chump_agent(
+    config: ChumpConfig,
+    resources: ResourceCatalog | None = None,
+    *,
+    search: Any = None,
+    mcp: Any = None,
+    storage: Storage | None = None,
+) -> type[ChumpAgent]:
+    resources = resources or ResourceCatalog(config.workspace_root)
+    storage = storage or SQLiteStorage(str(config.data_dir / "chump.sqlite3"))
+
+    class WorkspaceChumpAgent(ChumpAgent):
+        def __init__(self, id: str) -> None:
+            super().__init__(
+                id,
+                config=config,
+                resources=resources,
+                search=search,
+                mcp=mcp,
+                storage=storage,
+            )
+
+    safe_name = "".join(
+        character if character.isalnum() else "_"
+        for character in config.workspace_root.name
+    )
+    WorkspaceChumpAgent.__name__ = f"WorkspaceChumpAgent_{safe_name}"
+    return WorkspaceChumpAgent
+
+
 class ChumpAgent(Agent[dict[str, Any]]):
     enable_event_log = True
     # Reconnects only need a recent delivery window. Keeping this bounded is
     # critical because tool and reasoning events can contain sizeable payloads.
     event_log_limit = 2_048
-    _server_config: ChumpConfig | None = None
-    _server_resources: ResourceCatalog | None = None
-    _server_search: Any = None
-    _server_mcp: Any = None
-
-    @classmethod
-    def configure(cls, config: ChumpConfig, resources: ResourceCatalog) -> None:
-        cls._server_config = config
-        cls._server_resources = resources
-        cls._server_mcp = None
-
-    def __init__(self, id: str):
-        config = self._server_config or load_config()
+    def __init__(
+        self,
+        id: str,
+        *,
+        config: ChumpConfig | None = None,
+        resources: ResourceCatalog | None = None,
+        search: Any = None,
+        mcp: Any = None,
+        storage: Storage | None = None,
+    ):
+        config = config or load_config()
         config.data_dir.mkdir(parents=True, exist_ok=True)
-        resources = self._server_resources or ResourceCatalog(config.workspace_root)
+        resources = resources or ResourceCatalog(config.workspace_root)
         now = time.time()
         super().__init__(
             id,
             model=None,
             system=build_system_prompt(SYSTEM_PROMPT, resources),
-            storage=SQLiteStorage(str(config.data_dir / "chump.sqlite3")),
+            storage=storage or SQLiteStorage(str(config.data_dir / "chump.sqlite3")),
             initial_state={
                 "workspace_root": str(config.workspace_root),
                 "provider": config.provider,
@@ -116,10 +144,11 @@ class ChumpAgent(Agent[dict[str, Any]]):
         )
         self._config = config
         self._resources = resources
+        self._server_search = search
+        self._server_mcp = mcp
         self._refresh_mcp_tool_bindings = None
         self._rebuild_tools()
         self._last_step_records: list[dict[str, Any]] = []
-        self._current_turn: AgentTurn | None = None
         self._pending_steering_events: list[dict[str, Any]] = []
         self._pending_steering_contents: list[str | list[Any]] = []
         self._steering_lock = asyncio.Lock()
@@ -159,7 +188,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "max_steps": self._config.max_steps,
             "retry": self._retry_status(),
             "command_timeout": self._config.command_timeout,
-            "managed_idle_timeout": self._config.managed_idle_timeout,
             "compaction": self._compaction_status(),
             "reasoning": self._config.reasoning,
             "verbose": self._config.verbose,
@@ -168,7 +196,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "created_at": self.state.get("created_at"),
             "updated_at": self.state.get("updated_at"),
             "last_user_goal": self.state.get("last_user_goal"),
-            "turn_running": self._current_turn is not None and not self._current_turn.done,
+            "turn_running": self.session.active_turn is not None,
             "steering_queue": list(self._pending_steering_events),
             "instruction_files": [
                 str(item.path) for item in self._resources.system_instructions
@@ -284,7 +312,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
     async def clear_messages(self) -> dict[str, str]:
         now = time.time()
         self._usage_summary = default_usage_summary()
-        await self.clear()
+        await self.session.clear_messages()
         await self.update_state(
             last_user_goal=None,
             files_touched=[],
@@ -298,7 +326,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @action
     async def compact(self, reason: str = "manual") -> dict[str, Any]:
-        if self._current_turn is not None and not self._current_turn.done:
+        if self.session.active_turn is not None:
             raise ValueError("cannot compact while a turn is running")
         return await self._compact_messages(reason=reason)
 
@@ -315,32 +343,17 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @action
     async def event_log(self) -> dict[str, Any]:
-        return {"events": list(self._event_log)}
-
-    @action
-    async def session_snapshot(self) -> dict[str, Any]:
-        """Capture transcript, turn state, and replay cursor as one snapshot."""
-        return self.capture_session_snapshot()
-
-    def capture_session_snapshot(self) -> dict[str, Any]:
-        """Synchronously copy all state owned by a session hydration cursor."""
-        return deepcopy(
-            {
-                "status": self._status_snapshot(),
-                "messages": [message.to_dict() for message in self.messages],
-                "events": list(self._event_log),
-                PENDING_DELEGATED_SESSIONS_STATE_KEY: parse_pending_delegated_sessions(
-                    self.state.get(PENDING_DELEGATED_SESSIONS_STATE_KEY)
-                ),
-            }
-        )
+        return {
+            "events": [
+                {"id": event.id, "type": event.type, "data": event.data}
+                async for event in self.session.replay_events()
+            ]
+        }
 
     @action
     async def abort_current_turn(self) -> dict[str, Any]:
-        turn = self._current_turn
-        if turn is None:
+        if not await self.session.abort("aborted by user"):
             return {"status": "idle"}
-        turn.abort("aborted by user")
         return {"status": "aborting"}
 
     @action
@@ -350,18 +363,19 @@ class ChumpAgent(Agent[dict[str, Any]]):
         attachments: list[dict[str, Any]] | None = None,
         display_message: str | None = None,
     ) -> dict[str, Any]:
-        turn = self._current_turn
+        turn = self.session.active_turn
         if turn is None or turn.done:
             return {"status": "idle"}
         visible_message = display_message if display_message is not None else message
         content = build_user_content(message, attachments or [])
         async with self._steering_lock:
-            if turn is not self._current_turn or turn.done:
+            if turn is not self.session.active_turn or turn.done:
                 return {"status": "idle"}
-            await turn.steer(content)
+            steering = await turn.steer(content)
             self._pending_steering_contents.append(content)
             self._pending_steering_events.append(
                 {
+                    "id": steering.id,
                     "content": visible_message,
                     "display_content": build_user_display_content(
                         visible_message, attachments or []
@@ -384,16 +398,19 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @action
     async def cancel_steering(self, index: int | None = None) -> dict[str, Any]:
-        turn = self._current_turn
+        turn = self.session.active_turn
         if turn is None or turn.done or not self._pending_steering_events:
             return {"status": "idle"}
         async with self._steering_lock:
-            if turn is not self._current_turn or turn.done or not self._pending_steering_events:
+            if turn is not self.session.active_turn or turn.done or not self._pending_steering_events:
                 return {"status": "idle"}
             target_index = len(self._pending_steering_events) - 1 if index is None else index
             if target_index < 0 or target_index >= len(self._pending_steering_events):
                 raise ValueError("queued steering index is out of range")
-            removed = await remove_queued_message_at(turn._steering, target_index)
+            steering_id = self._pending_steering_events[target_index].get("id")
+            removed = isinstance(steering_id, str) and await turn.cancel_steering(
+                steering_id
+            )
             if removed:
                 self._pending_steering_contents.pop(target_index)
                 self._pending_steering_events.pop(target_index)
@@ -452,8 +469,8 @@ class ChumpAgent(Agent[dict[str, Any]]):
 
     @property
     def current_abort_signal(self) -> AbortSignal | None:
-        turn = self._current_turn
-        return turn._controller.signal if turn else None
+        turn = self.session.active_turn
+        return turn.signal if turn else None
 
     async def emit(
         self,
@@ -568,10 +585,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
                     ) = await self._drain_remaining_steering()
                     if not drained_events:
                         raise
-                finally:
-                    if self._current_turn is turn:
-                        self._current_turn = None
-
                 if not drained_events:
                     break
 
@@ -683,7 +696,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
             signal=signal,
         )
         turn = self.turn(content, options=options)
-        self._current_turn = turn
         await self._emit_turn_status(True)
         return turn
 
@@ -1379,6 +1391,18 @@ class ChumpAgent(Agent[dict[str, Any]]):
             normalize_provider_name,
             normalize_reasoning_config,
         )
+
+        workspace_value = self.state.get("workspace_root")
+        if (
+            isinstance(workspace_value, str)
+            and workspace_value
+            and Path(workspace_value).expanduser().resolve()
+            != self._config.workspace_root
+        ):
+            raise ValueError(
+                f"session {self.id!r} belongs to workspace {workspace_value!r}, "
+                f"not {str(self._config.workspace_root)!r}"
+            )
 
         provider_value = self.state.get("provider")
         model_value = self.state.get("model")

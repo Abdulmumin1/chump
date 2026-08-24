@@ -18,10 +18,10 @@ export async function getLoopbackPermissionState(
 
 export function loopbackPermissionMessage(state: LoopbackPermissionState): string | null {
 	if (state === 'prompt') {
-		return 'Chrome needs permission to reach your local Chump daemon. Click “Connect to projects”, then choose Allow.';
+		return 'Chrome needs permission to reach your local Chump service. Click “Connect to local service”, then choose Allow.';
 	}
 	if (state === 'denied') {
-		return 'Chrome is blocking local daemon access. Open this site’s settings, set “Local network access” or “Loopback network” to Allow, then retry.';
+		return 'Chrome is blocking local service access. Open this site’s settings, set “Local network access” or “Loopback network” to Allow, then retry.';
 	}
 	return null;
 }

@@ -1,11 +1,14 @@
 import {
     createSessionId,
+    getEventLog,
     getHealth,
-    getSessionSnapshot,
+    getMessages,
     getSessions,
     getState,
+    getStatus,
     normalizeServerUrl,
     openEventStream,
+    terminalTargetIdentity,
     type ChumpApiTarget,
 } from "$lib/chump/api";
 import type {
@@ -26,7 +29,6 @@ import {
 import { listModelChoices, type ModelChoice } from "$lib/models";
 import {
     applyLiveEventToMessages,
-    buildMessagesFromEventLog,
     parseSteeringQueue,
     removeSteeredQueueItem,
 } from "$lib/chat/events";
@@ -92,8 +94,13 @@ export function createSessionController(
         scrollTranscriptToEnd: () => Promise<void>;
     },
 ) {
+    let hydrationGeneration = 0;
+
     async function connectToServer(
-        options: { selectFirstSession?: boolean } = {},
+        options: {
+            selectFirstSession?: boolean;
+            preferredSessionId?: string;
+        } = {},
     ): Promise<void> {
         const targetUrl = normalizeServerUrl(state.serverUrl);
         const apiTarget = state.apiTarget;
@@ -101,6 +108,7 @@ export function createSessionController(
             return;
         }
 
+        const targetGuard = beginHydration(apiTarget);
         state.serverUrl = targetUrl;
         state.isConnecting = true;
         state.connectionError = "";
@@ -111,6 +119,10 @@ export function createSessionController(
                 getSessions(apiTarget),
             ]);
 
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
+
             state.health = nextHealth;
             applySessionsResponse(nextSessionsResponse);
             if (nextHealth.available_providers?.length) {
@@ -119,6 +131,9 @@ export function createSessionController(
                     nextHealth.available_models,
                 )
                     .then((choices) => {
+                        if (!isCurrentTarget(targetGuard)) {
+                            return;
+                        }
                         state.availableModels = choices;
                     })
                     .catch(console.error);
@@ -127,21 +142,32 @@ export function createSessionController(
             }
 
             const preferredSessionId =
-                state.activeSessionId.trim() ||
-                state.sessionInput.trim() ||
+                ("preferredSessionId" in options
+                    ? (options.preferredSessionId?.trim() ?? "")
+                    : state.activeSessionId.trim() || state.sessionInput.trim()) ||
                 (options.selectFirstSession === false
                     ? ""
                     : (nextSessionsResponse.sessions[0]?.id ?? ""));
 
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
+
             if (preferredSessionId) {
                 await selectSession(preferredSessionId);
             } else {
-                clearSessionView();
+                resetSessionView({ invalidateHydration: false });
             }
         } catch (error) {
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
             state.connectionError = toErrorMessage(error);
-            clearSessionView();
+            resetSessionView({ invalidateHydration: false });
         } finally {
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
             if (!state.connectionError) {
                 callbacks.closeConnectModal();
             }
@@ -154,10 +180,15 @@ export function createSessionController(
             return;
         }
 
+        const apiTarget = state.apiTarget;
+        if (!apiTarget) return;
+        const targetGuard = captureTarget(apiTarget);
+
         try {
-            const apiTarget = state.apiTarget;
-            if (!apiTarget) return;
             const firstPage = await getSessions(apiTarget, { page: 1 });
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
             const loadedPageCount = Math.max(
                 1,
                 Math.min(state.sessionPage, firstPage.total_pages),
@@ -167,6 +198,9 @@ export function createSessionController(
                     getSessions(apiTarget, { page: index + 2 }),
                 ),
             );
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
             state.sessions = [firstPage, ...remainingPages].flatMap(
                 (response) => response.sessions,
             );
@@ -174,16 +208,24 @@ export function createSessionController(
             state.sessionTotalPages = firstPage.total_pages;
             state.sessionTotal = firstPage.total;
         } catch (error) {
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
             state.connectionError = toErrorMessage(error);
         }
     }
 
     async function loadMoreSessions(): Promise<void> {
         if (!state.apiTarget || state.sessionPage >= state.sessionTotalPages) return;
+        const apiTarget = state.apiTarget;
+        const targetGuard = captureTarget(apiTarget);
         try {
-            const response = await getSessions(state.apiTarget, {
+            const response = await getSessions(apiTarget, {
                 page: state.sessionPage + 1,
             });
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
             const existingSessionIds = new Set(
                 state.sessions.map((session) => session.id),
             );
@@ -197,6 +239,9 @@ export function createSessionController(
             state.sessionTotalPages = response.total_pages;
             state.sessionTotal = response.total;
         } catch (error) {
+            if (!isCurrentTarget(targetGuard)) {
+                return;
+            }
             state.connectionError = toErrorMessage(error);
         }
     }
@@ -215,14 +260,16 @@ export function createSessionController(
 
     async function selectSession(sessionId: string): Promise<void> {
         const nextSessionId = sessionId.trim();
-        if (!nextSessionId || !state.serverUrl) {
+        const apiTarget = state.apiTarget;
+        if (!nextSessionId || !state.serverUrl || !apiTarget) {
             return;
         }
+        const targetGuard = captureTarget(apiTarget);
 
         state.activeSessionId = nextSessionId;
         state.sessionInput = nextSessionId;
         // Session-scoped status must never leak into the next active view while
-        // its snapshot is loading. The previous turn continues server-side.
+        // its session data is loading. The previous turn continues server-side.
         state.status = null;
         state.sessionState = null;
         state.messages = [];
@@ -236,56 +283,57 @@ export function createSessionController(
         state.streamToken += 1;
         state.isLoadingSession = true;
         try {
-            await refreshSessionSnapshot(nextSessionId);
+            await refreshSession(nextSessionId);
         } finally {
-            state.isLoadingSession = false;
+            if (isCurrentSelection(targetGuard, nextSessionId)) {
+                state.isLoadingSession = false;
+            }
+        }
+        if (!isCurrentSelection(targetGuard, nextSessionId)) {
+            return;
         }
         openSessionStream(nextSessionId);
     }
 
-    async function refreshSessionSnapshot(sessionId: string): Promise<void> {
+    async function refreshSession(sessionId: string): Promise<void> {
         if (!state.serverUrl || !sessionId) {
             return;
         }
 
         const currentToken = state.loadToken + 1;
+        const targetGuard = captureTarget(state.apiTarget);
         state.loadToken = currentToken;
         state.connectionError = "";
 
         try {
             const apiTarget = state.apiTarget;
             if (!apiTarget) return;
-            const snapshot = await getSessionSnapshot(apiTarget, sessionId);
+            const [nextStatus, nextState, nextMessages, nextEventLog] =
+                await Promise.all([
+                    getStatus(apiTarget, sessionId),
+                    getState(apiTarget, sessionId),
+                    getMessages(apiTarget, sessionId),
+                    getEventLog(apiTarget, sessionId),
+                ]);
 
-            if (currentToken !== state.loadToken || state.activeSessionId !== sessionId) {
+            if (!isCurrentSessionLoad(targetGuard, currentToken, sessionId)) {
                 return;
             }
 
-            const nextState = await getState(apiTarget, sessionId);
-
-            if (currentToken !== state.loadToken || state.activeSessionId !== sessionId) {
-                return;
-            }
-
-            applyStatus(snapshot.status);
+            applyStatus(nextStatus);
             state.steeringQueue = parseSteeringQueue({
-                items: snapshot.status.steering_queue ?? [],
+                items: nextStatus.steering_queue ?? [],
             });
             state.sessionState = nextState;
-            const unfinishedDurableTurn = eventLogHasUnfinishedTurn(snapshot.events);
-            if (snapshot.status.turn_running === true || unfinishedDurableTurn) {
-                state.messages = buildMessagesFromEventLog(snapshot.events);
-            } else {
-                state.messages = snapshot.messages;
-            }
+            state.messages = nextMessages.messages;
             state.lastEventId = Math.max(
                 0,
-                ...snapshot.events.map((event) => event.id),
+                ...nextEventLog.events.map((event) => event.id),
             );
 
             await callbacks.scrollTranscriptToEnd();
         } catch (error) {
-            if (currentToken !== state.loadToken) {
+            if (!isCurrentSessionLoad(targetGuard, currentToken, sessionId)) {
                 return;
             }
             state.connectionError = toErrorMessage(error);
@@ -362,6 +410,15 @@ export function createSessionController(
     }
 
     function clearSessionView(): void {
+        resetSessionView();
+    }
+
+    function resetSessionView(
+        options: { invalidateHydration?: boolean } = {},
+    ): void {
+        if (options.invalidateHydration !== false) {
+            invalidateHydration();
+        }
         state.stopEvents?.();
         state.stopEvents = null;
         state.streamToken += 1;
@@ -379,8 +436,63 @@ export function createSessionController(
     }
 
     function destroy(): void {
+        invalidateHydration();
         state.stopEvents?.();
         state.stopEvents = null;
+    }
+
+    function beginHydration(apiTarget: ChumpApiTarget): TargetGuard {
+        hydrationGeneration += 1;
+        return {
+            generation: hydrationGeneration,
+            targetKey: terminalTargetIdentity(apiTarget),
+        };
+    }
+
+    function captureTarget(apiTarget: ChumpApiTarget | null): TargetGuard | null {
+        if (!apiTarget) {
+            return null;
+        }
+        return {
+            generation: hydrationGeneration,
+            targetKey: terminalTargetIdentity(apiTarget),
+        };
+    }
+
+    function invalidateHydration(): void {
+        hydrationGeneration += 1;
+        state.loadToken += 1;
+    }
+
+    function isCurrentTarget(targetGuard: TargetGuard | null): boolean {
+        if (!targetGuard || targetGuard.generation !== hydrationGeneration) {
+            return false;
+        }
+        const apiTarget = state.apiTarget;
+        return (
+            !!apiTarget &&
+            terminalTargetIdentity(apiTarget) === targetGuard.targetKey
+        );
+    }
+
+    function isCurrentSelection(
+        targetGuard: TargetGuard | null,
+        sessionId: string,
+    ): boolean {
+        return (
+            isCurrentTarget(targetGuard) && state.activeSessionId === sessionId
+        );
+    }
+
+    function isCurrentSessionLoad(
+        targetGuard: TargetGuard | null,
+        currentToken: number,
+        sessionId: string,
+    ): boolean {
+        return (
+            currentToken === state.loadToken &&
+            isCurrentSelection(targetGuard, sessionId)
+        );
     }
 
     function patchActiveSession(nextState: ChumpState): void {
@@ -510,7 +622,7 @@ export function createSessionController(
                 });
             }
             if (!state.isSending) {
-                void refreshCompletedTurn(sessionId, currentStreamToken);
+                state.delegatedActivities = [];
                 void refreshSessionsList();
             }
             return;
@@ -529,7 +641,9 @@ export function createSessionController(
         if (event.event === "compaction_status" && payload) {
             state.isCompacting = payload.running === true;
             if (!state.isCompacting) {
-                void refreshCompletedTurn(sessionId, currentStreamToken);
+                if (!state.isSending) {
+                    state.delegatedActivities = [];
+                }
                 void refreshSessionsList();
             }
             return;
@@ -561,34 +675,6 @@ export function createSessionController(
         }
     }
 
-    async function refreshCompletedTurn(
-        sessionId: string,
-        currentStreamToken: number,
-    ): Promise<void> {
-        const apiTarget = state.apiTarget;
-        if (!apiTarget) return;
-
-        try {
-            const snapshot = await getSessionSnapshot(apiTarget, sessionId);
-            if (
-                !isCurrentStream(sessionId, currentStreamToken) ||
-                state.isSending
-            ) {
-                return;
-            }
-            state.messages = snapshot.messages;
-        } catch {
-            // Non-fatal: live messages are still displayed.
-        } finally {
-            if (
-                isCurrentStream(sessionId, currentStreamToken) &&
-                !state.isSending
-            ) {
-                state.delegatedActivities = [];
-            }
-        }
-    }
-
     function isCurrentStream(
         sessionId: string,
         currentStreamToken: number,
@@ -609,7 +695,7 @@ export function createSessionController(
         refreshSessionsList,
         loadMoreSessions,
         selectSession,
-        refreshSessionSnapshot,
+        refreshSession,
         ensureSessionListed,
         openTypedSession,
         createFreshSession,
@@ -618,6 +704,10 @@ export function createSessionController(
         destroy,
     };
 }
+type TargetGuard = {
+    generation: number;
+    targetKey: string;
+};
 
 function applyDelegatedProgress(
     current: DelegatedSessionActivity[],
@@ -792,16 +882,4 @@ function settleDelegatedActivity(
                     activity.parentStep === step && activity.parentIndex === index)
             ),
     );
-}
-
-function eventLogHasUnfinishedTurn(
-    events: Array<{ type: string; data: Record<string, unknown> }>,
-): boolean {
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-        const event = events[index];
-        if (event?.type === "turn_status") {
-            return event.data.running === true;
-        }
-    }
-    return false;
 }

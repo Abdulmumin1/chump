@@ -1,61 +1,51 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-	clearPendingDaemonHandoff,
-	consumeDaemonHandoff,
-	DAEMON_TOKEN_STORAGE_KEY,
-	DAEMON_URL_STORAGE_KEY,
-	dispatchPendingDaemonHandoff,
-	parsePendingDaemonHandoffEvent,
-	PENDING_DAEMON_HANDOFF_EVENT,
-	parsePendingDaemonHandoff,
-	PENDING_DAEMON_HANDOFF_STORAGE_KEY,
-	prepareDaemonLaunchTarget,
-	readPendingDaemonHandoff,
-	stageDaemonHandoff
-} from './daemon-handoff';
+	clearPendingLocalServiceHandoff,
+	consumeLocalServiceHandoff,
+	dispatchPendingLocalServiceHandoff,
+	LOCAL_SERVICE_TOKEN_STORAGE_KEY,
+	LOCAL_SERVICE_URL_STORAGE_KEY,
+	parsePendingLocalServiceHandoff,
+	parsePendingLocalServiceHandoffEvent,
+	PENDING_LOCAL_SERVICE_HANDOFF_EVENT,
+	PENDING_LOCAL_SERVICE_HANDOFF_STORAGE_KEY,
+	prepareLocalServiceLaunchTarget,
+	readPendingLocalServiceHandoff,
+	stageLocalServiceHandoff
+} from './local-service-handoff';
 
 function createStorage(): Pick<Storage, 'setItem' | 'removeItem'> {
 	return { setItem: vi.fn(), removeItem: vi.fn() };
 }
 
-describe('consumeDaemonHandoff', () => {
+describe('consumeLocalServiceHandoff', () => {
 	it('stores a fragment handoff and removes credentials from the URL', () => {
 		const storage = createStorage();
 		const replaceUrl = vi.fn();
-		const connection = consumeDaemonHandoff(
-			'https://chmp.dev/auth?redirectTo=%2Fc#daemonUrl=http%3A%2F%2F127.0.0.1%3A9417&daemonToken=secret-token',
+		const connection = consumeLocalServiceHandoff(
+			'https://chmp.dev/auth?redirectTo=%2Fc#serviceUrl=http%3A%2F%2F127.0.0.1%3A9417&serviceToken=secret-token&projectId=project-one',
 			storage,
 			replaceUrl
 		);
 
-		expect(connection).toEqual({ url: 'http://127.0.0.1:9417', token: 'secret-token' });
+		expect(connection).toEqual({
+			url: 'http://127.0.0.1:9417',
+			token: 'secret-token',
+			projectId: 'project-one'
+		});
 		expect(storage.setItem).toHaveBeenCalledWith(
-			DAEMON_URL_STORAGE_KEY,
+			LOCAL_SERVICE_URL_STORAGE_KEY,
 			'http://127.0.0.1:9417'
 		);
-		expect(storage.setItem).toHaveBeenCalledWith(DAEMON_TOKEN_STORAGE_KEY, 'secret-token');
-		expect(replaceUrl).toHaveBeenCalledWith(
-			'https://chmp.dev/auth?redirectTo=%2Fc'
-		);
-	});
-
-	it('supports legacy query handoffs while preserving unrelated URL state', () => {
-		const storage = createStorage();
-		const replaceUrl = vi.fn();
-		consumeDaemonHandoff(
-			'https://chmp.dev/c?theme=dark&daemonUrl=http%3A%2F%2Flocalhost%3A9417&daemonToken=token#panel=chat',
-			storage,
-			replaceUrl
-		);
-
-		expect(replaceUrl).toHaveBeenCalledWith('https://chmp.dev/c?theme=dark#panel=chat');
+		expect(storage.setItem).toHaveBeenCalledWith(LOCAL_SERVICE_TOKEN_STORAGE_KEY, 'secret-token');
+		expect(replaceUrl).toHaveBeenCalledWith('https://chmp.dev/auth?redirectTo=%2Fc');
 	});
 
 	it('scrubs an incomplete handoff without storing it', () => {
 		const storage = createStorage();
 		const replaceUrl = vi.fn();
-		const connection = consumeDaemonHandoff(
-			'https://chmp.dev/auth#daemonToken=secret-token',
+		const connection = consumeLocalServiceHandoff(
+			'https://chmp.dev/auth#serviceToken=secret-token',
 			storage,
 			replaceUrl
 		);
@@ -66,27 +56,27 @@ describe('consumeDaemonHandoff', () => {
 	});
 });
 
-describe('prepareDaemonLaunchTarget', () => {
+describe('prepareLocalServiceLaunchTarget', () => {
 	it('extracts a handoff and returns a credential-free navigation URL', () => {
 		const storage = createStorage();
-		const target = prepareDaemonLaunchTarget(
-			'https://chmp.dev/c#daemonUrl=http%3A%2F%2F127.0.0.1%3A9417&daemonToken=secret-token',
+		const target = prepareLocalServiceLaunchTarget(
+			'https://chmp.dev/c#serviceUrl=http%3A%2F%2F127.0.0.1%3A9417&serviceToken=secret-token&projectId=project-one',
 			'https://chmp.dev',
 			storage
 		);
 
 		expect(target).toEqual({
 			url: 'https://chmp.dev/c',
-			connection: { url: 'http://127.0.0.1:9417', token: 'secret-token' }
+			connection: {
+				url: 'http://127.0.0.1:9417',
+				token: 'secret-token',
+				projectId: 'project-one'
+			}
 		});
-		expect(storage.setItem).toHaveBeenCalledWith(
-			DAEMON_URL_STORAGE_KEY,
-			'http://127.0.0.1:9417'
-		);
 	});
 
 	it('preserves same-origin launch targets without handoff credentials', () => {
-		const target = prepareDaemonLaunchTarget(
+		const target = prepareLocalServiceLaunchTarget(
 			'https://chmp.dev/account?tab=profile',
 			'https://chmp.dev',
 			createStorage()
@@ -101,21 +91,18 @@ describe('prepareDaemonLaunchTarget', () => {
 	it('rejects malformed and cross-origin launch targets', () => {
 		const storage = createStorage();
 
+		expect(prepareLocalServiceLaunchTarget('not a URL', 'https://chmp.dev', storage)).toBeNull();
 		expect(
-			prepareDaemonLaunchTarget('not a URL', 'https://chmp.dev', storage)
-		).toBeNull();
-		expect(
-			prepareDaemonLaunchTarget(
-				'https://example.com/c#daemonUrl=http://127.0.0.1:9417&daemonToken=secret-token',
+			prepareLocalServiceLaunchTarget(
+				'https://example.com/c#serviceUrl=http://127.0.0.1:9417&serviceToken=secret-token',
 				'https://chmp.dev',
 				storage
 			)
 		).toBeNull();
-		expect(storage.setItem).not.toHaveBeenCalled();
 	});
 });
 
-describe('pending daemon handoff', () => {
+describe('pending local service handoff', () => {
 	function createPendingStorage(): Storage {
 		const values = new Map<string, string>();
 		return {
@@ -134,10 +121,10 @@ describe('pending daemon handoff', () => {
 		const localStorage = createPendingStorage();
 		const connection = { url: 'http://127.0.0.1:9417', token: 'secret-token' };
 
-		stageDaemonHandoff(localStorage, connection, 1_000);
+		stageLocalServiceHandoff(localStorage, connection, 1_000);
 
-		expect(readPendingDaemonHandoff(localStorage, 2_000)).toEqual(connection);
-		expect(localStorage.getItem(PENDING_DAEMON_HANDOFF_STORAGE_KEY)).not.toBeNull();
+		expect(readPendingLocalServiceHandoff(localStorage, 2_000)).toEqual(connection);
+		expect(localStorage.getItem(PENDING_LOCAL_SERVICE_HANDOFF_STORAGE_KEY)).not.toBeNull();
 	});
 
 	it('parses the storage event value without racing another tab', () => {
@@ -147,7 +134,7 @@ describe('pending daemon handoff', () => {
 			capturedAt: 1_000
 		});
 
-		expect(parsePendingDaemonHandoff(serialized, 2_000)).toEqual({
+		expect(parsePendingLocalServiceHandoff(serialized, 2_000)).toEqual({
 			url: 'http://127.0.0.1:9417',
 			token: 'secret-token'
 		});
@@ -157,7 +144,7 @@ describe('pending daemon handoff', () => {
 		const connection = { url: 'http://127.0.0.1:9417', token: 'secret-token' };
 		const dispatchedEvents: Event[] = [];
 
-		dispatchPendingDaemonHandoff(
+		dispatchPendingLocalServiceHandoff(
 			{
 				dispatchEvent(event) {
 					dispatchedEvents.push(event);
@@ -170,32 +157,32 @@ describe('pending daemon handoff', () => {
 		const dispatched = dispatchedEvents[0];
 		expect(dispatched).toBeDefined();
 		if (!dispatched) throw new Error('expected a current-document handoff event');
-		expect(dispatched.type).toBe(PENDING_DAEMON_HANDOFF_EVENT);
-		expect(parsePendingDaemonHandoffEvent(dispatched)).toEqual(connection);
+		expect(dispatched.type).toBe(PENDING_LOCAL_SERVICE_HANDOFF_EVENT);
+		expect(parsePendingLocalServiceHandoffEvent(dispatched)).toEqual(connection);
 	});
 
 	it('rejects malformed current-document handoffs', () => {
-		const event = new CustomEvent(PENDING_DAEMON_HANDOFF_EVENT, {
+		const event = new CustomEvent(PENDING_LOCAL_SERVICE_HANDOFF_EVENT, {
 			detail: { url: '', token: 'secret-token' }
 		});
 
-		expect(parsePendingDaemonHandoffEvent(event)).toBeNull();
+		expect(parsePendingLocalServiceHandoffEvent(event)).toBeNull();
 	});
 
 	it('rejects and removes an expired handoff', () => {
 		const localStorage = createPendingStorage();
-		stageDaemonHandoff(localStorage, { url: 'http://127.0.0.1:9417', token: 'secret-token' }, 1);
+		stageLocalServiceHandoff(localStorage, { url: 'http://127.0.0.1:9417', token: 'secret-token' }, 1);
 
-		expect(readPendingDaemonHandoff(localStorage, 2 * 60 * 1000 + 2)).toBeNull();
-		expect(localStorage.getItem(PENDING_DAEMON_HANDOFF_STORAGE_KEY)).toBeNull();
+		expect(readPendingLocalServiceHandoff(localStorage, 2 * 60 * 1000 + 2)).toBeNull();
+		expect(localStorage.getItem(PENDING_LOCAL_SERVICE_HANDOFF_STORAGE_KEY)).toBeNull();
 	});
 
 	it('clears the pending handoff after a successful connection', () => {
 		const localStorage = createPendingStorage();
-		stageDaemonHandoff(localStorage, { url: 'http://127.0.0.1:9417', token: 'secret-token' });
+		stageLocalServiceHandoff(localStorage, { url: 'http://127.0.0.1:9417', token: 'secret-token' });
 
-		clearPendingDaemonHandoff(localStorage);
+		clearPendingLocalServiceHandoff(localStorage);
 
-		expect(localStorage.getItem(PENDING_DAEMON_HANDOFF_STORAGE_KEY)).toBeNull();
+		expect(localStorage.getItem(PENDING_LOCAL_SERVICE_HANDOFF_STORAGE_KEY)).toBeNull();
 	});
 });

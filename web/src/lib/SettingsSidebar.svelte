@@ -50,7 +50,7 @@
 			label: 'Connections',
 			path: '/account',
 			tab: 'connection',
-			keywords: ['daemon', 'host', 'server', 'url', 'token', 'connect', 'connection', 'runtime', 'chump server'],
+			keywords: ['local service', 'remote server', 'server', 'url', 'token', 'connect', 'connection', 'project', 'chump service'],
 			icon: 'server'
 		}
 	];
@@ -106,6 +106,10 @@
 			item.label.toLowerCase().includes(q) ||
 			item.keywords.some((kw) => kw.includes(q))
 		);
+	}
+
+	function navHref(item: NavItem): string {
+		return resolve(item.tab ? `${item.path}?tab=${item.tab}` : item.path);
 	}
 
 	let filteredPersonal = $derived(
@@ -208,7 +212,7 @@
 					{#each filteredPersonal as item (item.id)}
 						{@const active = isItemActive(item)}
 						<a
-							href={resolve(item.path) + (item.tab ? '?tab=' + item.tab : '')}
+							href={navHref(item)}
 							onclick={closeMobile}
 							class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors {active ? 'bg-bg-hover text-text-inverse font-semibold' : 'text-text-secondary hover:bg-bg-hover hover:text-text-main'}"
 						>
@@ -243,7 +247,7 @@
 					{#each filteredOrg as item (item.id)}
 						{@const active = isItemActive(item)}
 						<a
-							href={resolve(item.path) + (item.tab ? '?tab=' + item.tab : '')}
+							href={navHref(item)}
 							onclick={closeMobile}
 							class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors {active ? 'bg-bg-hover text-text-inverse font-semibold' : 'text-text-secondary hover:bg-bg-hover hover:text-text-main'}"
 						>

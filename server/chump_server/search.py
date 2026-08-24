@@ -44,11 +44,16 @@ class WorkspaceSearch:
         return result if isinstance(result, dict) else {"matches": []}
 
     async def close(self) -> None:
-        if self._process is None:
-            return
-        self._process.terminate()
-        await self._process.wait()
+        process = self._process
         self._process = None
+        if process is None:
+            return
+        if process.returncode is None:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+        await process.wait()
 
     async def _request(self, payload: dict[str, Any]) -> Any:
         async with self._lock:

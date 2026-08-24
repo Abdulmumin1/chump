@@ -8,7 +8,6 @@ import {
   parseProjectCommand,
   runProjectCommand,
 } from "./project-command.ts";
-import { ProjectRegistryStore } from "./projects.ts";
 
 test("parses project commands with a strict grammar", () => {
   assert.deepEqual(parseProjectCommand([], "/workspace"), { action: "list" });
@@ -39,26 +38,49 @@ test("adds, lists, and removes projects", async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-project-command-"));
   const workspacePath = path.join(rootPath, "workspace");
   await mkdir(workspacePath);
-  const store = new ProjectRegistryStore({
-    registryPath: path.join(rootPath, "projects.json"),
-    now: () => 100,
-  });
+  const projects: Array<{
+    id: string;
+    name: string;
+    workspacePath: string;
+    createdAt: number;
+    lastOpenedAt: number;
+  }> = [];
+  const client = {
+    list: async () => [...projects],
+    register: async (registeredPath: string, name?: string) => {
+      const project = {
+        id: "project-1",
+        name: name ?? path.basename(registeredPath),
+        workspacePath: registeredPath,
+        createdAt: 100,
+        lastOpenedAt: 100,
+      };
+      projects.push(project);
+      return project;
+    },
+    remove: async (projectId: string) => {
+      const index = projects.findIndex((project) => project.id === projectId);
+      if (index < 0) return false;
+      projects.splice(index, 1);
+      return true;
+    },
+  };
 
   const added = await runProjectCommand(
     { action: "add", workspacePath, name: "Example" },
-    store,
+    client,
   );
   const projectId = added.split("\t")[0]!;
 
   assert.match(added, new RegExp(`^${projectId}\\tExample\\t`));
-  assert.equal(await runProjectCommand({ action: "list" }, store), added);
+  assert.equal(await runProjectCommand({ action: "list" }, client), added);
   assert.equal(
-    await runProjectCommand({ action: "remove", projectId }, store),
+    await runProjectCommand({ action: "remove", projectId }, client),
     `removed ${projectId}`,
   );
-  assert.equal(await runProjectCommand({ action: "list" }, store), "No projects registered.");
+  assert.equal(await runProjectCommand({ action: "list" }, client), "No projects registered.");
   await assert.rejects(
-    runProjectCommand({ action: "remove", projectId }, store),
+    runProjectCommand({ action: "remove", projectId }, client),
     /project not found/,
   );
 });

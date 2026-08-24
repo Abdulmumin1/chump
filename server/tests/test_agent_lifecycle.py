@@ -52,28 +52,6 @@ def test_codex_provider_options_do_not_duplicate_system_prompt():
     assert agent._turn_provider_options() is None
 
 
-def test_session_snapshot_captures_messages_status_and_event_cursor_together():
-    agent = make_agent()
-    agent._messages = [Message(role="assistant", content="Existing response")]
-    agent._event_log = [
-        {"id": 7, "type": "turn_status", "data": {"running": True}}
-    ]
-    agent._status_snapshot = lambda: {"turn_running": True}
-
-    snapshot = agent.capture_session_snapshot()
-
-    assert snapshot == {
-        "status": {"turn_running": True},
-        "messages": [{"role": "assistant", "content": "Existing response"}],
-        "events": [
-            {"id": 7, "type": "turn_status", "data": {"running": True}}
-        ],
-        PENDING_DELEGATED_SESSIONS_STATE_KEY: {},
-    }
-    agent._event_log[0]["data"]["running"] = False
-    assert snapshot["events"][0]["data"]["running"] is True
-
-
 def test_step_usage_accumulates_new_ai_query_per_step_usage():
     agent = make_agent()
 

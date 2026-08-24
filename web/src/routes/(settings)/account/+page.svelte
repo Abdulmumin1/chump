@@ -6,17 +6,12 @@
 	import type { Account, Session } from 'better-auth';
 	import { authClient } from '$lib/auth-client';
 	import { getHealth, normalizeServerUrl } from '$lib/chump/api';
-	import { listDaemonProjects, normalizeDaemonConnection } from '$lib/chump/daemon-api';
-	import { consumeDaemonHandoff } from '$lib/chump/daemon-handoff';
+	import { listLocalServiceProjects } from '$lib/chump/local-service-api';
+	import { consumeLocalServiceHandoff } from '$lib/chump/local-service-handoff';
 	import {
-		forgetDaemonConnection,
-		readDaemonConnection,
-		rememberDaemonConnection
-	} from '$lib/chump/daemon-connection-store';
-	import {
-		getLoopbackPermissionState,
-		loopbackPermissionMessage
-	} from '$lib/chump/loopback-permission';
+		readLocalServiceConnection,
+		rememberLocalServiceConnection
+	} from '$lib/chump/local-service-connection-store';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -32,9 +27,8 @@
 	let pendingAction = $state('');
 	let notice = $state('');
 	let errorMessage = $state('');
-	let daemonUrl = $state('');
-	let daemonToken = $state('');
-	let directServerUrl = $state('');
+	let serverUrl = $state('');
+	let serverToken = $state('');
 	let testingConnection = $state(false);
 	let connectionError = $state('');
 
@@ -46,16 +40,15 @@
 	onMount(() => {
 		name = data.user.name;
 		image = data.user.image ?? '';
-		const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
+		const handoff = consumeLocalServiceHandoff(window.location.href, sessionStorage, (url) => {
 			window.history.replaceState({}, '', url);
 		});
 		if (handoff) {
-			rememberDaemonConnection(data.user.id, handoff, sessionStorage, localStorage);
+			rememberLocalServiceConnection(data.user.id, handoff, sessionStorage, localStorage);
 		}
-		const savedConnection = readDaemonConnection(data.user.id, sessionStorage, localStorage);
-		daemonUrl = savedConnection?.url ?? '';
-		daemonToken = savedConnection?.token ?? '';
-		directServerUrl = page.url.searchParams.get('server') ?? '';
+		const savedConnection = readLocalServiceConnection(data.user.id, sessionStorage, localStorage);
+		serverUrl = page.url.searchParams.get('server') ?? savedConnection?.url ?? '';
+		serverToken = savedConnection?.token ?? '';
 		void loadAccountData();
 	});
 
@@ -183,31 +176,22 @@
 		return error instanceof Error ? error.message : 'Unable to connect.';
 	}
 
-	async function connectToDaemon(): Promise<void> {
+	async function connectToServer(): Promise<void> {
 		testingConnection = true;
 		connectionError = '';
 		try {
-			const connection = normalizeDaemonConnection({ url: daemonUrl, token: daemonToken });
-			await listDaemonProjects(connection);
-			rememberDaemonConnection(data.user.id, connection, sessionStorage, localStorage);
-			await goto(resolve('/c'));
-		} catch (error: unknown) {
-			connectionError =
-				loopbackPermissionMessage(await getLoopbackPermissionState()) ??
-				connectionFailureMessage(error);
-		} finally {
-			testingConnection = false;
-		}
-	}
+			const url = normalizeServerUrl(serverUrl);
+			const token = serverToken.trim();
+			if (token) {
+				const connection = { url, token };
+				await listLocalServiceProjects(connection);
+				rememberLocalServiceConnection(data.user.id, connection, sessionStorage, localStorage);
+				await goto(resolve('/c'));
+				return;
+			}
 
-	async function connectDirectly(): Promise<void> {
-		testingConnection = true;
-		connectionError = '';
-		try {
-			const serverUrl = normalizeServerUrl(directServerUrl);
-			await getHealth({ kind: 'direct', serverUrl });
-			forgetDaemonConnection(data.user.id, sessionStorage, localStorage);
-			await goto(`${resolve('/c')}?server=${encodeURIComponent(serverUrl)}`);
+			await getHealth({ kind: 'direct', serverUrl: url });
+			await goto(`${resolve('/c')}?server=${encodeURIComponent(url)}`);
 		} catch (error: unknown) {
 			connectionError = connectionFailureMessage(error);
 		} finally {
@@ -506,7 +490,7 @@
 	{/if}
 
 	{#if currentTab === 'connection'}
-		<div class="grid max-w-3xl gap-4 lg:grid-cols-2">
+		<div class="max-w-xl">
 			<section class="rounded-xl border border-border-default bg-bg-surface p-5 shadow-xs">
 				<div class="flex items-start gap-3">
 					<div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-bg-input text-text-secondary">
@@ -515,65 +499,34 @@
 						</svg>
 					</div>
 					<div>
-						<h2 class="text-sm font-semibold text-text-inverse">Host daemon</h2>
-						<p class="mt-0.5 text-xs leading-relaxed text-text-tertiary">Connect to projects managed by your local Chump daemon.</p>
+						<h2 class="text-sm font-semibold text-text-inverse">Chump server</h2>
+						<p class="mt-0.5 text-xs leading-relaxed text-text-tertiary">Use one URL. Add a token for the shared local service, or leave it blank for a direct server.</p>
 					</div>
 				</div>
 
-				<form class="mt-5 space-y-3" onsubmit={(event) => { event.preventDefault(); void connectToDaemon(); }}>
-					<label class="block">
-						<span class="mb-1.5 block text-xs font-medium text-text-secondary">Daemon URL</span>
-						<input
-							bind:value={daemonUrl}
-							class="w-full rounded-lg border border-border-default bg-bg-input px-3 py-2 text-xs text-text-main outline-none transition-colors placeholder:text-text-tertiary focus:border-accent"
-							placeholder="http://127.0.0.1:9417"
-							type="url"
-							required
-						/>
-					</label>
-					<label class="block">
-						<span class="mb-1.5 block text-xs font-medium text-text-secondary">Daemon token</span>
-						<input
-							bind:value={daemonToken}
-							class="w-full rounded-lg border border-border-default bg-bg-input px-3 py-2 text-xs text-text-main outline-none transition-colors placeholder:text-text-tertiary focus:border-accent"
-							placeholder="Token"
-							type="password"
-							autocomplete="off"
-							required
-						/>
-					</label>
-					<button class="button-primary w-full" type="submit" disabled={testingConnection}>
-						{testingConnection ? 'Connecting…' : 'Connect to projects'}
-					</button>
-				</form>
-			</section>
-
-			<section class="rounded-xl border border-border-default bg-bg-surface p-5 shadow-xs">
-				<div class="flex items-start gap-3">
-					<div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-bg-input text-text-secondary">
-						<svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M13 10V3L4 14h7v7l9-11h-7Z" />
-						</svg>
-					</div>
-					<div>
-						<h2 class="text-sm font-semibold text-text-inverse">Direct server</h2>
-						<p class="mt-0.5 text-xs leading-relaxed text-text-tertiary">Connect directly to a running Chump server URL.</p>
-					</div>
-				</div>
-
-				<form class="mt-5 space-y-3" onsubmit={(event) => { event.preventDefault(); void connectDirectly(); }}>
+				<form class="mt-5 space-y-3" onsubmit={(event) => { event.preventDefault(); void connectToServer(); }}>
 					<label class="block">
 						<span class="mb-1.5 block text-xs font-medium text-text-secondary">Server URL</span>
 						<input
-							bind:value={directServerUrl}
+							bind:value={serverUrl}
 							class="w-full rounded-lg border border-border-default bg-bg-input px-3 py-2 text-xs text-text-main outline-none transition-colors placeholder:text-text-tertiary focus:border-accent"
-							placeholder="http://127.0.0.1:8000"
+							placeholder="http://127.0.0.1:38136"
 							type="url"
 							required
 						/>
 					</label>
-					<button class="button-secondary w-full" type="submit" disabled={testingConnection}>
-						{testingConnection ? 'Connecting…' : 'Connect directly'}
+					<label class="block">
+						<span class="mb-1.5 block text-xs font-medium text-text-secondary">Token</span>
+						<input
+							bind:value={serverToken}
+							class="w-full rounded-lg border border-border-default bg-bg-input px-3 py-2 text-xs text-text-main outline-none transition-colors placeholder:text-text-tertiary focus:border-accent"
+							placeholder="Optional. Fill this in for the local service."
+							type="password"
+							autocomplete="off"
+						/>
+					</label>
+					<button class="button-primary w-full" type="submit" disabled={testingConnection}>
+						{testingConnection ? 'Connecting…' : 'Connect'}
 					</button>
 				</form>
 			</section>

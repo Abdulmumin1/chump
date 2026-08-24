@@ -112,18 +112,11 @@ if (Test-Path $serverDir) {
     Copy-Item $server.FullName "$stagedServer\$($server.Name)" -Force
 }
 
-$daemonWasRunning = $false
 if (Test-Path $dest) {
-    $daemonStatus = (& $dest daemon status 2>$null | Out-String).Trim()
-    if ($daemonStatus.StartsWith("daemon running at")) {
-        $daemonWasRunning = $true
-        Write-Muted "Stopping the local daemon for upgrade..."
-        & $dest daemon stop | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Red "Could not stop the running Chump daemon; the existing installation was left unchanged."
-            exit 1
-        }
-    }
+    Write-Muted "Stopping the local Chump service for upgrade..."
+    & $dest stop 2>$null | Out-Null
+    # Versions before the shared-service architecture used a coordinator.
+    & $dest daemon stop 2>$null | Out-Null
 }
 
 Move-Item $stagedApp $dest -Force
@@ -132,16 +125,6 @@ if (Test-Path "$destDir\server") {
     Remove-Item -Recurse -Force "$destDir\server"
 }
 Move-Item $stagedServer "$destDir\server" -Force
-
-if ($daemonWasRunning) {
-    Write-Muted "Restarting the local daemon..."
-    & $dest daemon start | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Muted "Restarted the local daemon with the new version."
-    } else {
-        Write-Red "Chump was updated, but the local daemon could not be restarted. Run: chump daemon start"
-    }
-}
 
 # Generate the completion script from the installed binary, then register a
 # small managed profile block. This keeps completion available after a normal

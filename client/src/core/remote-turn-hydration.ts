@@ -13,7 +13,7 @@ export type RemoteTurnHydration = {
 };
 
 /**
- * Reconcile status with the event-log snapshot that owns the replay cursor.
+ * Reconcile status with the persisted event log that owns the replay cursor.
  *
  * A separately fetched status response can race a turn-status event. Once the
  * cursor advances past that event, using the stale status would leave the UI

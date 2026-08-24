@@ -164,7 +164,9 @@ export function getResolvedConfig(workspaceRoot: string): ResolvedConfig {
 }
 
 export function loadConfig(
-  overrides: Partial<Pick<ChumpConfig, "agentId" | "serverUrl" | "serverSource">> = {},
+  overrides: Partial<
+    Pick<ChumpConfig, "agentId" | "serverUrl" | "apiTarget">
+  > = {},
 ): ChumpConfig {
   const workspaceRoot = resolveWorkspaceRoot(process.cwd());
   const sessionId =
@@ -182,7 +184,7 @@ export function loadConfig(
       process.env.CHUMP_SERVER_URL ??
       resolved.serverUrl ??
       "http://127.0.0.1:8080",
-    serverSource: overrides.serverSource ?? "direct",
+    apiTarget: overrides.apiTarget ?? { kind: "direct" },
     workspaceRoot,
   };
 }
@@ -191,7 +193,7 @@ export function renderBanner(
   config: ChumpConfig,
   options: { workspaceRoot?: string | null } = {},
 ): string {
-  const sourceLabel = config.serverSource === "managed" ? "managed" : "direct";
+  const sourceLabel = config.apiTarget.kind === "service" ? "local service" : "remote";
   const workspaceRoot = options.workspaceRoot ?? config.workspaceRoot;
   return [
     "chump",

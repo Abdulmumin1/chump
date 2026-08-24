@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { browser, dev } from "$app/environment";
+    import { browser } from "$app/environment";
     import { onMount, tick } from "svelte";
     import { Pane, PaneGroup, PaneResizer } from "paneforge";
     import SessionsSidebar from "$lib/SessionsSidebar.svelte";
@@ -31,7 +31,10 @@
         cancelSteering,
         clearMessages,
         compactMessages,
+        getHealth,
+        getSessions,
         loadSkill,
+        normalizeServerUrl,
         setModel,
         setReasoning,
         sessionTitle,
@@ -53,32 +56,27 @@
         type ModelChoice,
     } from "$lib/models";
     import {
-        createDaemonProjectSession,
-        discoverLocalDaemon,
-        getDaemonProjectRuntime,
-        listDaemonProjects,
-        normalizeDaemonConnection,
-        pickDaemonProjectDirectory,
-        registerDaemonProject,
-        startDaemonProject,
-        stopDaemonProject,
-        type DaemonConnection,
-        type DaemonProject,
-        type DaemonRuntime,
-    } from "$lib/chump/daemon-api";
+        createLocalServiceProjectSession,
+        listLocalServiceProjects,
+        normalizeLocalServiceConnection,
+        pickLocalServiceProjectDirectory,
+        registerLocalServiceProject,
+        type LocalServiceConnection,
+        type LocalServiceProject,
+    } from "$lib/chump/local-service-api";
     import {
-        clearPendingDaemonHandoff,
-        consumeDaemonHandoff,
-        parsePendingDaemonHandoff,
-        parsePendingDaemonHandoffEvent,
-        PENDING_DAEMON_HANDOFF_EVENT,
-        PENDING_DAEMON_HANDOFF_STORAGE_KEY,
-        readPendingDaemonHandoff,
-    } from "$lib/chump/daemon-handoff";
+        clearPendingLocalServiceHandoff,
+        consumeLocalServiceHandoff,
+        parsePendingLocalServiceHandoff,
+        parsePendingLocalServiceHandoffEvent,
+        PENDING_LOCAL_SERVICE_HANDOFF_EVENT,
+        PENDING_LOCAL_SERVICE_HANDOFF_STORAGE_KEY,
+        readPendingLocalServiceHandoff,
+    } from "$lib/chump/local-service-handoff";
     import {
-        readDaemonConnection,
-        rememberDaemonConnection,
-    } from "$lib/chump/daemon-connection-store";
+        readLocalServiceConnection,
+        rememberLocalServiceConnection,
+    } from "$lib/chump/local-service-connection-store";
     import {
         getLoopbackPermissionState,
         loopbackPermissionMessage,
@@ -153,13 +151,13 @@
     }
     let availableModels = $state<ModelChoice[]>([]);
     let contextUsageLabel = $state<string | null>(null);
-    let daemonUrl = $state("");
-    let daemonToken = $state("");
-    let projects = $state<DaemonProject[]>([]);
+    let serverToken = $state("");
+    let connectServerUrlDraft = $state(initialServerUrl());
+    let connectServerTokenDraft = $state("");
+    let connectSessionIdDraft = $state(initialSessionId());
+    let projects = $state<LocalServiceProject[]>([]);
     let activeProjectId = $state("");
     let isLoadingProject = $state(false);
-    let projectRuntimes = $state<Record<string, DaemonRuntime>>({});
-    let runtimeActionProjectId = $state("");
     let isRegisteringProject = $state(false);
     let isPickingProjectDirectory = $state(false);
 
@@ -167,17 +165,17 @@
     let sidebarDragOffset = $state(0);
 
     const transcript = $derived(buildTranscript(messages));
-    const canConnect = $derived(serverUrl.trim().length > 0);
+    const canConnect = $derived(connectServerUrlDraft.trim().length > 0);
     const apiTarget = $derived.by((): ChumpApiTarget | null => {
-        if (activeProjectId && daemonUrl && daemonToken) {
+        if (activeProjectId.trim() && serverUrl.trim() && serverToken.trim()) {
             return {
-                kind: "daemon",
-                daemonUrl,
-                token: daemonToken,
+                kind: "service",
+                serviceUrl: serverUrl,
+                token: serverToken,
                 projectId: activeProjectId,
             };
         }
-        return serverUrl
+        return serverUrl.trim()
             ? { kind: "direct", serverUrl }
             : null;
     });
@@ -439,7 +437,14 @@
         sidebarDragOffset = nextState.dragOffset;
     }
 
+    function syncConnectDraftsFromActive(): void {
+        connectServerUrlDraft = serverUrl;
+        connectServerTokenDraft = serverToken;
+        connectSessionIdDraft = activeSessionId || sessionInput;
+    }
+
     function openConnectModal() {
+        syncConnectDraftsFromActive();
         connectModalOpen = true;
     }
 
@@ -475,7 +480,7 @@
         }
 
         const params = new URLSearchParams();
-        if (serverUrl.trim() && !activeProjectId) {
+        if (serverUrl.trim() && !activeProjectId.trim()) {
             params.set("server", serverUrl.trim());
         }
         if (activeSessionId.trim()) {
@@ -490,7 +495,7 @@
     });
 
     $effect(() => {
-        if (!browser || !activeProjectId || !activeSessionId) {
+        if (!browser || !activeProjectId.trim() || !activeSessionId.trim()) {
             return;
         }
         sessionStorage.setItem(
@@ -710,7 +715,7 @@
                 }
                 case "clear": {
                     await clearMessages(target, activeSessionId);
-                    await sessionController.refreshSessionSnapshot(activeSessionId);
+                    await sessionController.refreshSession(activeSessionId);
                     pushToast("Chat cleared", "success");
                     break;
                 }
@@ -718,7 +723,7 @@
                     isCompacting = true;
                     try {
                         const result = await compactMessages(target, activeSessionId);
-                        await sessionController.refreshSessionSnapshot(activeSessionId);
+                        await sessionController.refreshSession(activeSessionId);
                         if (result.status === "ok") {
                             pushToast(
                                 `Compacted ${result.messages_before ?? "?"} -> ${result.messages_after ?? "?"} messages`,
@@ -789,14 +794,12 @@
     const qrScanner = createQrScannerController({
         onScan(value) {
             const next = applyScannedConnectValue(value, {
-                serverUrl,
-                sessionId: activeSessionId || sessionInput,
+                serverUrl: connectServerUrlDraft || serverUrl,
+                sessionId:
+                    connectSessionIdDraft || activeSessionId || sessionInput,
             });
-            serverUrl = next.serverUrl;
-            if (next.sessionId) {
-                sessionInput = next.sessionId;
-                activeSessionId = next.sessionId;
-            }
+            connectServerUrlDraft = next.serverUrl;
+            connectSessionIdDraft = next.sessionId;
             stopQrScanner();
         },
         onError(message) {
@@ -829,34 +832,109 @@
         scrollTranscriptToEnd,
     });
 
-    async function connectToDaemon(): Promise<void> {
+    function applyConnection(connection: LocalServiceConnection): void {
+        serverUrl = connection.url;
+        serverToken = connection.token;
+    }
+
+    function clearActiveProjectState(options: { clearStoredSession?: boolean } = {}) {
+        const previousProjectId = activeProjectId.trim();
+        activeProjectId = "";
+        activeSessionId = "";
+        sessionInput = "";
+        if (!browser) {
+            return;
+        }
+        sessionStorage.removeItem("chump:active-project");
+        if (options.clearStoredSession && previousProjectId) {
+            sessionStorage.removeItem(projectSessionStorageKey(previousProjectId));
+        }
+    }
+
+    function rememberCurrentConnection(): void {
+        if (!browser || !serverUrl.trim() || !serverToken.trim()) return;
+        rememberLocalServiceConnection(
+            data.user.id,
+            {
+                url: serverUrl.trim(),
+                token: serverToken.trim(),
+            },
+            sessionStorage,
+            localStorage,
+        );
+    }
+
+    async function connectDirectly(options: {
+        serverUrl?: string;
+        preferredSessionId?: string;
+    } = {}): Promise<void> {
+        const nextServerUrl = normalizeServerUrl(
+            options.serverUrl ?? (connectServerUrlDraft || serverUrl),
+        );
+        if (!nextServerUrl) {
+            return;
+        }
+
         isConnecting = true;
         connectionError = "";
         try {
-            const connection = normalizeDaemonConnection({
-                url: daemonUrl,
-                token: daemonToken,
+            await Promise.all([
+                getHealth({ kind: "direct", serverUrl: nextServerUrl }),
+                getSessions({ kind: "direct", serverUrl: nextServerUrl }),
+            ]);
+            serverUrl = nextServerUrl;
+            serverToken = "";
+            projects = [];
+            clearActiveProjectState();
+            await sessionController.connectToServer({
+                preferredSessionId: options.preferredSessionId,
             });
-            const nextProjects = await listDaemonProjects(connection);
-            daemonUrl = connection.url;
-            daemonToken = connection.token;
+        } catch (error) {
+            connectionError = toErrorMessage(error);
+            connectModalOpen = true;
+        } finally {
+            isConnecting = false;
+        }
+    }
+
+    async function connectToLocalService(options: {
+        connection?: LocalServiceConnection;
+        preferredSessionId?: string;
+    } = {}): Promise<void> {
+        isConnecting = true;
+        connectionError = "";
+        try {
+            const connection = normalizeLocalServiceConnection(
+                options.connection ?? {
+                    url: connectServerUrlDraft || serverUrl,
+                    token: connectServerTokenDraft || serverToken,
+                },
+            );
+            const nextProjects = await listLocalServiceProjects(connection);
+            applyConnection(connection);
             projects = nextProjects;
-            await refreshProjectRuntimes(connection, nextProjects);
             if (browser) {
-                rememberDaemonConnection(
-                    data.user.id,
-                    connection,
-                    sessionStorage,
-                    localStorage,
-                );
-                clearPendingDaemonHandoff(localStorage);
+                rememberCurrentConnection();
+                clearPendingLocalServiceHandoff(localStorage);
             }
-            const preferredProjectId =
-                nextProjects.some((project) => project.id === activeProjectId)
-                    ? activeProjectId
-                    : (nextProjects[0]?.id ?? "");
+
+            const requestedProjectId = connection.projectId?.trim() ?? "";
+            const preferredProjectId = nextProjects.some(
+                (project) => project.id === requestedProjectId,
+            )
+                ? requestedProjectId
+                : nextProjects.some((project) => project.id === activeProjectId)
+                  ? activeProjectId
+                  : (nextProjects[0]?.id ?? "");
             if (preferredProjectId) {
-                await selectProject(preferredProjectId);
+                await selectProject(preferredProjectId, {
+                    preferredSessionId: options.preferredSessionId,
+                });
+            } else {
+                clearActiveProjectState({ clearStoredSession: true });
+                sessionController.clearSessionView();
+                health = null;
+                sessions = [];
             }
             closeConnectModal();
         } catch (error) {
@@ -872,7 +950,7 @@
         }
     }
 
-    async function connectToSavedDaemon(): Promise<void> {
+    async function connectToSavedLocalService(): Promise<void> {
         const permissionMessage = loopbackPermissionMessage(
             await getLoopbackPermissionState(),
         );
@@ -881,63 +959,41 @@
             connectModalOpen = true;
             return;
         }
-        await connectToDaemon();
+        await connectToLocalService({
+            connection: {
+                url: serverUrl,
+                token: serverToken,
+            },
+        });
     }
 
-    async function refreshProjectRuntimes(
-        connection = { url: daemonUrl, token: daemonToken },
-        targetProjects = projects,
-    ): Promise<void> {
-        const results = await Promise.allSettled(
-            targetProjects.map((project) =>
-                getDaemonProjectRuntime(connection, project.id),
-            ),
-        );
-        projectRuntimes = Object.fromEntries(
-            results.flatMap((result, index) =>
-                result.status === "fulfilled"
-                    ? [[targetProjects[index]!.id, result.value]]
-                    : [],
-            ),
-        );
-    }
-
-    async function startProject(projectId: string): Promise<void> {
-        if (!daemonUrl || !daemonToken) return;
-        runtimeActionProjectId = projectId;
-        connectionError = "";
-        try {
-            const runtime = await startDaemonProject(
-                { url: daemonUrl, token: daemonToken },
-                projectId,
-            );
-            projectRuntimes = { ...projectRuntimes, [projectId]: runtime };
-            if (projectId === activeProjectId) {
-                await sessionController.connectToServer();
-            }
-        } catch (error) {
-            connectionError = toErrorMessage(error);
-        } finally {
-            runtimeActionProjectId = "";
+    async function connectWithCurrentSettings(): Promise<void> {
+        if (connectServerTokenDraft.trim()) {
+            await connectToLocalService({
+                preferredSessionId: connectSessionIdDraft,
+            });
+            return;
         }
+        await connectDirectly({ preferredSessionId: connectSessionIdDraft });
     }
 
     async function registerProject(input: {
         workspacePath: string;
         name?: string;
     }): Promise<void> {
-        if (!daemonUrl || !daemonToken) return;
+        if (!serverUrl || !serverToken) return;
         isRegisteringProject = true;
         connectionError = "";
         try {
-            const connection = { url: daemonUrl, token: daemonToken };
-            const project = await registerDaemonProject(connection, {
+            const connection = {
+                url: serverUrl,
+                token: serverToken,
+            };
+            const project = await registerLocalServiceProject(connection, {
                 ...input,
                 approved: true,
             });
-            const nextProjects = await listDaemonProjects(connection);
-            projects = nextProjects;
-            await refreshProjectRuntimes(connection, nextProjects);
+            projects = await listLocalServiceProjects(connection);
             await selectProject(project.id);
         } catch (error) {
             connectionError = toErrorMessage(error);
@@ -948,15 +1004,15 @@
     }
 
     async function pickProjectDirectory(): Promise<string | null> {
-        if (!daemonUrl || !daemonToken || isPickingProjectDirectory) {
+        if (!serverUrl || !serverToken || isPickingProjectDirectory) {
             return null;
         }
         isPickingProjectDirectory = true;
         connectionError = "";
         try {
-            return await pickDaemonProjectDirectory({
-                url: daemonUrl,
-                token: daemonToken,
+            return await pickLocalServiceProjectDirectory({
+                url: serverUrl,
+                token: serverToken,
             });
         } catch (error) {
             connectionError = toErrorMessage(error);
@@ -970,65 +1026,41 @@
         const workspacePath = await pickProjectDirectory();
         if (
             !workspacePath ||
-            !confirm(`Allow Chump to access and open ${workspacePath}?`)
+            !confirm(`Allow Chump to access and register ${workspacePath}?`)
         ) {
             return;
         }
         await registerProject({ workspacePath });
     }
 
-    async function stopProject(projectId: string): Promise<void> {
-        const project = projects.find((item) => item.id === projectId);
-        if (
-            !daemonUrl ||
-            !daemonToken ||
-            !confirm(`Stop ${project?.name ?? "this project"}? Active runs will be interrupted.`)
-        ) {
-            return;
-        }
-        runtimeActionProjectId = projectId;
-        connectionError = "";
-        try {
-            const runtime = await stopDaemonProject(
-                { url: daemonUrl, token: daemonToken },
-                projectId,
-            );
-            projectRuntimes = { ...projectRuntimes, [projectId]: runtime };
-            if (projectId === activeProjectId) {
-                sessionController.clearSessionView();
-                health = null;
-                sessions = [];
-            }
-        } catch (error) {
-            connectionError = toErrorMessage(error);
-        } finally {
-            runtimeActionProjectId = "";
-        }
-    }
-
-    async function selectProject(projectId: string): Promise<void> {
-        if (!projectId || !daemonUrl || !daemonToken) {
+    async function selectProject(
+        projectId: string,
+        options: { preferredSessionId?: string } = {},
+    ): Promise<void> {
+        if (!projectId || !serverUrl || !serverToken) {
             return;
         }
         isLoadingProject = true;
         connectionError = "";
         sessionController.clearSessionView();
         sessions = [];
+        workingSessionIds = [];
         activeSessionId = "";
         sessionInput = "";
         health = null;
         try {
             activeProjectId = projectId;
-            serverUrl = daemonUrl;
+            let preferredSessionId = options.preferredSessionId?.trim() || "";
             if (browser) {
                 sessionStorage.setItem("chump:active-project", projectId);
-                const previousSessionId = sessionStorage.getItem(
-                    projectSessionStorageKey(projectId),
-                );
-                activeSessionId = previousSessionId ?? "";
-                sessionInput = previousSessionId ?? "";
+                preferredSessionId ||=
+                    sessionStorage.getItem(projectSessionStorageKey(projectId)) ?? "";
             }
-            await sessionController.connectToServer();
+            activeSessionId = preferredSessionId;
+            sessionInput = preferredSessionId;
+            await sessionController.connectToServer({
+                preferredSessionId,
+            });
         } catch (error) {
             connectionError = toErrorMessage(error);
         } finally {
@@ -1040,23 +1072,14 @@
         return `chump:project:${projectId}:active-session`;
     }
 
-    async function connectDirectly(): Promise<void> {
-        activeProjectId = "";
-        projects = [];
-        if (browser) {
-            sessionStorage.removeItem("chump:active-project");
-        }
-        await sessionController.connectToServer();
-    }
-
     async function createProjectSession(): Promise<void> {
-        if (!activeProjectId || !daemonUrl || !daemonToken) {
+        if (!activeProjectId || !serverUrl || !serverToken) {
             await sessionController.createFreshSession();
             return;
         }
         try {
-            const created = await createDaemonProjectSession(
-                { url: daemonUrl, token: daemonToken },
+            const created = await createLocalServiceProjectSession(
+                { url: serverUrl, token: serverToken },
                 activeProjectId,
             );
             sessionController.ensureSessionListed(created.sessionId);
@@ -1097,88 +1120,71 @@
         };
         window.addEventListener("keydown", handleToggleSidebarShortcut);
 
-        const connectPendingDaemonHandoff = (connection: DaemonConnection) => {
-            daemonUrl = connection.url;
-            daemonToken = connection.token;
-            void connectToDaemon();
+        const connectPendingLocalServiceHandoff = (
+            connection: LocalServiceConnection,
+        ) => {
+            void connectToLocalService({ connection });
         };
 
-        const handlePendingDaemonHandoff = (event: StorageEvent) => {
+        const handlePendingLocalServiceHandoff = (event: StorageEvent) => {
             if (
-                event.key !== PENDING_DAEMON_HANDOFF_STORAGE_KEY ||
+                event.key !== PENDING_LOCAL_SERVICE_HANDOFF_STORAGE_KEY ||
                 !event.newValue
             ) {
                 return;
             }
-            const connection = parsePendingDaemonHandoff(event.newValue);
+            const connection = parsePendingLocalServiceHandoff(event.newValue);
             if (!connection) return;
 
-            connectPendingDaemonHandoff(connection);
+            connectPendingLocalServiceHandoff(connection);
         };
-        const handleCurrentDocumentDaemonHandoff = (event: Event) => {
-            const connection = parsePendingDaemonHandoffEvent(event);
+
+        const handleCurrentDocumentLocalServiceHandoff = (event: Event) => {
+            const connection = parsePendingLocalServiceHandoffEvent(event);
             if (!connection) return;
 
-            connectPendingDaemonHandoff(connection);
+            connectPendingLocalServiceHandoff(connection);
         };
-        window.addEventListener("storage", handlePendingDaemonHandoff);
+        window.addEventListener("storage", handlePendingLocalServiceHandoff);
         window.addEventListener(
-            PENDING_DAEMON_HANDOFF_EVENT,
-            handleCurrentDocumentDaemonHandoff,
+            PENDING_LOCAL_SERVICE_HANDOFF_EVENT,
+            handleCurrentDocumentLocalServiceHandoff,
         );
 
-        const handoff = consumeDaemonHandoff(
+        const handoff = consumeLocalServiceHandoff(
             window.location.href,
             sessionStorage,
             (url) => window.history.replaceState({}, "", url),
         );
         const savedConnection =
             handoff ??
-            readPendingDaemonHandoff(localStorage) ??
-            readDaemonConnection(
+            readPendingLocalServiceHandoff(localStorage) ??
+            readLocalServiceConnection(
                 data.user.id,
                 sessionStorage,
                 localStorage,
             );
-        if (savedConnection) {
-            rememberDaemonConnection(
-                data.user.id,
-                savedConnection,
-                sessionStorage,
-                localStorage,
-            );
+        if (savedConnection && !serverUrl.trim()) {
+            applyConnection(savedConnection);
+            rememberCurrentConnection();
         }
-        daemonUrl = savedConnection?.url ?? "";
-        daemonToken = savedConnection?.token ?? "";
-        activeProjectId =
-            sessionStorage.getItem("chump:active-project") ?? "";
-        if (daemonUrl && daemonToken) {
-            void connectToSavedDaemon();
+        if (serverUrl.trim()) {
+            void connectDirectly();
+        } else if (savedConnection) {
+            activeProjectId =
+                sessionStorage.getItem("chump:active-project") ?? "";
+            void connectToSavedLocalService();
         } else {
-            void discoverLocalDaemon()
-                .then((connection) => {
-                    if (connection) {
-                        daemonUrl = connection.url;
-                        daemonToken = connection.token;
-                        return connectToDaemon();
-                    }
-                    if (serverUrl.trim()) {
-                        return connectDirectly();
-                    }
-                    openConnectModal();
-                })
-                .catch((error) => {
-                    if (dev) connectionError = toErrorMessage(error);
-                });
+            openConnectModal();
         }
 
         return () => {
             window.removeEventListener("keydown", handleOpenProjectShortcut);
             window.removeEventListener("keydown", handleToggleSidebarShortcut);
-            window.removeEventListener("storage", handlePendingDaemonHandoff);
+            window.removeEventListener("storage", handlePendingLocalServiceHandoff);
             window.removeEventListener(
-                PENDING_DAEMON_HANDOFF_EVENT,
-                handleCurrentDocumentDaemonHandoff,
+                PENDING_LOCAL_SERVICE_HANDOFF_EVENT,
+                handleCurrentDocumentLocalServiceHandoff,
             );
             sessionController.destroy();
             stopQrScanner();
@@ -1211,13 +1217,9 @@
             {projects}
             {activeProjectId}
             {isLoadingProject}
-            {projectRuntimes}
-            {runtimeActionProjectId}
             {isRegisteringProject}
             {isPickingProjectDirectory}
             onSelectProject={(projectId) => void selectProject(projectId)}
-            onStartProject={(projectId) => void startProject(projectId)}
-            onStopProject={(projectId) => void stopProject(projectId)}
             onRegisterProject={registerProject}
             onPickProjectDirectory={pickProjectDirectory}
             onCreateSession={() => void createProjectSession()}
@@ -1252,13 +1254,12 @@
                     {projects}
                     {activeProjectId}
                     {isLoadingProject}
-                    {projectRuntimes}
-                    {runtimeActionProjectId}
                     {isRegisteringProject}
                     {isPickingProjectDirectory}
-                    onSelectProject={(projectId) => void selectProject(projectId)}
-                    onStartProject={(projectId) => void startProject(projectId)}
-                    onStopProject={(projectId) => void stopProject(projectId)}
+                    onSelectProject={(projectId) => {
+                        closeSidebar();
+                        void selectProject(projectId);
+                    }}
                     onRegisterProject={registerProject}
                     onPickProjectDirectory={pickProjectDirectory}
                     onCreateSession={() => {
@@ -1403,9 +1404,8 @@
 
 <ConnectServerModal
     open={connectModalOpen}
-    bind:serverUrl
-    bind:daemonUrl
-    bind:daemonToken
+    bind:serverUrl={connectServerUrlDraft}
+    bind:serverToken={connectServerTokenDraft}
     {canConnect}
     {isConnecting}
     {connectionError}
@@ -1413,8 +1413,7 @@
     {qrScannerError}
     bind:qrVideoElement
     onClose={closeConnectModal}
-    onConnect={() => void connectDirectly()}
-    onConnectDaemon={() => void connectToDaemon()}
+    onConnect={() => void connectWithCurrentSettings()}
     onStartQrScanner={() => void startQrScanner()}
     onStopQrScanner={stopQrScanner}
 />

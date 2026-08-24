@@ -65,7 +65,6 @@ function status(overrides: Partial<ChumpStatus>): ChumpStatus {
     model: "faux-1",
     max_steps: 4,
     command_timeout: 30,
-    managed_idle_timeout: null,
     reasoning: null,
     verbose: false,
     message_count: 1,

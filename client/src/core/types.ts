@@ -10,7 +10,9 @@ import type { DelegatedSessionProgress } from "./delegated-session-progress.ts";
 export type ChumpConfig = {
   agentId: string;
   serverUrl: string;
-  serverSource: "managed" | "direct";
+  apiTarget:
+    | { kind: "direct" }
+    | { kind: "service"; projectId: string; token: string };
   workspaceRoot: string;
 };
 
@@ -38,20 +40,6 @@ export type CliOptions = {
   thinking: string | null;
 };
 
-export type ManagedServerMetadata = {
-  url: string;
-  port: number;
-  pid: number | null;
-  process_group_id?: number | null;
-  command: string;
-  command_args: string[];
-  command_source: "env" | "local" | "bundled";
-  workspace_root: string;
-  data_dir: string;
-  log_path: string;
-  started_at: string;
-};
-
 export type MCPServerStatusSummary = {
   name: string;
   type: string;
@@ -68,7 +56,6 @@ export type ChumpStatus = {
   model: string;
   max_steps: number;
   command_timeout: number;
-  managed_idle_timeout: number | null;
   compaction?: CompactionStatus | null;
   reasoning: Record<string, unknown> | null;
   verbose: boolean;
@@ -96,7 +83,6 @@ export type ChumpHealth = {
   model: string;
   max_steps: number;
   command_timeout: number;
-  managed_idle_timeout: number | null;
   reasoning: Record<string, unknown> | null;
   verbose: boolean;
   active_sessions: number;
@@ -179,12 +165,6 @@ export type StoredEvent = {
 };
 
 export type AgentEventLogResponse = {
-  events: StoredEvent[];
-};
-
-export type AgentSessionSnapshotResponse = {
-  status: ChumpStatus;
-  messages: StoredMessage[];
   events: StoredEvent[];
 };
 
@@ -319,7 +299,6 @@ export type SlashCommandSuggestionView = {
 export type SlashCommand =
   | "help"
   | "status"
-  | "reload"
   | "sessions"
   | "clear"
   | "compact"

@@ -16,7 +16,7 @@ const REASONING_BUDGET_LABELS = new Map<number, string>([
 ]);
 
 export function renderSessionFooter(
-  config: Pick<ChumpConfig, "workspaceRoot" | "serverSource">,
+  config: Pick<ChumpConfig, "workspaceRoot" | "apiTarget">,
   status: FooterStatus,
   share: ShareStatus | null,
 ): string {
@@ -28,7 +28,7 @@ export function renderSessionFooter(
     `${status.provider}/${status.model}`,
     `thinking ${reasoning}`,
     share ? "shared" : "",
-    config.serverSource === "direct" ? "remote" : "",
+    config.apiTarget.kind === "direct" ? "remote" : "",
   ].filter(Boolean).join(" · ");
   return `${location}\n${metadata}`;
 }

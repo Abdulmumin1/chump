@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createSessionController, type SessionControllerState } from "$lib/chat/session-controller";
+import type { ChumpApiTarget } from "$lib/chump/api";
 import type { ChumpState, ChumpStatus } from "$lib/chump/types";
 
 const originalFetch = globalThis.fetch;
@@ -9,31 +10,47 @@ afterEach(() => {
     globalThis.fetch = originalFetch;
 });
 
-describe("session hydration", () => {
-    it("opens the daemon event stream after the atomic snapshot cursor", async () => {
+describe("session loading", () => {
+    it("loads stored messages, status, and the event cursor before opening live events", async () => {
         const requestUrls: string[] = [];
         globalThis.fetch = (async (input: string | URL | Request) => {
             const url = String(input);
             requestUrls.push(url);
-            if (url.endsWith("/session-snapshot")) {
+            if (url.endsWith("/action/status")) {
                 return Response.json({
-                    status: status({ turn_running: true }),
-                    messages: [],
-                    events: [
-                        {
-                            id: 7,
-                            type: "turn_status",
-                            data: {
-                                running: true,
-                                steering_queue: [],
-                                schema_version: 1,
-                            },
-                        },
-                    ],
+                    result: status({
+                        turn_running: true,
+                        steering_queue: [{ content: "follow up" }],
+                    }),
                 });
             }
             if (url.endsWith("/state")) {
                 return Response.json(sessionState());
+            }
+            if (url.endsWith("/messages")) {
+                return Response.json({
+                    messages: [
+                        {
+                            role: "assistant",
+                            content: "stored transcript",
+                        },
+                    ],
+                });
+            }
+            if (url.endsWith("/action/event_log")) {
+                return Response.json({
+                    result: {
+                        events: [
+                            {
+                                id: 7,
+                                type: "assistant_text",
+                                data: {
+                                    content: "event log text should stay hidden",
+                                },
+                            },
+                        ],
+                    },
+                });
             }
             if (url.includes("/events?")) {
                 return new Response(": connected\n\n", {
@@ -55,8 +72,32 @@ describe("session hydration", () => {
             const eventsRequest = requestUrls.find((url) => url.includes("/events?"));
             expect(eventsRequest).toBeDefined();
             expect(new URL(eventsRequest!).searchParams.get("last_event_id")).toBe("7");
-            expect(requestUrls.some((url) => url.endsWith("/action/status"))).toBe(false);
-            expect(requestUrls.some((url) => url.endsWith("/action/event_log"))).toBe(false);
+            expect(requestUrls.some((url) => url.endsWith("/session-snapshot"))).toBe(
+                false,
+            );
+            expect(requestUrls.some((url) => url.endsWith("/action/status"))).toBe(
+                true,
+            );
+            expect(requestUrls.some((url) => url.endsWith("/messages"))).toBe(true);
+            expect(requestUrls.some((url) => url.endsWith("/action/event_log"))).toBe(
+                true,
+            );
+            expect(state.messages).toEqual([
+                {
+                    role: "assistant",
+                    content: "stored transcript",
+                },
+            ]);
+            expect(JSON.stringify(state.messages)).not.toContain(
+                "event log text should stay hidden",
+            );
+            expect(state.steeringQueue).toEqual([
+                {
+                    content: "follow up",
+                    display_content: undefined,
+                    attachments: [],
+                },
+            ]);
             expect(state.lastEventId).toBe(7);
             expect(state.isSending).toBe(true);
             expect(state.workingSessionIds).toEqual(["session-one"]);
@@ -65,302 +106,26 @@ describe("session hydration", () => {
         }
     });
 
-    it("replays an unfinished durable tail after the server restarted idle", async () => {
-        const requestUrls: string[] = [];
-        globalThis.fetch = (async (input: string | URL | Request) => {
-            const url = String(input);
-            requestUrls.push(url);
-            if (url.endsWith("/session-snapshot")) {
-                return Response.json({
-                    status: status({ turn_running: false }),
-                    messages: [
-                        { role: "user", content: "delegate four issues" },
-                    ],
-                    events: [
-                        {
-                            id: 1,
-                            type: "user_message",
-                            data: { content: "delegate four issues" },
-                        },
-                        {
-                            id: 2,
-                            type: "turn_status",
-                            data: { running: true, steering_queue: [] },
-                        },
-                        {
-                            id: 606,
-                            type: "tool_call",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-227",
-                                args: { session_id: "issue-227" },
-                                step: 5,
-                                index: 0,
-                            },
-                        },
-                        {
-                            id: 606,
-                            type: "tool_call",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-228",
-                                args: { session_id: "issue-228" },
-                                step: 5,
-                                index: 1,
-                            },
-                        },
-                        {
-                            id: 608,
-                            type: "tool_call",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-229",
-                                args: { session_id: "issue-229" },
-                                step: 5,
-                                index: 2,
-                            },
-                        },
-                        {
-                            id: 609,
-                            type: "tool_call",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-230",
-                                args: { session_id: "issue-230" },
-                                step: 5,
-                                index: 3,
-                            },
-                        },
-                    ],
-                });
-            }
-            if (url.endsWith("/state")) {
-                return Response.json(sessionState());
-            }
-            if (url.includes("/events?")) {
-                return new Response(": connected\n\n", {
-                    headers: { "content-type": "text/event-stream" },
-                });
-            }
-            throw new Error(`unexpected request: ${url}`);
-        }) as typeof fetch;
-
-        const state = controllerState();
-        const controller = createSessionController(state, {
-            closeConnectModal: () => {},
-            scrollTranscriptToEnd: async () => {},
-        });
-
-        try {
-            await controller.selectSession("session-one");
-
-            expect(JSON.stringify(state.messages)).toContain("start_session");
-            for (const issue of ["issue-227", "issue-228", "issue-229", "issue-230"]) {
-                expect(JSON.stringify(state.messages)).toContain(issue);
-            }
-            expect(state.lastEventId).toBe(609);
-            expect(state.isSending).toBe(false);
-            expect(requestUrls.some((url) => url.includes("/events?"))).toBe(true);
-        } finally {
-            controller.destroy();
-        }
-    });
-
-    it("settles orphaned delegated calls from the shared snapshot", async () => {
-        globalThis.fetch = (async (input: string | URL | Request) => {
-            const url = String(input);
-            if (url.endsWith("/session-snapshot")) {
-                return Response.json({
-                    status: status({ turn_running: false }),
-                    messages: [],
-                    events: [
-                        {
-                            id: 1,
-                            type: "turn_status",
-                            data: { running: true, steering_queue: [] },
-                        },
-                        {
-                            id: 606,
-                            type: "tool_call",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-227",
-                                args: { session_id: "issue-227" },
-                                step: 5,
-                                index: 0,
-                            },
-                        },
-                        {
-                            id: 606,
-                            type: "tool_result",
-                            data: {
-                                name: "start_session",
-                                tool_name: "start_session",
-                                call_id: "start-227",
-                                tool_call_id: "start-227",
-                                step: 5,
-                                index: 0,
-                                status: "ok",
-                                ok: true,
-                                preview: JSON.stringify({
-                                    session_id: "issue-227",
-                                    delegated_task_status: "completed",
-                                }),
-                                schema_version: 1,
-                            },
-                        },
-                    ],
-                });
-            }
-            if (url.endsWith("/state")) {
-                return Response.json(sessionState());
-            }
-            if (url.includes("/events?")) {
-                return new Response(": connected\n\n", {
-                    headers: { "content-type": "text/event-stream" },
-                });
-            }
-            throw new Error(`unexpected request: ${url}`);
-        }) as typeof fetch;
-
-        const state = controllerState();
-        const controller = createSessionController(state, {
-            closeConnectModal: () => {},
-            scrollTranscriptToEnd: async () => {},
-        });
-
-        try {
-            await controller.selectSession("session-one");
-
-            expect(JSON.stringify(state.messages)).toContain("issue-227");
-            expect(JSON.stringify(state.messages)).toContain('"status":"completed"');
-            expect(state.lastEventId).toBe(606);
-            expect(state.isSending).toBe(false);
-        } finally {
-            controller.destroy();
-        }
-    });
-
-    it("uses reconciled stored messages after the durable tail is closed", async () => {
-        globalThis.fetch = (async (input: string | URL | Request) => {
-            const url = String(input);
-            if (url.endsWith("/session-snapshot")) {
-                return Response.json({
-                    status: status({ turn_running: false }),
-                    messages: [
-                        { role: "user", content: "delegate work" },
-                        {
-                            role: "assistant",
-                            content: [
-                                {
-                                    type: "tool_call",
-                                    tool_call: {
-                                        id: "start-227",
-                                        name: "start_session",
-                                        arguments: { session_id: "issue-227" },
-                                        step: 5,
-                                        index: 0,
-                                        status: "ready",
-                                    },
-                                },
-                            ],
-                        },
-                        {
-                            role: "tool",
-                            content: [
-                                {
-                                    type: "tool_result",
-                                    tool_result: {
-                                        tool_call_id: "start-227",
-                                        tool_name: "start_session",
-                                        result: JSON.stringify({
-                                            session_id: "issue-227",
-                                            delegated_task_status: "completed",
-                                        }),
-                                        is_error: false,
-                                        step: 5,
-                                        index: 0,
-                                        status: "completed",
-                                    },
-                                },
-                            ],
-                        },
-                    ],
-                    events: [
-                        {
-                            id: 1,
-                            type: "turn_status",
-                            data: { running: true, steering_queue: [] },
-                        },
-                        {
-                            id: 606,
-                            type: "tool_call",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-227",
-                                args: { session_id: "issue-227" },
-                                step: 5,
-                                index: 0,
-                            },
-                        },
-                        {
-                            id: 606,
-                            type: "tool_result",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-227",
-                                ok: true,
-                                status: "ok",
-                                preview: "completed",
-                                step: 5,
-                                index: 0,
-                            },
-                        },
-                        {
-                            id: 606,
-                            type: "turn_status",
-                            data: { running: false, steering_queue: [] },
-                        },
-                    ],
-                });
-            }
-            if (url.endsWith("/state")) return Response.json(sessionState());
-            if (url.includes("/events?")) {
-                return new Response(": connected\n\n", {
-                    headers: { "content-type": "text/event-stream" },
-                });
-            }
-            throw new Error(`unexpected request: ${url}`);
-        }) as typeof fetch;
-
-        const state = controllerState();
-        const controller = createSessionController(state, {
-            closeConnectModal: () => {},
-            scrollTranscriptToEnd: async () => {},
-        });
-
-        try {
-            await controller.selectSession("session-one");
-
-            expect(JSON.stringify(state.messages)).toContain('"status":"completed"');
-            expect(state.lastEventId).toBe(606);
-            expect(state.isSending).toBe(false);
-        } finally {
-            controller.destroy();
-        }
-    });
-
-    it("hydrates a completed delegated run from the reconciled snapshot", async () => {
-        let snapshotRequestCount = 0;
+    it("keeps the live transcript when a turn finishes without reloading stored messages", async () => {
+        let messagesRequestCount = 0;
         const eventStream = controllableEventStream();
         globalThis.fetch = (async (input: string | URL | Request) => {
             const url = String(input);
-            if (url.endsWith("/session-snapshot")) {
-                snapshotRequestCount += 1;
-                if (snapshotRequestCount === 1) {
-                    return Response.json({
-                        status: status({ turn_running: true }),
-                        messages: [{ role: "user", content: "delegate work" }],
+            if (url.endsWith("/action/status")) {
+                return Response.json({
+                    result: status({ turn_running: true }),
+                });
+            }
+            if (url.endsWith("/state")) return Response.json(sessionState());
+            if (url.endsWith("/messages")) {
+                messagesRequestCount += 1;
+                return Response.json({
+                    messages: [{ role: "user", content: "delegate work" }],
+                });
+            }
+            if (url.endsWith("/action/event_log")) {
+                return Response.json({
+                    result: {
                         events: [
                             {
                                 id: 1,
@@ -368,88 +133,9 @@ describe("session hydration", () => {
                                 data: { running: true, steering_queue: [] },
                             },
                         ],
-                    });
-                }
-                return Response.json({
-                    status: status({ turn_running: false }),
-                    messages: [
-                        { role: "user", content: "delegate work" },
-                        {
-                            role: "assistant",
-                            content: [
-                                {
-                                    type: "tool_call",
-                                    tool_call: {
-                                        id: "start-227",
-                                        name: "start_session",
-                                        arguments: { session_id: "issue-227" },
-                                        step: 5,
-                                        index: 0,
-                                        status: "ready",
-                                    },
-                                },
-                            ],
-                        },
-                        {
-                            role: "tool",
-                            content: [
-                                {
-                                    type: "tool_result",
-                                    tool_result: {
-                                        tool_call_id: "start-227",
-                                        tool_name: "start_session",
-                                        result: JSON.stringify({
-                                            session_id: "issue-227",
-                                            delegated_task_status: "completed",
-                                        }),
-                                        is_error: false,
-                                        step: 5,
-                                        index: 0,
-                                        status: "completed",
-                                    },
-                                },
-                            ],
-                        },
-                    ],
-                    events: [
-                        {
-                            id: 1,
-                            type: "turn_status",
-                            data: { running: true, steering_queue: [] },
-                        },
-                        {
-                            id: 7336,
-                            type: "tool_call",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-227",
-                                args: { session_id: "issue-227" },
-                                step: 5,
-                                index: 0,
-                            },
-                        },
-                        {
-                            id: 7336,
-                            type: "tool_result",
-                            data: {
-                                name: "start_session",
-                                call_id: "start-227",
-                                ok: true,
-                                status: "ok",
-                                preview: "completed",
-                                step: 5,
-                                index: 0,
-                            },
-                        },
-                        {
-                            id: 7441,
-                            type: "turn_status",
-                            data: { running: false, steering_queue: [] },
-                        },
-                    ],
+                    },
                 });
             }
-            if (url.endsWith("/state")) return Response.json(sessionState());
             if (url.includes("/sessions?")) {
                 return Response.json({
                     sessions: [],
@@ -490,13 +176,29 @@ describe("session hydration", () => {
             ];
 
             eventStream.enqueue(
-                'id: 7441\nevent: turn_status\ndata: {"running":false,"steering_queue":[],"schema_version":1}\n\n',
+                'id: 2\nevent: tool_call\ndata: {"name":"start_session","call_id":"start-227","args":{"session_id":"issue-227"},"step":5,"index":0,"schema_version":1}\n\n',
             );
-            await waitFor(() => snapshotRequestCount === 2);
-            await waitFor(() => JSON.stringify(state.messages).includes("issue-227"));
+            eventStream.enqueue(
+                'id: 3\nevent: tool_result\ndata: {"name":"start_session","call_id":"start-227","ok":true,"status":"ok","preview":"completed","step":5,"index":0,"schema_version":1}\n\n',
+            );
+            eventStream.enqueue(
+                'id: 4\nevent: assistant_text\ndata: {"content":"Done.","schema_version":1}\n\n',
+            );
+            eventStream.enqueue(
+                'id: 5\nevent: turn_status\ndata: {"running":false,"steering_queue":[],"schema_version":1}\n\n',
+            );
+            await waitFor(
+                () =>
+                    messagesRequestCount === 1 &&
+                    JSON.stringify(state.messages).includes("issue-227") &&
+                    JSON.stringify(state.messages).includes("Done.") &&
+                    state.delegatedActivities.length === 0 &&
+                    state.isSending === false,
+            );
 
-            expect(snapshotRequestCount).toBe(2);
+            expect(messagesRequestCount).toBe(1);
             expect(JSON.stringify(state.messages)).toContain('"status":"completed"');
+            expect(JSON.stringify(state.messages)).toContain("Done.");
             expect(state.delegatedActivities).toEqual([]);
             expect(state.isSending).toBe(false);
         } finally {
@@ -508,20 +210,28 @@ describe("session hydration", () => {
         const eventStream = controllableEventStream();
         globalThis.fetch = (async (input: string | URL | Request) => {
             const url = String(input);
-            if (url.endsWith("/session-snapshot")) {
+            if (url.endsWith("/action/status")) {
                 return Response.json({
-                    status: status({ turn_running: true }),
-                    messages: [],
-                    events: [
-                        {
-                            id: 1,
-                            type: "turn_status",
-                            data: { running: true, steering_queue: [] },
-                        },
-                    ],
+                    result: status({ turn_running: true }),
                 });
             }
             if (url.endsWith("/state")) return Response.json(sessionState());
+            if (url.endsWith("/messages")) {
+                return Response.json({ messages: [] });
+            }
+            if (url.endsWith("/action/event_log")) {
+                return Response.json({
+                    result: {
+                        events: [
+                            {
+                                id: 1,
+                                type: "turn_status",
+                                data: { running: true, steering_queue: [] },
+                            },
+                        ],
+                    },
+                });
+            }
             if (url.includes("/events?")) {
                 return new Response(eventStream.stream, {
                     headers: { "content-type": "text/event-stream" },
@@ -538,15 +248,19 @@ describe("session hydration", () => {
 
         try {
             await controller.selectSession("session-one");
-            eventStream.enqueue(delegatedProgressEvent(2, {
-                type: "reasoning",
-                text: "**Inspecting the session lifecycle**",
-            }));
-            eventStream.enqueue(delegatedProgressEvent(3, {
-                type: "status",
-                phase: "step_start",
-                step: 2,
-            }));
+            eventStream.enqueue(
+                delegatedProgressEvent(2, {
+                    type: "reasoning",
+                    text: "**Inspecting the session lifecycle**",
+                }),
+            );
+            eventStream.enqueue(
+                delegatedProgressEvent(3, {
+                    type: "status",
+                    phase: "step_start",
+                    step: 2,
+                }),
+            );
 
             await waitFor(
                 () =>
@@ -561,10 +275,12 @@ describe("session hydration", () => {
                 },
             });
 
-            eventStream.enqueue(delegatedProgressEvent(4, {
-                type: "reasoning",
-                text: " before reading the composer.",
-            }));
+            eventStream.enqueue(
+                delegatedProgressEvent(4, {
+                    type: "reasoning",
+                    text: " before reading the composer.",
+                }),
+            );
             await waitFor(
                 () =>
                     state.delegatedActivities[0]?.latestDetail?.kind ===
@@ -578,22 +294,26 @@ describe("session hydration", () => {
                 text: "Inspecting the session lifecycle before reading the composer.",
             });
 
-            eventStream.enqueue(delegatedProgressEvent(5, {
-                type: "tool_call",
-                name: "read_file",
-                call_id: "child-read-1",
-                args: {
-                    path: "web/src/lib/ChatComposer.svelte",
-                    offset: 440,
-                    limit: 80,
-                },
-            }));
-            eventStream.enqueue(delegatedProgressEvent(6, {
-                type: "tool_result",
-                name: "read_file",
-                call_id: "child-read-1",
-                status: "ok",
-            }));
+            eventStream.enqueue(
+                delegatedProgressEvent(5, {
+                    type: "tool_call",
+                    name: "read_file",
+                    call_id: "child-read-1",
+                    args: {
+                        path: "web/src/lib/ChatComposer.svelte",
+                        offset: 440,
+                        limit: 80,
+                    },
+                }),
+            );
+            eventStream.enqueue(
+                delegatedProgressEvent(6, {
+                    type: "tool_result",
+                    name: "read_file",
+                    call_id: "child-read-1",
+                    status: "ok",
+                }),
+            );
 
             await waitFor(
                 () =>
@@ -612,6 +332,147 @@ describe("session hydration", () => {
         }
     });
 
+	it("ignores stale project hydration after switching targets with the same session id", async () => {
+		const requestUrls: string[] = [];
+		const projectAStatus = deferred<Response>();
+		const projectAState = deferred<Response>();
+		const projectAMessages = deferred<Response>();
+		const projectAEventLog = deferred<Response>();
+
+		globalThis.fetch = (async (input: string | URL | Request) => {
+			const url = String(input);
+			requestUrls.push(url);
+			if (url === 'http://127.0.0.1:38136/projects/project-a/health') {
+				return Response.json(health('/workspace-a'));
+			}
+			if (url.startsWith('http://127.0.0.1:38136/projects/project-a/sessions?')) {
+				return Response.json(sessionsResponse('shared-session', 'project-a'));
+			}
+			if (url.endsWith('/projects/project-a/sessions/shared-session/action/status')) {
+				return await projectAStatus.promise;
+			}
+			if (url.endsWith('/projects/project-a/sessions/shared-session/state')) {
+				return await projectAState.promise;
+			}
+			if (url.endsWith('/projects/project-a/sessions/shared-session/messages')) {
+				return await projectAMessages.promise;
+			}
+			if (url.endsWith('/projects/project-a/sessions/shared-session/action/event_log')) {
+				return await projectAEventLog.promise;
+			}
+			if (url === 'http://127.0.0.1:38136/projects/project-b/health') {
+				return Response.json(health('/workspace-b'));
+			}
+			if (url.startsWith('http://127.0.0.1:38136/projects/project-b/sessions?')) {
+				return Response.json(sessionsResponse('shared-session', 'project-b'));
+			}
+			if (url.endsWith('/projects/project-b/sessions/shared-session/action/status')) {
+				return Response.json({
+					result: status({ workspace_root: '/workspace-b' })
+				});
+			}
+			if (url.endsWith('/projects/project-b/sessions/shared-session/state')) {
+				return Response.json({
+					...sessionState(),
+					workspace_root: '/workspace-b'
+				});
+			}
+			if (url.endsWith('/projects/project-b/sessions/shared-session/messages')) {
+				return Response.json({
+					messages: [{ role: 'assistant', content: 'project b transcript' }]
+				});
+			}
+			if (url.endsWith('/projects/project-b/sessions/shared-session/action/event_log')) {
+				return Response.json({
+					result: {
+						events: [{ id: 9, type: 'turn_status', data: { running: false } }]
+					}
+				});
+			}
+			if (url.includes('/projects/project-b/sessions/shared-session/events?')) {
+				return new Response(': connected\n\n', {
+					headers: { 'content-type': 'text/event-stream' }
+				});
+			}
+			throw new Error(`unexpected request: ${url}`);
+		}) as typeof fetch;
+
+		const state = controllerState();
+		state.serverUrl = 'http://127.0.0.1:38136';
+		setApiTarget(state, {
+			kind: 'service',
+			serviceUrl: 'http://127.0.0.1:38136',
+			token: 'token',
+			projectId: 'project-a'
+		});
+		state.activeSessionId = 'shared-session';
+		state.sessionInput = 'shared-session';
+		const controller = createSessionController(state, {
+			closeConnectModal: () => {},
+			scrollTranscriptToEnd: async () => {}
+		});
+
+		try {
+			const connectProjectA = controller.connectToServer();
+			await waitFor(() =>
+				requestUrls.some((url) =>
+					url.endsWith('/projects/project-a/sessions/shared-session/action/status')
+				)
+			);
+
+			controller.clearSessionView();
+			setApiTarget(state, {
+				kind: 'service',
+				serviceUrl: 'http://127.0.0.1:38136',
+				token: 'token',
+				projectId: 'project-b'
+			});
+			state.activeSessionId = 'shared-session';
+			state.sessionInput = 'shared-session';
+
+			await controller.connectToServer();
+
+			projectAStatus.resolve(
+				Response.json({
+					result: status({ workspace_root: '/workspace-a' })
+				})
+			);
+			projectAState.resolve(
+				Response.json({
+					...sessionState(),
+					workspace_root: '/workspace-a'
+				})
+			);
+			projectAMessages.resolve(
+				Response.json({
+					messages: [{ role: 'assistant', content: 'project a transcript' }]
+				})
+			);
+			projectAEventLog.resolve(
+				Response.json({
+					result: {
+						events: [{ id: 3, type: 'turn_status', data: { running: true } }]
+					}
+				})
+			);
+			await connectProjectA;
+
+			expect(state.health?.workspace_root).toBe('/workspace-b');
+			expect(state.status?.workspace_root).toBe('/workspace-b');
+			expect(state.sessionState?.workspace_root).toBe('/workspace-b');
+			expect(state.messages).toEqual([
+				{ role: 'assistant', content: 'project b transcript' }
+			]);
+			expect(state.lastEventId).toBe(9);
+			expect(
+				requestUrls.some((url) =>
+					url.includes('/projects/project-a/sessions/shared-session/events?')
+				)
+			).toBe(false);
+		} finally {
+			controller.destroy();
+		}
+	});
 });
 
 function delegatedProgressEvent(
@@ -663,17 +524,38 @@ function controllableEventStream(): {
     };
 }
 
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((nextResolve, nextReject) => {
+		resolve = nextResolve;
+		reject = nextReject;
+	});
+	return { promise, resolve, reject };
+}
+
+function setApiTarget(
+	state: SessionControllerState,
+	apiTarget: ChumpApiTarget | null
+): void {
+	(state as unknown as { apiTarget: ChumpApiTarget | null }).apiTarget = apiTarget;
+}
+
 function controllerState(): SessionControllerState & {
     workingSessionIds: string[];
 } {
+    let apiTarget: ChumpApiTarget = {
+        kind: "direct",
+        serverUrl: "http://127.0.0.1:38136",
+    };
     const state: SessionControllerState & { workingSessionIds: string[] } = {
         workingSessionIds: [] as string[],
         serverUrl: "http://127.0.0.1:38136",
-        apiTarget: {
-            kind: "daemon",
-            daemonUrl: "http://127.0.0.1:38136",
-            token: "daemon-token",
-            projectId: "project-one",
+        get apiTarget() {
+            return apiTarget;
+        },
+        set apiTarget(value) {
+            apiTarget = value;
         },
         sessionInput: "",
         activeSessionId: "",
@@ -718,19 +600,53 @@ function status(overrides: Partial<ChumpStatus> = {}): ChumpStatus {
         model: "gpt-5",
         max_steps: 100,
         command_timeout: 120,
-        managed_idle_timeout: null,
         reasoning: null,
         verbose: false,
         message_count: 1,
         title: null,
         created_at: 1,
         updated_at: 2,
-        last_user_goal: "test live hydration",
+        last_user_goal: "test session loading",
         steering_queue: [],
         instruction_files: [],
         skills: [],
         ...overrides,
     };
+}
+
+function health(workspaceRoot: string) {
+	return {
+		service: 'chump-server',
+		workspace_root: workspaceRoot,
+		git_branch: 'main',
+		available_providers: [],
+		available_models: [],
+		skills: [],
+		reasoning: null
+	};
+}
+
+function sessionsResponse(sessionId: string, projectId: string) {
+	return {
+		sessions: [
+			{
+				id: sessionId,
+				active: false,
+				message_count: 0,
+				event_count: 0,
+				title: `${projectId} session`,
+				created_at: 1,
+				updated_at: 2,
+				last_user_goal: null,
+				last_activity: null,
+				connections: 0
+			}
+		],
+		page: 1,
+		page_size: 10,
+		total: 1,
+		total_pages: 1
+	};
 }
 
 function sessionState(): ChumpState {
@@ -739,7 +655,7 @@ function sessionState(): ChumpState {
         title: null,
         created_at: 1,
         updated_at: 2,
-        last_user_goal: "test live hydration",
+        last_user_goal: "test session loading",
         files_touched: [],
         commands_run: [],
         notes: [],

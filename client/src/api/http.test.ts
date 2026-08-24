@@ -3,18 +3,16 @@ import test from "node:test";
 
 import {
   getAllSessions,
-  getSessionSnapshot,
   getSessions,
   streamChat,
 } from "./http.ts";
 import { ServerStreamInterruptedError } from "./errors.ts";
 import type { ChumpConfig } from "../core/types.ts";
-import { ManagedServerRequestCoordinator } from "../app/managed-recovery.ts";
 
 const config: ChumpConfig = {
   agentId: "session-1",
   serverUrl: "http://server.test",
-  serverSource: "managed",
+  apiTarget: { kind: "direct" },
   workspaceRoot: "/workspace",
 };
 
@@ -40,78 +38,39 @@ test("requests six sessions by default", async () => {
 
   assert.equal(new URL(requestUrl).searchParams.get("limit"), "6");
 });
-
-test("hydrates a session through one invocation-owned snapshot", async () => {
+test("scopes and authenticates shared-service requests", async () => {
   const originalFetch = globalThis.fetch;
   let requestUrl = "";
-  globalThis.fetch = (async (input: string | URL | Request) => {
+  let authorization = "";
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     requestUrl = String(input);
-    return Response.json({
-      status: { agent_id: "session-1", turn_running: true },
-      messages: [],
-      events: [],
+    authorization = new Headers(init?.headers).get("authorization") ?? "";
+    return new Response(JSON.stringify({
+      sessions: [],
+      page: 1,
+      page_size: 6,
+      total: 0,
+      total_pages: 1,
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await getSessions({
+      ...config,
+      apiTarget: {
+        kind: "service",
+        projectId: "project one",
+        token: "service-secret",
+      },
     });
-  }) as typeof fetch;
-
-  try {
-    const snapshot = await getSessionSnapshot(config);
-    assert.equal(snapshot.status.turn_running, true);
+    assert.equal(
+      requestUrl,
+      "http://server.test/projects/project%20one/sessions?page=1&limit=6",
+    );
+    assert.equal(authorization, "Bearer service-secret");
   } finally {
     globalThis.fetch = originalFetch;
   }
-
-  assert.equal(
-    requestUrl,
-    "http://server.test/agent/session-1/session-snapshot",
-  );
-});
-
-test("falls back to established hydration endpoints when snapshot is unavailable", async () => {
-  const originalFetch = globalThis.fetch;
-  const requestUrls: string[] = [];
-  globalThis.fetch = (async (
-    input: string | URL | Request,
-    init?: RequestInit,
-  ) => {
-    const url = String(input);
-    requestUrls.push(url);
-    if (url.endsWith("/session-snapshot")) {
-      return new Response("404: Not Found", { status: 404 });
-    }
-    if (url.endsWith("/action/status")) {
-      return Response.json({
-        result: { agent_id: "session-1", turn_running: false },
-      });
-    }
-    if (url.endsWith("/messages")) {
-      return Response.json({ messages: [{ role: "user", content: "hello" }] });
-    }
-    if (url.endsWith("/action/event_log")) {
-      assert.equal(init?.method, "POST");
-      return Response.json({
-        result: {
-          events: [{ id: 1, type: "user_message", data: { content: "hello" } }],
-        },
-      });
-    }
-    throw new Error(`unexpected request: ${url}`);
-  }) as typeof fetch;
-
-  try {
-    const snapshot = await getSessionSnapshot(config);
-    assert.equal(snapshot.status.agent_id, "session-1");
-    assert.equal(snapshot.messages.length, 1);
-    assert.equal(snapshot.events.length, 1);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-
-  assert.deepEqual(requestUrls, [
-    "http://server.test/agent/session-1/session-snapshot",
-    "http://server.test/agent/session-1/action/status",
-    "http://server.test/agent/session-1/messages",
-    "http://server.test/agent/session-1/action/event_log",
-  ]);
 });
 
 test("loads every six-item session page only when requested", async () => {
@@ -209,44 +168,4 @@ test("treats a chat response that closes without end as a transport interruption
   } finally {
     globalThis.fetch = originalFetch;
   }
-});
-
-test("replays an interrupted prompt once against the recovered target", async () => {
-  const originalFetch = globalThis.fetch;
-  const requestUrls: string[] = [];
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    requestUrls.push(String(input));
-    if (requestUrls.length === 1) {
-      return new Response('event: start\ndata: null\n\n', { status: 200 });
-    }
-    return new Response(
-      'event: start\ndata: null\n\nevent: end\ndata: "delivered"\n\n',
-      { status: 200 },
-    );
-  }) as unknown as typeof fetch;
-  const current = { ...config };
-  const coordinator = new ManagedServerRequestCoordinator(
-    () => current,
-    async () => {
-      current.serverUrl = "http://recovered.test";
-    },
-  );
-  let response = "";
-
-  try {
-    await coordinator.run(current, (requestConfig) =>
-      streamChat(requestConfig, "hello", [], {
-        onEnd: (text) => {
-          response = text;
-        },
-      })
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-
-  assert.equal(response, "delivered");
-  assert.equal(requestUrls.length, 2);
-  assert.equal(new URL(requestUrls[0]).host, "server.test");
-  assert.equal(new URL(requestUrls[1]).host, "recovered.test");
 });

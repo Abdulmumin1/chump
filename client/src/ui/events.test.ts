@@ -48,7 +48,7 @@ test("a superseded event stream cannot update session UI state or its replay cur
   const baseConfig: ChumpConfig = {
     agentId: "first-session",
     serverUrl: `http://127.0.0.1:${address.port}`,
-    serverSource: "direct",
+    apiTarget: { kind: "direct" },
     workspaceRoot: process.cwd(),
   };
   const statuses: string[] = [];

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import unittest
 from unittest.mock import AsyncMock, patch
 from pathlib import Path
@@ -12,8 +11,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.managed_idle import is_resume_gap
 from chump_server.config import ChumpConfig
+from chump_server.git_actions import GitActionResult
 from chump_server.main import ChumpServer, parse_positive_int
 from aiohttp import web
+
+
+class FakeRequestContent:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    async def read(self, _limit: int) -> bytes:
+        return self.body
 
 
 class ManagedIdleShutdownTests(unittest.TestCase):
@@ -30,6 +38,7 @@ class ManagedIdleShutdownTests(unittest.TestCase):
         server = object.__new__(ChumpServer)
         server._agents = {"parent": object(), "delegated-child": object()}
         server.is_agent_busy = lambda agent_id: agent_id == "delegated-child"
+        server.workspace_runtimes = SimpleNamespace(values=lambda: ())
 
         self.assertTrue(server._has_active_turn())
 
@@ -37,6 +46,7 @@ class ManagedIdleShutdownTests(unittest.TestCase):
         server = object.__new__(ChumpServer)
         server._agents = {"parent": object()}
         server.is_agent_busy = lambda _agent_id: False
+        server.workspace_runtimes = SimpleNamespace(values=lambda: ())
 
         self.assertFalse(server._has_active_turn())
 
@@ -68,9 +78,10 @@ class AgentEvictionConfigTests(unittest.TestCase):
         )
 
         with (
-            patch("chump_server.main.ChumpAgent.configure"),
             patch("chump_server.main.WorkspaceSearch"),
             patch("chump_server.main.MCPManager"),
+            patch("chump_server.main.SQLiteStorage"),
+            patch("chump_server.main.bind_chump_agent"),
             patch("chump_server.main.AgentServer.__init__") as server_init,
         ):
             ChumpServer(config, resources=SimpleNamespace())
@@ -145,6 +156,66 @@ class SessionPaginationParsingTests(unittest.TestCase):
             parse_positive_int("0", "page")
 
 
+class ProjectUtilityEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_directory_picker_returns_its_selection(self) -> None:
+        server = object.__new__(ChumpServer)
+
+        with patch(
+            "chump_server.main.pick_directory",
+            new=AsyncMock(return_value="/workspace/example"),
+        ):
+            response = await server.directory_picker(SimpleNamespace())
+
+        self.assertEqual(
+            json.loads(response.text),
+            {"workspacePath": "/workspace/example"},
+        )
+
+    async def test_git_commit_requires_selected_files(self) -> None:
+        server = object.__new__(ChumpServer)
+        server.projects = SimpleNamespace(
+            get=AsyncMock(
+                return_value=SimpleNamespace(workspace_path=Path("/workspace"))
+            )
+        )
+        request = SimpleNamespace(
+            match_info={"project_id": "project-one", "action": "commit"},
+            content=FakeRequestContent(b'{"message":"Update"}'),
+        )
+
+        with self.assertRaises(web.HTTPBadRequest) as raised:
+            await server.project_git_action(request)
+        self.assertEqual(raised.exception.text, "select at least one file to commit")
+
+    async def test_git_action_returns_the_command_result(self) -> None:
+        server = object.__new__(ChumpServer)
+        server.projects = SimpleNamespace(
+            get=AsyncMock(
+                return_value=SimpleNamespace(workspace_path=Path("/workspace"))
+            )
+        )
+        request = SimpleNamespace(
+            match_info={"project_id": "project-one", "action": "push"},
+            content=FakeRequestContent(b""),
+        )
+        result = GitActionResult(
+            ok=True,
+            stdout="pushed",
+            stderr="",
+            message="Pushed changes",
+        )
+
+        with patch(
+            "chump_server.main.run_project_git_action",
+            new=AsyncMock(return_value=result),
+        ) as run_action:
+            response = await server.project_git_action(request)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(response.text), result.to_dict())
+        run_action.assert_awaited_once()
+
+
 class SessionEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_limits_interactive_session_pages_to_ten(self) -> None:
         server = object.__new__(ChumpServer)
@@ -169,95 +240,6 @@ class SessionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["page_size"], 10)
         self.assertEqual(payload["page_size"], 10)
         self.assertEqual(payload["total_pages"], 2)
-
-    async def test_session_snapshot_bypasses_the_active_agent_mailbox(self) -> None:
-        server = object.__new__(ChumpServer)
-        server.chump_config = SimpleNamespace(data_dir=Path("/missing"))
-        snapshot = {
-            "status": {"turn_running": True},
-            "messages": [],
-            "events": [{"id": 4, "type": "turn_status", "data": {}}],
-        }
-        agent = SimpleNamespace(
-            _state={},
-            capture_session_snapshot=lambda: snapshot,
-        )
-        server.get_or_create = lambda _agent_id: agent
-        server._agents = {
-            "running-child": SimpleNamespace(last_activity=0.0),
-        }
-        request = SimpleNamespace(match_info={"agent_id": "running-child"})
-
-        response = await server.session_snapshot(request)
-
-        self.assertEqual(json.loads(response.text), snapshot)
-        self.assertGreater(server._agents["running-child"].last_activity, 0)
-
-    async def test_session_snapshot_reconciles_terminal_delegated_children(
-        self,
-    ) -> None:
-        from tempfile import TemporaryDirectory
-
-        with TemporaryDirectory() as temporary_dir:
-            data_dir = Path(temporary_dir)
-            with sqlite3.connect(data_dir / "chump.sqlite3") as conn:
-                conn.execute(
-                    "CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT)"
-                )
-                conn.execute(
-                    "INSERT INTO kv_store (key, value) VALUES (?, ?)",
-                    (
-                        "issue-227:state",
-                        json.dumps(
-                            {
-                                "delegated_task_status": "completed",
-                                "delegated_task_error": None,
-                            }
-                        ),
-                    ),
-                )
-
-            server = object.__new__(ChumpServer)
-            server.chump_config = SimpleNamespace(data_dir=data_dir)
-            agent = SimpleNamespace(
-                _state={},
-                capture_session_snapshot=lambda: {
-                    "status": {"turn_running": False, "steering_queue": []},
-                    "messages": [],
-                    "events": [
-                        {
-                            "id": 1,
-                            "type": "turn_status",
-                            "data": {"running": True, "steering_queue": []},
-                        },
-                        {
-                            "id": 606,
-                            "type": "tool_call",
-                            "data": {
-                                "name": "start_session",
-                                "call_id": "start-227",
-                                "args": {"session_id": "issue-227"},
-                                "step": 5,
-                                "index": 0,
-                            },
-                        },
-                    ],
-                },
-            )
-            server.get_or_create = lambda _agent_id: agent
-            server._agents = {"parent": SimpleNamespace(last_activity=0.0)}
-            request = SimpleNamespace(match_info={"agent_id": "parent"})
-
-            response = await server.session_snapshot(request)
-            payload = json.loads(response.text)
-
-            self.assertEqual(payload["events"][-1]["type"], "turn_status")
-            self.assertFalse(payload["events"][-1]["data"]["running"])
-            self.assertEqual(
-                payload["messages"][-1]["content"][0]["tool_result"]["status"],
-                "completed",
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

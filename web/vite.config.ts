@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export default defineConfig({
-	plugins: [localDaemonBootstrap(), tailwindcss(), sveltekit()],
+	plugins: [localServiceBootstrap(), tailwindcss(), sveltekit()],
 	build: {
 		// Pierre's diff viewer emits optional Shiki language and WASM chunks.
 		// Keep the warning above those lazy assets so future bundle growth still surfaces.
@@ -17,12 +17,12 @@ export default defineConfig({
 	}
 });
 
-function localDaemonBootstrap(): Plugin {
+function localServiceBootstrap(): Plugin {
 	return {
-		name: 'chump-local-daemon-bootstrap',
+		name: 'chump-local-service-bootstrap',
 		apply: 'serve',
 		configureServer(server) {
-			server.middlewares.use('/api/local-daemon/bootstrap', async (request, response) => {
+			server.middlewares.use('/api/local-service/bootstrap', async (request, response) => {
 				if (!isLoopbackRequest(request.socket.remoteAddress, request.headers.host)) {
 					response.statusCode = 403;
 					response.end();
@@ -38,24 +38,20 @@ function localDaemonBootstrap(): Plugin {
 					const dataDir = process.env.CHUMP_GLOBAL_STATE_DIR
 						? path.resolve(process.env.CHUMP_GLOBAL_STATE_DIR)
 						: defaultChumpStateDir();
-					const [metadataRaw, authRaw] = await Promise.all([
-						readFile(path.join(dataDir, 'daemon.json'), 'utf8'),
-						readFile(path.join(dataDir, 'daemon-auth.json'), 'utf8')
-					]);
-					const metadata = JSON.parse(metadataRaw) as { url?: unknown };
-					const auth = JSON.parse(authRaw) as { token?: unknown };
-					if (typeof metadata.url !== 'string' || typeof auth.token !== 'string') {
-						throw new Error('invalid daemon bootstrap files');
+					const registrationRaw = await readFile(path.join(dataDir, 'service.json'), 'utf8');
+					const registration = JSON.parse(registrationRaw) as { url?: unknown; token?: unknown };
+					if (typeof registration.url !== 'string' || typeof registration.token !== 'string') {
+						throw new Error('invalid local service bootstrap file');
 					}
 
 					response.setHeader('content-type', 'application/json');
 					response.setHeader('cache-control', 'no-store');
-					response.end(JSON.stringify({ url: metadata.url, token: auth.token }));
+					response.end(JSON.stringify({ url: registration.url, token: registration.token }));
 				} catch {
 					response.statusCode = 404;
 					response.setHeader('content-type', 'application/json');
 					response.setHeader('cache-control', 'no-store');
-					response.end(JSON.stringify({ error: 'local_daemon_unavailable' }));
+					response.end(JSON.stringify({ error: 'local_service_unavailable' }));
 				}
 			});
 		}

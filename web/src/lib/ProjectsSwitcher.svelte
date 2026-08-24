@@ -1,32 +1,24 @@
 <script lang="ts">
     import { fade, slide } from "svelte/transition";
     import Spinner from "$lib/Spinner.svelte";
-    import type { DaemonProject, DaemonRuntime } from "$lib/chump/daemon-api";
+    import type { LocalServiceProject } from "$lib/chump/local-service-api";
 
     let {
         projects,
         activeProjectId,
         loading = false,
-        runtimes = {},
-        runtimeActionProjectId = "",
         registering = false,
         pickingDirectory = false,
         onSelectProject,
-        onStartProject,
-        onStopProject,
         onRegisterProject,
         onPickDirectory,
     } = $props<{
-        projects: DaemonProject[];
+        projects: LocalServiceProject[];
         activeProjectId: string;
         loading?: boolean;
-        runtimes?: Record<string, DaemonRuntime>;
-        runtimeActionProjectId?: string;
         registering?: boolean;
         pickingDirectory?: boolean;
         onSelectProject: (projectId: string) => void;
-        onStartProject?: (projectId: string) => void;
-        onStopProject?: (projectId: string) => void;
         onRegisterProject: (input: {
             workspacePath: string;
             name?: string;
@@ -48,12 +40,12 @@
 
     let activeProject = $derived(
         projects.find(
-            (project: DaemonProject) => project.id === activeProjectId,
+            (project: LocalServiceProject) => project.id === activeProjectId,
         ) ?? null,
     );
 
     let filteredProjects = $derived(
-        projects.filter((project: DaemonProject) => {
+        projects.filter((project: LocalServiceProject) => {
             const query = searchQuery.trim().toLowerCase();
             if (!query) return true;
             return (
@@ -364,7 +356,7 @@
                                     {#if registering}
                                         <Spinner class="w-3.5 h-3.5" />
                                     {:else}
-                                        Add Project
+                                        Register Project
                                     {/if}
                                 </button>
                             </div>
@@ -375,12 +367,12 @@
                         type="button"
                         class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-main group cursor-pointer"
                         onclick={() => (registrationOpen = true)}
-                    >
-                        <span
-                            class="text-sm leading-none text-accent font-bold group-hover:scale-110 transition-transform"
+                        >
+                            <span
+                                class="text-sm leading-none text-accent font-bold group-hover:scale-110 transition-transform"
                             >+</span
                         >
-                        <span>Add Project</span>
+                        <span>Register Project</span>
                         <kbd
                             class="ml-auto font-mono text-[10px] text-text-tertiary opacity-70"
                             >⌘O</kbd

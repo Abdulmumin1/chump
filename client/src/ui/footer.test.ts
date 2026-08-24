@@ -13,7 +13,7 @@ const status = {
 
 test("keeps the normal local footer focused on workspace and model", () => {
   const footer = renderSessionFooter(
-    { workspaceRoot: "/workspace/chump", serverSource: "managed" },
+    { workspaceRoot: "/workspace/chump", apiTarget: { kind: "service", projectId: "project", token: "token" } },
     status,
     null,
   );
@@ -34,7 +34,7 @@ test("shows remote and sharing only when those states are active", () => {
     startedAt: 1,
   };
   const footer = renderSessionFooter(
-    { workspaceRoot: "/workspace/chump", serverSource: "direct" },
+    { workspaceRoot: "/workspace/chump", apiTarget: { kind: "direct" } },
     status,
     share,
   );
@@ -47,7 +47,7 @@ test("shows remote and sharing only when those states are active", () => {
 
 test("shows an explicit thinking state when provider reasoning is null", () => {
   const automatic = renderSessionFooter(
-    { workspaceRoot: "/workspace/chump", serverSource: "managed" },
+    { workspaceRoot: "/workspace/chump", apiTarget: { kind: "service", projectId: "project", token: "token" } },
     {
       ...status,
       provider: "chump_cloud",
@@ -57,7 +57,7 @@ test("shows an explicit thinking state when provider reasoning is null", () => {
     null,
   );
   const disabled = renderSessionFooter(
-    { workspaceRoot: "/workspace/chump", serverSource: "managed" },
+    { workspaceRoot: "/workspace/chump", apiTarget: { kind: "service", projectId: "project", token: "token" } },
     { ...status, provider: "codex", reasoning: null },
     null,
   );
@@ -68,7 +68,7 @@ test("shows an explicit thinking state when provider reasoning is null", () => {
 
 test("renders known reasoning budgets as levels", () => {
   const footer = renderSessionFooter(
-    { workspaceRoot: "/workspace/chump", serverSource: "managed" },
+    { workspaceRoot: "/workspace/chump", apiTarget: { kind: "service", projectId: "project", token: "token" } },
     { ...status, provider: "google", reasoning: { budget: 16384 } },
     null,
   );

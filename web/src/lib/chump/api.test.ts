@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-	getSessionSnapshot,
 	getSessions,
 	openEventStream,
 	terminalTargetIdentity,
@@ -42,11 +41,11 @@ describe('terminal websocket connection', () => {
 		expect(connection.protocols).toEqual(['chump-terminal-v1']);
 	});
 
-	it('carries daemon auth in a websocket subprotocol instead of the URL', () => {
+	it('carries local service auth in a websocket subprotocol instead of the URL', () => {
 		const connection = terminalWebSocketConnection(
 			{
-				kind: 'daemon',
-				daemonUrl: 'http://127.0.0.1:38136',
+				kind: 'service',
+				serviceUrl: 'http://127.0.0.1:38136',
 				token: 'secret-token',
 				projectId: 'project one'
 			},
@@ -65,21 +64,21 @@ describe('terminal websocket connection', () => {
 			kind: 'direct',
 			serverUrl: 'http://127.0.0.1:8000/'
 		});
-		const daemon = terminalTargetIdentity({
-			kind: 'daemon',
-			daemonUrl: 'http://127.0.0.1:38136',
+		const localService = terminalTargetIdentity({
+			kind: 'service',
+			serviceUrl: 'http://127.0.0.1:38136',
 			token: 'token-one',
 			projectId: 'project-one'
 		});
 		const rotatedToken = terminalTargetIdentity({
-			kind: 'daemon',
-			daemonUrl: 'http://127.0.0.1:38136',
+			kind: 'service',
+			serviceUrl: 'http://127.0.0.1:38136',
 			token: 'token-two',
 			projectId: 'project-one'
 		});
 
-		expect(direct).not.toBe(daemon);
-		expect(daemon).not.toBe(rotatedToken);
+		expect(direct).not.toBe(localService);
+		expect(localService).not.toBe(rotatedToken);
 	});
 });
 
@@ -145,38 +144,6 @@ describe('event stream replay', () => {
 		} finally {
 			close();
 		}
-	});
-});
-
-describe('session snapshots', () => {
-	it('uses the atomic session hydration endpoint through the daemon', async () => {
-		let requestUrl = '';
-		let requestHeaders: Headers | undefined;
-		globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-			requestUrl = String(input);
-			requestHeaders = new Headers(init?.headers);
-			return Response.json({
-				status: { agent_id: 'session-one', turn_running: true },
-				messages: [],
-				events: [{ id: 7, type: 'turn_status', data: { running: true } }]
-			});
-		}) as typeof fetch;
-
-		const snapshot = await getSessionSnapshot(
-			{
-				kind: 'daemon',
-				daemonUrl: 'http://127.0.0.1:38136',
-				token: 'daemon-token',
-				projectId: 'project-one'
-			},
-			'session-one'
-		);
-
-		expect(requestUrl).toBe(
-			'http://127.0.0.1:38136/projects/project-one/sessions/session-one/session-snapshot'
-		);
-		expect(requestHeaders?.get('authorization')).toBe('Bearer daemon-token');
-		expect(snapshot.events.at(-1)?.id).toBe(7);
 	});
 });
 

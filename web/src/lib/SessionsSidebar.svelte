@@ -6,7 +6,7 @@
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
     import ProjectsSwitcher from "$lib/ProjectsSwitcher.svelte";
     import { authClient } from "$lib/auth-client";
-    import type { DaemonProject, DaemonRuntime } from "$lib/chump/daemon-api";
+    import type { LocalServiceProject } from "$lib/chump/local-service-api";
 
     let {
         sessions,
@@ -27,10 +27,6 @@
         activeProjectId = "",
         isLoadingProject = false,
         onSelectProject,
-        projectRuntimes = {},
-        runtimeActionProjectId = "",
-        onStartProject,
-        onStopProject,
         isRegisteringProject = false,
         onRegisterProject,
         isPickingProjectDirectory = false,
@@ -52,14 +48,10 @@
         sessionTitle: (session: any) => string;
         open?: boolean;
         workingSessionIds?: readonly string[];
-        projects?: DaemonProject[];
+        projects?: LocalServiceProject[];
         activeProjectId?: string;
         isLoadingProject?: boolean;
         onSelectProject?: (projectId: string) => void;
-        projectRuntimes?: Record<string, DaemonRuntime>;
-        runtimeActionProjectId?: string;
-        onStartProject?: (projectId: string) => void;
-        onStopProject?: (projectId: string) => void;
         isRegisteringProject?: boolean;
         onRegisterProject?: (input: {
             workspacePath: string;
@@ -77,6 +69,11 @@
     let isLoadingMore = $state(false);
 
     let isConnected = $derived(!!health);
+    let hasConnectionBadge = $derived(
+        isConnected ||
+            activeProjectId.trim().length > 0 ||
+            serverUrl.trim().length > 0,
+    );
     let serverDisplay = $derived.by(() => {
         try {
             const url = new URL(serverUrl);
@@ -84,6 +81,30 @@
         } catch {
             return serverUrl || "—";
         }
+    });
+    let connectionSummary = $derived.by(() => {
+        if (activeProjectId.trim()) {
+            return `Local service: ${serverDisplay}`;
+        }
+        if (serverUrl.trim()) {
+            return `Server: ${serverDisplay}`;
+        }
+        return "Offline";
+    });
+    let connectionActionLabel = $derived.by(() => {
+        if (activeProjectId.trim()) {
+            return `Local service: ${serverDisplay}`;
+        }
+        if (serverUrl.trim()) {
+            return `Server: ${serverDisplay}`;
+        }
+        return "Connection settings";
+    });
+    let connectionSettingsHref = $derived.by(() => {
+        const serverParam = serverUrl.trim()
+            ? `&server=${encodeURIComponent(serverUrl.trim())}`
+            : "";
+        return resolve(`/account?tab=connection${serverParam}`);
     });
 
     function toggleSearch() {
@@ -117,26 +138,26 @@
 <aside
     class="flex flex-col h-[100dvh] min-h-full bg-bg-surface-alt w-full shrink-0 select-none overflow-hidden"
 >
-    <!-- Top Header Row: Borderless Project Selector & Action Icons -->
+    <!-- Top Header Row -->
     <div
         class="px-3 pt-3 pb-2 flex items-center justify-between gap-1 shrink-0"
     >
         <div class="min-w-0 flex-1">
-            {#if onSelectProject && onStartProject && onStopProject && onRegisterProject && onPickProjectDirectory}
+            {#if onSelectProject && onRegisterProject && onPickProjectDirectory}
                 <ProjectsSwitcher
                     {projects}
                     {activeProjectId}
                     loading={isLoadingProject}
-                    runtimes={projectRuntimes}
-                    {runtimeActionProjectId}
-                    {onSelectProject}
-                    {onStartProject}
-                    {onStopProject}
                     registering={isRegisteringProject}
-                    {onRegisterProject}
+                    onSelectProject={onSelectProject}
+                    onRegisterProject={onRegisterProject}
                     pickingDirectory={isPickingProjectDirectory}
                     onPickDirectory={onPickProjectDirectory}
                 />
+            {:else}
+                <div class="px-2 py-1.5 text-xs font-semibold text-text-main truncate">
+                    {connectionSummary}
+                </div>
             {/if}
         </div>
         <div class="flex items-center gap-0.5 shrink-0">
@@ -393,32 +414,27 @@
                             {user?.name || "Local Workspace"}
                         </div>
                         <div class="text-[10.5px] text-text-tertiary truncate">
-                            {user?.email ||
-                                (isConnected
-                                    ? `Host: ${serverDisplay}`
-                                    : "Offline")}
+							{user?.email || connectionSummary}
                         </div>
                     </div>
                 </div>
 
-                <!-- Host Connection Action -->
+                <!-- Connection Action -->
                 <a
-                    href={`${resolve("/account")}?tab=connection${!activeProjectId && serverUrl.trim() ? `&server=${encodeURIComponent(serverUrl.trim())}` : ""}`}
+                    href={connectionSettingsHref}
                     onclick={() => (menuOpen = false)}
                     class="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-bg-hover transition-colors text-left group"
                 >
                     <div class="flex items-center gap-2 min-w-0">
                         <span
-                            class="size-2 rounded-full shrink-0 {isConnected
+                            class="size-2 rounded-full shrink-0 {hasConnectionBadge
                                 ? 'bg-success'
                                 : 'bg-error'}"
                         ></span>
                         <span
                             class="text-text-secondary group-hover:text-text-main truncate text-xs"
                         >
-                            {isConnected
-                                ? `Host: ${serverDisplay}`
-                                : "Connection settings"}
+							{connectionActionLabel}
                         </span>
                     </div>
                     <span
@@ -557,10 +573,7 @@
                     <span
                         class="text-[10px] text-text-tertiary truncate leading-tight"
                     >
-                        {user?.email ||
-                            (isConnected
-                                ? `Host: ${serverDisplay}`
-                                : "Offline")}
+						{user?.email || connectionSummary}
                     </span>
                 </div>
             </div>
