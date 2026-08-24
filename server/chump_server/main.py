@@ -4,8 +4,11 @@ import asyncio
 import json
 import os
 import re
+import sys
 import time
 import uuid
+from dataclasses import replace
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast
@@ -34,6 +37,13 @@ from .search import WorkspaceSearch
 from .server.connections import active_connection_count
 from .server.sessions import stored_sessions
 from .server.session_snapshot import reconcile_delegated_session_snapshot
+from .service import (
+    DEFAULT_SERVICE_PORT,
+    ServiceRegistration,
+    ServiceRegistrationStore,
+    service_auth_middleware,
+    service_registration_key,
+)
 from .terminal import terminal_websocket
 from .workspaces import WorkspaceRuntime, WorkspaceRuntimeMap
 
@@ -47,6 +57,8 @@ class ChumpServer(AgentServer):
         resources: ResourceCatalog | None = None,
         projects: ProjectRegistry | None = None,
         workspace_runtimes: WorkspaceRuntimeMap | None = None,
+        service_registration: ServiceRegistration | None = None,
+        service_registration_store: ServiceRegistrationStore | None = None,
     ):
         resources = resources or ResourceCatalog(config.workspace_root)
         self.search = WorkspaceSearch(config.workspace_root)
@@ -82,12 +94,19 @@ class ChumpServer(AgentServer):
             self.projects
         )
         self.started_at = time.time()
+        self.service_registration = service_registration
+        self.service_registration_store = (
+            service_registration_store or ServiceRegistrationStore()
+        )
         self._managed_idle_task: asyncio.Task[None] | None = None
         self._managed_idle_resume_grace_until: float | None = None
         self._active_requests = 0
 
     def on_app_setup(self, app: web.Application) -> None:
         app._client_max_size = 64 * 1024 * 1024
+        if self.service_registration is not None:
+            app[service_registration_key] = self.service_registration
+            app.middlewares.append(service_auth_middleware)
         app.middlewares.append(self._track_active_requests)
         app.router.add_get("/health", self.health)
         app.router.add_get("/version", self.version)
@@ -141,12 +160,16 @@ class ChumpServer(AgentServer):
             "/agent/{agent_id}/session-snapshot",
             self.session_snapshot,
         )
+        if self.service_registration is not None:
+            app.on_startup.append(self._publish_service_registration)
         app.on_startup.append(self._start_managed_idle_shutdown)
         app.on_cleanup.append(self._stop_managed_idle_shutdown)
         app.on_cleanup.append(self._close_search)
         app.on_cleanup.append(self._close_mcp)
         app.on_cleanup.append(self._close_workspaces)
         app.on_cleanup.append(self._close_storage)
+        if self.service_registration is not None:
+            app.on_cleanup.append(self._clear_service_registration)
 
     @web.middleware
     async def _track_active_requests(
@@ -172,12 +195,26 @@ class ChumpServer(AgentServer):
     async def _close_storage(self, app: web.Application) -> None:
         self.storage.close()
 
+    async def _publish_service_registration(self, app: web.Application) -> None:
+        if self.service_registration is not None:
+            self.service_registration_store.write(self.service_registration)
+
+    async def _clear_service_registration(self, app: web.Application) -> None:
+        if self.service_registration is not None:
+            self.service_registration_store.clear(self.service_registration.instance_id)
+
     async def health(self, request: web.Request) -> web.Response:
         await self._sync_mcp_config()
         return web.json_response(
             {
                 "status": "ok",
+                "service": "chump-server",
                 "version": _package_version("chump-server"),
+                "instance_id": (
+                    self.service_registration.instance_id
+                    if self.service_registration is not None
+                    else None
+                ),
                 "ai_query_version": _package_version("ai-query"),
                 "process_id": os.getpid(),
                 "workspace_root": str(self.chump_config.workspace_root),
@@ -632,8 +669,19 @@ class ChumpServer(AgentServer):
 
 
 def main() -> None:
+    arguments = sys.argv[1:]
+    register_service = arguments == ["--register"]
+    if arguments and not register_service:
+        raise SystemExit(f"unknown chump-server argument: {arguments[0]}")
     set_process_title("Chump Agent (Server)")
     config = load_config()
+    if register_service:
+        config = replace(
+            config,
+            host="127.0.0.1",
+            port=service_port(),
+            managed_idle_timeout=None,
+        )
     resources = ResourceCatalog(config.workspace_root)
     if config.verbose:
         print(
@@ -655,8 +703,28 @@ def main() -> None:
             f"[chump] context_files={instruction_paths}",
             flush=True,
         )
-    server = ChumpServer(config, resources=resources)
-    server.serve(host=config.host, port=config.port)
+    registration = (
+        ServiceRegistration.create(
+            host=config.host,
+            port=config.port,
+            server_version=_package_version("chump-server"),
+            started_at=datetime.now(UTC).isoformat(),
+        )
+        if register_service
+        else None
+    )
+    registration_store = ServiceRegistrationStore()
+    server = ChumpServer(
+        config,
+        resources=resources,
+        service_registration=registration,
+        service_registration_store=registration_store,
+    )
+    try:
+        server.serve(host=config.host, port=config.port)
+    finally:
+        if registration is not None:
+            registration_store.clear(registration.instance_id)
 
 
 def _package_version(package: str) -> str:
@@ -664,6 +732,19 @@ def _package_version(package: str) -> str:
         return version(package)
     except PackageNotFoundError:
         return "0.0.0"
+
+
+def service_port() -> int:
+    raw = os.environ.get("CHUMP_SERVICE_PORT")
+    if raw is None:
+        return DEFAULT_SERVICE_PORT
+    try:
+        port = int(raw)
+    except ValueError as error:
+        raise ValueError(f"invalid CHUMP_SERVICE_PORT: {raw}") from error
+    if port < 1 or port > 65_535:
+        raise ValueError(f"invalid CHUMP_SERVICE_PORT: {raw}")
+    return port
 
 
 def parse_positive_int(value: str, name: str) -> int:
