@@ -31,6 +31,7 @@
         onRegisterProject,
         isPickingProjectDirectory = false,
         onPickProjectDirectory,
+        onOpenProjectPicker,
         onToggleSidebar,
         user,
     } = $props<{
@@ -59,6 +60,7 @@
         }) => void | Promise<void>;
         isPickingProjectDirectory?: boolean;
         onPickProjectDirectory?: () => Promise<string | null>;
+        onOpenProjectPicker?: () => void;
         onToggleSidebar?: () => void;
         user?: { name: string; email: string; image?: string | null };
     }>();
@@ -106,6 +108,10 @@
             : "";
         return resolve(`/account?tab=connection${serverParam}`);
     });
+    let userAvatarUrl = $derived.by(() => {
+        const seed = user?.name || user?.email || "user";
+        return `https://api.dicebear.com/10.x/line-face/svg?seed=${encodeURIComponent(seed)}`;
+    });
 
     function toggleSearch() {
         showSearch = !showSearch;
@@ -143,16 +149,12 @@
         class="px-3 pt-3 pb-2 flex items-center justify-between gap-1 shrink-0"
     >
         <div class="min-w-0 flex-1">
-            {#if onSelectProject && onRegisterProject && onPickProjectDirectory}
+            {#if onSelectProject && onRegisterProject && onPickProjectDirectory && onOpenProjectPicker}
                 <ProjectsSwitcher
                     {projects}
                     {activeProjectId}
                     loading={isLoadingProject}
-                    registering={isRegisteringProject}
-                    onSelectProject={onSelectProject}
-                    onRegisterProject={onRegisterProject}
-                    pickingDirectory={isPickingProjectDirectory}
-                    onPickDirectory={onPickProjectDirectory}
+                    onOpenProjectPicker={onOpenProjectPicker}
                 />
             {:else}
                 <div class="px-2 py-1.5 text-xs font-semibold text-text-main truncate">
@@ -178,8 +180,8 @@
                         <path
                             stroke-linecap="round"
                             stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                            stroke-width="1.8"
+                            d="M20 5v14M16 12H4m0 0 4-4m-4 4 4 4"
                         />
                     </svg>
                 </button>
@@ -376,18 +378,12 @@
                 <div
                     class="px-2 py-2 flex items-center gap-2.5 border-b border-border-default/40 mb-1"
                 >
-                    {#if user?.image}
+                    {#if user}
                         <img
-                            src={user.image}
-                            alt=""
-                            class="w-7 h-7 rounded-full object-cover shrink-0"
+                            src={userAvatarUrl}
+                            alt={user.name}
+                            class="w-7 h-7 rounded-md object-cover shrink-0"
                         />
-                    {:else if user}
-                        <div
-                            class="w-7 h-7 rounded-full bg-accent/15 text-accent flex items-center justify-center font-medium shrink-0 text-xs"
-                        >
-                            {(user.name || user.email || "A")[0].toUpperCase()}
-                        </div>
                     {:else}
                         <div
                             class="w-7 h-7 rounded-full bg-bg-hover text-text-secondary flex items-center justify-center shrink-0"
@@ -438,7 +434,7 @@
                         </span>
                     </div>
                     <span
-                        class="text-[10px] text-text-tertiary font-mono group-hover:text-accent"
+                        class="text-[10px] text-text-tertiary font-mono group-hover:text-text-main"
                     >
                         Settings
                     </span>
@@ -532,18 +528,12 @@
             class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-text-secondary hover:text-text-main hover:bg-bg-hover transition-colors group"
         >
             <div class="flex items-center gap-2.5 min-w-0">
-                {#if user?.image}
+                {#if user}
                     <img
-                        src={user.image}
-                        alt=""
-                        class="w-6 h-6 rounded-full object-cover shrink-0"
+                        src={userAvatarUrl}
+                        alt={user.name}
+                        class="w-6 h-6 rounded-md object-cover shrink-0"
                     />
-                {:else if user}
-                    <div
-                        class="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center font-medium shrink-0 text-[11px]"
-                    >
-                        {(user.name || user.email || "A")[0].toUpperCase()}
-                    </div>
                 {:else}
                     <div
                         class="w-6 h-6 rounded-full bg-bg-hover text-text-secondary flex items-center justify-center shrink-0"

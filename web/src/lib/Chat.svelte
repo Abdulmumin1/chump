@@ -128,6 +128,7 @@
     let qrScannerError = $state("");
     let qrVideoElement = $state<HTMLVideoElement | null>(null);
     let modelPickerOpen = $state(false);
+    let projectPickerRequest = $state(0);
     let toasts = $state<
         Array<{
             id: number;
@@ -417,6 +418,10 @@
 
     function toggleSidebar() {
         sidebarOpen = !sidebarOpen;
+    }
+
+    function openProjectPicker(): void {
+        projectPickerRequest += 1;
     }
 
     function handleWorkspaceCollapsed(collapsed: boolean): void {
@@ -1222,6 +1227,7 @@
             onSelectProject={(projectId) => void selectProject(projectId)}
             onRegisterProject={registerProject}
             onPickProjectDirectory={pickProjectDirectory}
+            onOpenProjectPicker={openProjectPicker}
             onCreateSession={() => void createProjectSession()}
             onOpenSession={() => void sessionController.openTypedSession()}
             onSelectSession={(id) => void sessionController.selectSession(id)}
@@ -1262,6 +1268,10 @@
                     }}
                     onRegisterProject={registerProject}
                     onPickProjectDirectory={pickProjectDirectory}
+                    onOpenProjectPicker={() => {
+                        closeSidebar();
+                        openProjectPicker();
+                    }}
                     onCreateSession={() => {
                         closeSidebar();
                         void createProjectSession();
@@ -1317,8 +1327,12 @@
         />
 
         {#if connectionError && !connectModalOpen}
-            <div class="max-w-4xl mx-auto w-full px-4 md:px-8 mb-4">
-                <div class="bg-bg-toast-err border border-error/30 text-error rounded-[9px] px-3.5 py-2.5 text-[13px] flex items-start gap-2.5 animate-toast-in">
+            <div
+                class="pointer-events-none absolute left-1/2 z-20 w-full max-w-4xl -translate-x-1/2 px-4 md:px-8 {health
+                    ? 'bottom-24 md:bottom-28'
+                    : 'bottom-4'}"
+            >
+                <div class="pointer-events-auto bg-bg-toast-err border border-error/30 text-error rounded-[9px] px-3.5 py-2.5 text-[13px] flex items-start gap-2.5 animate-toast-in">
                     <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
@@ -1436,12 +1450,14 @@
     {projects}
     {activeProjectId}
     onSelectProject={(projectId) => void selectProject(projectId)}
+    onOpenProjectRegistration={() => void openProjectFromPicker()}
     models={availableModels}
     currentModel={currentModel}
     currentThinking={reasoningInfo?.effort ?? "none"}
     onCommand={handleCommand}
     onToggleSidebar={toggleSidebar}
     onOpenConnectModal={openConnectModal}
+    openProjectPickerRequest={projectPickerRequest}
 />
 
 <style>

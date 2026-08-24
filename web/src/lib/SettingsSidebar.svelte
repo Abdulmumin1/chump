@@ -16,6 +16,9 @@
 
 	const pathname = $derived(page.url.pathname);
 	const currentTab = $derived(page.url.searchParams.get('tab') ?? '');
+	const userAvatarUrl = $derived(
+		`https://api.dicebear.com/10.x/line-face/svg?seed=${encodeURIComponent(user.name || user.email || 'user')}`
+	);
 
 	type ValidRoute = '/account' | '/organizations';
 
@@ -284,13 +287,7 @@
 
 	<!-- Bottom User Footer -->
 	<div class="p-3 border-t border-border-default bg-bg-surface flex items-center gap-2.5">
-		{#if user.image}
-			<img src={user.image} alt={user.name} class="size-7 rounded-full object-cover shrink-0 border border-border-default" />
-		{:else}
-			<div class="grid size-7 shrink-0 place-items-center rounded-full bg-bg-input text-xs font-semibold text-text-inverse border border-border-default">
-				{user.name.slice(0, 2).toUpperCase()}
-			</div>
-		{/if}
+		<img src={userAvatarUrl} alt={user.name} class="size-7 rounded-md object-cover shrink-0 border border-border-default" />
 		<div class="min-w-0 flex-1">
 			<strong class="block truncate text-xs font-medium text-text-main leading-tight">{user.name}</strong>
 			<span class="block truncate text-[10px] text-text-tertiary">{user.email}</span>

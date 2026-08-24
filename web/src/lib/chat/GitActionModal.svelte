@@ -243,7 +243,7 @@
                                 Pull request created
                             </div>
                             <a
-                                class="mt-2 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-bg-surface px-3 py-2 font-mono text-[11px] text-accent transition-colors hover:border-accent/40 hover:bg-bg-hover"
+                                class="mt-2 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-bg-surface px-3 py-2 font-mono text-[11px] text-text-secondary transition-colors hover:border-border-hover hover:bg-bg-hover hover:text-text-main"
                                 href={resultUrl}
                                 target="_blank"
                                 rel="noreferrer"

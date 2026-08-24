@@ -92,11 +92,14 @@
     }
 
     :global(.markdown-body a) {
-        color: var(--accent);
-        text-decoration: none;
+        color: var(--text-inverse);
+        text-decoration: underline;
+        text-decoration-color: var(--border-hover);
+        text-underline-offset: 2px;
     }
 
     :global(.markdown-body a:hover) {
+        color: var(--text-main);
         text-decoration: underline;
     }
 

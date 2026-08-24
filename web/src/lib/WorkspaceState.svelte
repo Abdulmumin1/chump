@@ -900,7 +900,7 @@
 
 {#if activeTab === "changes" && (useInlineDiff || !selectedPath)}
 <aside
-    class="hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main transition-all duration-200 md:flex"
+    class="hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main md:flex"
     class:w-0={isCollapsed}
     class:overflow-hidden={isCollapsed}
     class:border-l-0={isCollapsed}
@@ -909,7 +909,7 @@
 >
     <div class="border-b border-border-subtle bg-bg-surface/95">
         <div class="flex min-w-0 items-center gap-2 px-3 py-3.5">
-            {#if !useInlineDiff}
+            {#if !useInlineDiff || !selectedPath}
                 {@render workspaceTabBar()}
             {/if}
             <div class="ml-auto flex shrink-0 items-center gap-1 text-text-tertiary">

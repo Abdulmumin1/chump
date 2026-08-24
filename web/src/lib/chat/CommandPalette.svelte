@@ -14,7 +14,9 @@
 		onCommand,
 		onToggleSidebar,
 		onOpenConnectModal,
-		onSelectProject
+		onSelectProject,
+		onOpenProjectRegistration,
+		openProjectPickerRequest = 0
 	} = $props<{
 		models: ModelChoice[];
 		currentModel: string;
@@ -25,12 +27,23 @@
 		onToggleSidebar: () => void;
 		onOpenConnectModal: () => void;
 		onSelectProject?: (projectId: string) => void;
+		onOpenProjectRegistration?: () => void | Promise<void>;
+		openProjectPickerRequest?: number;
 	}>();
 
 	let isOpen = $state(false);
 	let searchQuery = $state('');
 	type PaletteView = 'main' | 'models' | 'reasoning' | 'theme' | 'projects';
 	let currentView = $state<PaletteView>('main');
+	let handledProjectPickerRequest = $state(0);
+
+	$effect(() => {
+		if (openProjectPickerRequest <= handledProjectPickerRequest) return;
+		handledProjectPickerRequest = openProjectPickerRequest;
+		isOpen = true;
+		currentView = 'projects';
+		searchQuery = '';
+	});
 
 	type ActionItem = {
 		id: string;
@@ -213,6 +226,18 @@
 					isOpen = false;
 				}
 			}));
+			if (onOpenProjectRegistration) {
+				formattedProjects.push({
+					id: 'register-project',
+					label: 'Register a new project...',
+					description: 'Choose a workspace folder to add',
+					category: 'Projects',
+					handler: () => {
+						void onOpenProjectRegistration();
+						isOpen = false;
+					}
+				});
+			}
 			if (!query) return formattedProjects;
 			return formattedProjects.filter(
 				(project: ActionItem) =>
@@ -303,7 +328,7 @@
 	<div
 		use:portal
 		transition:fade={{ duration: 150 }}
-		class="fixed inset-0 z-[99999] flex cursor-default select-none items-start justify-center bg-bg-body/85 p-4 pt-[12vh] backdrop-blur-[4px]"
+		class="fixed inset-0 z-[99999] flex cursor-default select-none items-start justify-center bg-bg-overlay/35 p-4 pt-[12vh] backdrop-blur-[4px]"
 		onclick={() => (isOpen = false)}
 	>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -314,7 +339,7 @@
 			onclick={(event) => event.stopPropagation()}
 		>
 			<Command.Root
-				class="flex w-full flex-col overflow-hidden rounded-[12px] border border-border-default bg-bg-code selection:bg-zinc-200/60 dark:selection:bg-zinc-800/60"
+				class="flex w-full flex-col overflow-hidden rounded-[12px] border border-border-default bg-bg-surface shadow-2xl selection:bg-bg-select"
 				onkeydown={handleModalKeydown}
 			>
 				<div class="flex items-center gap-3 border-b border-border-default/80 px-4 py-3.5">
@@ -324,13 +349,18 @@
 
 					{#if currentView !== 'main'}
 						<button
+							type="button"
 							onclick={() => {
 								currentView = 'main';
 								searchQuery = '';
 							}}
-							class="flex cursor-pointer items-center gap-1 rounded border border-border-default bg-zinc-200 px-2 py-0.5 text-[11px] font-medium text-text-secondary transition-all hover:opacity-85 dark:bg-zinc-800"
+							class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-main"
+							aria-label="Back to command menu"
+							title="Back"
 						>
-							<span>← Back</span>
+							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 19l-7-7 7-7" />
+							</svg>
 						</button>
 					{/if}
 
@@ -347,7 +377,7 @@
 											? 'Search projects...'
 											: 'Search reasoning levels...'
 						}
-						class="w-full border-none bg-transparent text-[14px] text-text-main outline-none placeholder:text-text-muted focus:outline-none selection:bg-zinc-200/60 dark:selection:bg-zinc-800/60"
+						class="w-full border-none bg-transparent text-[14px] text-text-main outline-none placeholder:text-text-muted focus:outline-none"
 						autofocus
 					/>
 				</div>
@@ -360,20 +390,20 @@
 					{#if currentView === 'main' || currentView === 'models' || currentView === 'theme' || currentView === 'projects'}
 						{#each groupedFilteredItems as group (group.category)}
 							<Command.Group class="flex flex-col">
-								<div class="select-none px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-tertiary/75">
+									<div class="select-none px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-tertiary">
 									{group.category}
 								</div>
 								{#each group.items as item (item.id)}
 									<Command.Item
 										value={`${item.label} ${item.description ?? ''}`}
 										onSelect={() => item.handler()}
-										class="outline-none data-[selected]:bg-zinc-200/80 data-[selected]:text-text-main dark:data-[selected]:bg-zinc-800/80 flex w-full cursor-pointer items-center justify-between gap-3 rounded-[8px] px-3 py-2.5 text-left text-text-secondary transition-all hover:bg-zinc-200/40 dark:hover:bg-zinc-800/40"
+										class="flex w-full cursor-pointer items-center justify-between gap-3 rounded-[8px] px-3 py-2.5 text-left text-text-secondary outline-none transition-colors hover:bg-bg-hover data-[selected]:bg-bg-select data-[selected]:text-text-main"
 									>
 										<div class="flex min-w-0 flex-1 flex-col">
 											<div class="flex items-center gap-2">
 												<span class="text-[13px] font-medium leading-normal">{item.label}</span>
 												{#if currentView === 'projects' && item.id === activeProjectId}
-													<span class="rounded bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
+														<span class="rounded bg-bg-elevated px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-secondary">
 														Current
 													</span>
 												{/if}
@@ -383,7 +413,7 @@
 											{/if}
 										</div>
 										{#if item.shortcut}
-											<span class="flex-shrink-0 rounded bg-zinc-200/40 px-1.5 py-0.5 text-[10px] font-mono text-text-muted select-none dark:bg-zinc-800/40">
+											<span class="flex-shrink-0 rounded bg-bg-elevated px-1.5 py-0.5 text-[10px] font-mono text-text-muted select-none">
 												{item.shortcut}
 											</span>
 										{/if}
@@ -393,14 +423,14 @@
 						{/each}
 					{:else if currentView === 'reasoning'}
 						<Command.Group class="flex flex-col">
-							<div class="select-none px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-tertiary/75">
+									<div class="select-none px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-tertiary">
 								Thinking Level
 							</div>
 							{#each filteredItems as item (item.id)}
 								<Command.Item
 									value={item.label}
 									onSelect={() => item.handler()}
-									class="outline-none data-[selected]:bg-zinc-200/80 data-[selected]:text-text-main dark:data-[selected]:bg-zinc-800/80 flex w-full cursor-pointer items-center justify-between gap-3 rounded-[8px] px-3 py-2.5 text-left text-text-secondary transition-all hover:bg-zinc-200/40 dark:hover:bg-zinc-800/40"
+									class="flex w-full cursor-pointer items-center justify-between gap-3 rounded-[8px] px-3 py-2.5 text-left text-text-secondary outline-none transition-colors hover:bg-bg-hover data-[selected]:bg-bg-select data-[selected]:text-text-main"
 								>
 									<div class="flex min-w-0 flex-col">
 										<span class="text-[13px] font-medium leading-normal">{item.label}</span>
@@ -414,14 +444,14 @@
 					{/if}
 				</Command.List>
 
-				<div class="flex select-none items-center justify-between border-t border-border-default/60 bg-bg-code-block/30 px-4 py-2 text-[10px] text-text-tertiary">
+				<div class="flex select-none items-center justify-between border-t border-border-default/60 bg-bg-surface-alt px-4 py-2 text-[10px] text-text-tertiary">
 					<div class="flex items-center gap-3">
-						<span class="flex items-center gap-1"><kbd class="rounded bg-zinc-200/60 px-1 py-0.5 font-mono dark:bg-zinc-800/60">↑↓</kbd> Navigate</span>
-						<span class="flex items-center gap-1"><kbd class="rounded bg-zinc-200/60 px-1.5 py-0.5 font-mono dark:bg-zinc-800/60">Enter</kbd> Select</span>
-						<span class="flex items-center gap-1"><kbd class="rounded bg-zinc-200/60 px-1.5 py-0.5 font-mono dark:bg-zinc-800/60">Esc</kbd> Close</span>
+						<span class="flex items-center gap-1"><kbd class="rounded bg-bg-elevated px-1 py-0.5 font-mono">↑↓</kbd> Navigate</span>
+						<span class="flex items-center gap-1"><kbd class="rounded bg-bg-elevated px-1.5 py-0.5 font-mono">Enter</kbd> Select</span>
+						<span class="flex items-center gap-1"><kbd class="rounded bg-bg-elevated px-1.5 py-0.5 font-mono">Esc</kbd> Close</span>
 					</div>
 					{#if currentView !== 'main'}
-						<span class="flex items-center gap-1"><kbd class="rounded bg-zinc-200/60 px-1.5 py-0.5 font-mono dark:bg-zinc-800/60">Backspace</kbd> Back</span>
+						<span class="flex items-center gap-1"><kbd class="rounded bg-bg-elevated px-1.5 py-0.5 font-mono">Backspace</kbd> Back</span>
 					{/if}
 				</div>
 			</Command.Root>
