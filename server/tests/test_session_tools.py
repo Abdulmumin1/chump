@@ -110,8 +110,11 @@ class SessionToolTests(unittest.TestCase):
         from chump_server.resources import ResourceCatalog
 
         config = self._config()
-        ChumpAgent.configure(config, ResourceCatalog(config.workspace_root))
-        agent = ChumpAgent("tool-schema-session")
+        agent = ChumpAgent(
+            "tool-schema-session",
+            config=config,
+            resources=ResourceCatalog(config.workspace_root),
+        )
 
         properties = agent.tools["start_session"].parameters["properties"]
 

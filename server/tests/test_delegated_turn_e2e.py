@@ -14,19 +14,11 @@ from ai_query.agents import AgentServer
 from ai_query.providers import FauxResponse, faux
 from ai_query.types import TextPart
 
-from chump_server.agent import ChumpAgent
+from chump_server.agent import ChumpAgent, bind_chump_agent
 from chump_server.config import ChumpConfig
 from chump_server.resources import ResourceCatalog
 
 from test_faux_agent_harness import _test_config
-
-
-def _install(monkeypatch, tmp_path: Path, config: ChumpConfig) -> None:
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", ResourceCatalog(tmp_path))
-    monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: faux())
-    monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
-    monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
 
 
 @pytest.mark.asyncio
@@ -68,8 +60,6 @@ async def test_parent_turn_delegation_event_sequence(
             )
         ]
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", ResourceCatalog(tmp_path))
     monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
     monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
     # Distinguish parent vs child by their config model name.
@@ -80,7 +70,7 @@ async def test_parent_turn_delegation_event_sequence(
         else parent_model,
     )
 
-    server = AgentServer(ChumpAgent)
+    server = AgentServer(bind_chump_agent(config, ResourceCatalog(tmp_path)))
     parent = server.get_or_create("parent-session")
     await parent.start()
 

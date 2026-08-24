@@ -174,12 +174,14 @@ class ChumpConfig:
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
 
 
-def load_config() -> ChumpConfig:
+def load_config(workspace_root: Path | None = None) -> ChumpConfig:
     server_dir = Path(__file__).resolve().parents[1]
     project_root = server_dir.parent
-    workspace_root = Path(
-        os.environ.get("CHUMP_WORKSPACE_ROOT", str(project_root))
-    ).resolve()
+    if workspace_root is None:
+        workspace_root = Path(
+            os.environ.get("CHUMP_WORKSPACE_ROOT", str(project_root))
+        )
+    workspace_root = workspace_root.expanduser().resolve()
     data_dir = workspace_state_dir(workspace_root)
     migrate_legacy_workspace_state(workspace_root, data_dir)
     auth_config = load_auth_config()
@@ -506,6 +508,13 @@ def workspace_state_dir(workspace_root: Path) -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     return (_state_base_dir() / "workspaces" / _workspace_state_slug(workspace_root)).resolve()
+
+
+def global_state_dir() -> Path:
+    configured = os.environ.get("CHUMP_GLOBAL_STATE_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _state_base_dir().resolve()
 
 
 def _state_base_dir() -> Path:

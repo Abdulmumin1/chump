@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from ai_query.types import ImagePart, Message, TextPart
@@ -132,15 +131,3 @@ def message_content_text(content: Any) -> str:
         elif isinstance(part, dict) and part.get("type") == "text":
             parts.append(str(part.get("text") or ""))
     return "".join(parts)
-
-
-async def remove_queued_message_at(queue: asyncio.Queue[Message], index: int) -> bool:
-    items: list[Message] = []
-    while not queue.empty():
-        items.append(await queue.get())
-    removed = 0 <= index < len(items)
-    if removed:
-        items.pop(index)
-    for item in items:
-        await queue.put(item)
-    return removed

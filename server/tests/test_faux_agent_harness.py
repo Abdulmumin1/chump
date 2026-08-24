@@ -12,7 +12,7 @@ from ai_query.agents import AgentServer, Event
 from ai_query.providers import FauxProvider, FauxResponse, faux
 from ai_query.types import ImagePart, ReasoningEvent, TextPart, ToolCall, ToolResultPart
 
-from chump_server.agent import ChumpAgent
+from chump_server.agent import ChumpAgent, bind_chump_agent
 from chump_server.config import ChumpConfig
 from chump_server.resources import ResourceCatalog
 from chump_server.tools.sessions import inspect_session_payload
@@ -83,14 +83,9 @@ async def test_session_runtime_configuration_survives_reload(
         reasoning={"effort": "high"},
         available_providers=("codex",),
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", default_config)
-    monkeypatch.setattr(
-        ChumpAgent,
-        "_server_resources",
-        ResourceCatalog(tmp_path),
-    )
+    agent_class = bind_chump_agent(default_config, ResourceCatalog(tmp_path))
 
-    configured = ChumpAgent("configured-session")
+    configured = agent_class("configured-session")
     async with configured:
         await configured.update_state(
             title="Configured session",
@@ -99,7 +94,7 @@ async def test_session_runtime_configuration_survives_reload(
             reasoning={"effort": "low"},
         )
 
-    reloaded = ChumpAgent("configured-session")
+    reloaded = agent_class("configured-session")
     async with reloaded:
         status = await reloaded.status()
         model_search = json.loads(
@@ -138,8 +133,6 @@ async def test_start_session_persists_configured_child_final_answer(
             )
         ]
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
     monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
     monkeypatch.setattr(
         "chump_server.tools.sessions.load_auth_config",
@@ -147,7 +140,7 @@ async def test_start_session_persists_configured_child_final_answer(
     )
     monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
 
-    server = AgentServer(ChumpAgent)
+    server = AgentServer(bind_chump_agent(config, resources))
     parent = server.get_or_create("parent-session")
     await parent.start()
     try:
@@ -221,13 +214,11 @@ async def test_delegated_session_ignores_interactive_step_cap_until_final_answer
             ),
         ]
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
     monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
     monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
     monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
 
-    server = AgentServer(ChumpAgent)
+    server = AgentServer(bind_chump_agent(config, resources))
     parent = server.get_or_create("parent-session")
     await parent.start()
     try:
@@ -309,13 +300,11 @@ async def test_start_session_forwards_correlated_child_tool_progress(
             FauxResponse(text="Parent complete.", chunks=["Parent complete."]),
         ]
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
     monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
     monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
     monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
 
-    server = AgentServer(ChumpAgent)
+    server = AgentServer(bind_chump_agent(config, resources))
     parent = server.get_or_create("parent-session")
     parent.model = parent_model
     emitted_events: list[tuple[str, dict, int]] = []
@@ -404,8 +393,6 @@ async def test_concurrent_start_sessions_keep_child_progress_scoped_to_each_call
         model="gpt-5.4",
         available_providers=("codex",),
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", ResourceCatalog(tmp_path))
     monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
 
     both_calls_started = asyncio.Event()
@@ -441,7 +428,7 @@ async def test_concurrent_start_sessions_keep_child_progress_scoped_to_each_call
         return DelegatedCall(session_id, on_event)
 
     monkeypatch.setattr(ChumpAgent, "call", call_child)
-    parent = ChumpAgent("parent-session")
+    parent = bind_chump_agent(config, ResourceCatalog(tmp_path))("parent-session")
     first_progress: list[tuple[str, dict]] = []
     second_progress: list[tuple[str, dict]] = []
 
@@ -510,13 +497,11 @@ async def test_delegated_session_persists_failure_after_tool_step(
             FauxResponse(error=RuntimeError("provider overloaded")),
         ]
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
     monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
     monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
     monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
 
-    server = AgentServer(ChumpAgent)
+    server = AgentServer(bind_chump_agent(config, resources))
     parent = server.get_or_create("parent-session")
     await parent.start()
     try:
@@ -580,13 +565,11 @@ async def test_delegated_session_does_not_accept_streamed_tool_step_text_as_fina
             FauxResponse(error=RuntimeError("provider stopped before final answer")),
         ]
     )
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
     monkeypatch.setattr("chump_server.agent.resolve_model", lambda _config: child_model)
     monkeypatch.setattr("chump_server.tools.sessions.load_auth_config", lambda: {})
     monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
 
-    server = AgentServer(ChumpAgent)
+    server = AgentServer(bind_chump_agent(config, resources))
     parent = server.get_or_create("parent-session")
     await parent.start()
     try:
@@ -638,19 +621,18 @@ async def test_delegated_session_persists_abort_before_call_returns(
         await signal.wait()
         signal.throw_if_aborted()
 
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
     monkeypatch.setattr(ChumpAgent, "chat", wait_for_abort)
     monkeypatch.setattr("chump_server.config.load_auth_config", lambda: {})
 
-    server = AgentServer(ChumpAgent)
+    agent_class = bind_chump_agent(config, resources)
+    server = AgentServer(agent_class)
     parent = server.get_or_create("parent-session")
     await parent.start()
     controller = AbortController()
     call = asyncio.create_task(
         parent.call(
             "aborted-child",
-            agent_cls=ChumpAgent,
+            agent_cls=agent_class,
             timeout=None,
             signal=controller.signal,
         ).run_delegated_task(
@@ -720,14 +702,9 @@ async def test_faux_provider_drives_and_reloads_a_complete_chump_turn(
     assert isinstance(provider, FauxProvider)
 
     config = _test_config(tmp_path)
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(
-        ChumpAgent,
-        "_server_resources",
-        ResourceCatalog(tmp_path),
-    )
+    agent_class = bind_chump_agent(config, ResourceCatalog(tmp_path))
 
-    agent = ChumpAgent("faux-harness")
+    agent = agent_class("faux-harness")
     agent.model = model
     agent.tools = {"read_profile": read_profile}
 
@@ -796,7 +773,7 @@ async def test_faux_provider_drives_and_reloads_a_complete_chump_turn(
         {event["id"] for event in replayed_events}
     )
 
-    reloaded = ChumpAgent("faux-harness")
+    reloaded = agent_class("faux-harness")
     async with reloaded:
         reloaded_events = (await reloaded.event_log())["events"]
         reloaded_roles = [message.role for message in reloaded.messages]
@@ -818,14 +795,10 @@ async def test_provider_failure_before_first_token_is_persisted_and_streamed(
         ]
     )
     config = _test_config(tmp_path)
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(
-        ChumpAgent,
-        "_server_resources",
-        ResourceCatalog(tmp_path),
-    )
 
-    agent = ChumpAgent("faux-provider-error")
+    agent = bind_chump_agent(config, ResourceCatalog(tmp_path))(
+        "faux-provider-error"
+    )
     agent.model = model
 
     async with agent:
@@ -904,14 +877,10 @@ async def test_abort_hands_pending_steering_to_one_follow_up_turn(
     assert isinstance(provider, FauxProvider)
 
     config = _test_config(tmp_path)
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(
-        ChumpAgent,
-        "_server_resources",
-        ResourceCatalog(tmp_path),
-    )
 
-    agent = ChumpAgent("faux-interrupt-steering")
+    agent = bind_chump_agent(config, ResourceCatalog(tmp_path))(
+        "faux-interrupt-steering"
+    )
     agent.model = model
 
     async def collect_chunks() -> list[str]:
@@ -971,14 +940,10 @@ async def test_parallel_same_name_tools_keep_reverse_completions_correlated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _test_config(tmp_path)
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(
-        ChumpAgent,
-        "_server_resources",
-        ResourceCatalog(tmp_path),
-    )
 
-    agent = ChumpAgent("faux-parallel-tools")
+    agent = bind_chump_agent(config, ResourceCatalog(tmp_path))(
+        "faux-parallel-tools"
+    )
     second_finished = asyncio.Event()
     completion_order: list[str] = []
     emitted_events: list[tuple[str, dict, int]] = []
@@ -1128,14 +1093,10 @@ async def test_abort_waits_for_all_parallel_tools_before_terminating(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _test_config(tmp_path)
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(
-        ChumpAgent,
-        "_server_resources",
-        ResourceCatalog(tmp_path),
-    )
 
-    agent = ChumpAgent("faux-parallel-tool-abort")
+    agent = bind_chump_agent(config, ResourceCatalog(tmp_path))(
+        "faux-parallel-tool-abort"
+    )
     all_started = asyncio.Event()
     slow_cleanup_started = asyncio.Event()
     fast_cancelled = asyncio.Event()
@@ -1264,8 +1225,6 @@ async def test_manual_skill_command_uses_bundle_but_emits_short_display(
     )
     resources = ResourceCatalog(tmp_path)
     config = _test_config(tmp_path)
-    monkeypatch.setattr(ChumpAgent, "_server_config", config)
-    monkeypatch.setattr(ChumpAgent, "_server_resources", resources)
 
     def response(call):
         user_message = call.messages[-1]
@@ -1281,7 +1240,7 @@ async def test_manual_skill_command_uses_bundle_but_emits_short_display(
     model = faux(responses=[response])
     provider = model.provider
     assert isinstance(provider, FauxProvider)
-    agent = ChumpAgent("faux-manual-skill")
+    agent = bind_chump_agent(config, resources)("faux-manual-skill")
     agent.model = model
 
     async with agent:

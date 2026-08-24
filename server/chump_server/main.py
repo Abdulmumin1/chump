@@ -2,26 +2,32 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
+import uuid
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from typing import Any
 
-from ai_query.agents import AgentServer
+from ai_query.agents import AgentServer, SQLiteStorage
 from ai_query.agents.server.types import AgentServerConfig
 from aiohttp import web
 
 from .git_utils import get_git_branch
-from .agent import ChumpAgent
+from .agent import bind_chump_agent
 from .config import ChumpConfig, PROVIDER_MODELS, load_config, load_global_config, load_repo_config
 from .managed_idle import is_resume_gap
 from .mcp_runtime import MCPManager
 from .mcp_config import load_mcp_server_configs
 from .process_title import set_process_title
+from .projects import ProjectRegistry
 from .resources import ResourceCatalog
 from .search import WorkspaceSearch
 from .server.connections import active_connection_count
 from .server.sessions import stored_sessions
 from .server.session_snapshot import reconcile_delegated_session_snapshot
 from .terminal import terminal_websocket
+from .workspaces import WorkspaceRuntime, WorkspaceRuntimeMap
 
 
 class ChumpServer(AgentServer):
@@ -29,13 +35,20 @@ class ChumpServer(AgentServer):
         self,
         config: ChumpConfig,
         resources: ResourceCatalog | None = None,
+        projects: ProjectRegistry | None = None,
+        workspace_runtimes: WorkspaceRuntimeMap | None = None,
     ):
         resources = resources or ResourceCatalog(config.workspace_root)
-        ChumpAgent.configure(config, resources)
         self.search = WorkspaceSearch(config.workspace_root)
-        ChumpAgent._server_search = self.search
         self.mcp = MCPManager(config.workspace_root, config.mcp_servers)
-        ChumpAgent._server_mcp = self.mcp
+        self.storage = SQLiteStorage(str(config.data_dir / "chump.sqlite3"))
+        agent_class = bind_chump_agent(
+            config,
+            resources,
+            search=self.search,
+            mcp=self.mcp,
+            storage=self.storage,
+        )
         # `allowed_origins=None` makes ai-query's CORS middleware reply with `*`
         # for any origin, which is fine when the server is only reachable on
         # loopback. As soon as it's exposed via an onlocal share the wildcard
@@ -47,9 +60,17 @@ class ChumpServer(AgentServer):
             if config.allowed_origins
             else None
         )
-        super().__init__(ChumpAgent, config=agent_config)
+        super().__init__(
+            agent_class,
+            config=agent_config,
+            session_storage=self.storage,
+        )
         self.chump_config = config
         self.resources = resources
+        self.projects = projects or ProjectRegistry()
+        self.workspace_runtimes = workspace_runtimes or WorkspaceRuntimeMap(
+            self.projects
+        )
         self.started_at = time.time()
         self._managed_idle_task: asyncio.Task[None] | None = None
         self._managed_idle_resume_grace_until: float | None = None
@@ -63,6 +84,44 @@ class ChumpServer(AgentServer):
         app.router.add_get("/sessions", self.sessions)
         app.router.add_get("/files", self.files)
         app.router.add_get("/terminal", self.terminal)
+        app.router.add_get("/projects", self.list_projects)
+        app.router.add_post("/projects", self.register_project)
+        app.router.add_get("/projects/{project_id}", self.get_project)
+        app.router.add_patch("/projects/{project_id}", self.rename_project)
+        app.router.add_delete("/projects/{project_id}", self.remove_project)
+        app.router.add_get("/projects/{project_id}/health", self.project_health)
+        app.router.add_get("/projects/{project_id}/sessions", self.project_sessions)
+        app.router.add_post("/projects/{project_id}/sessions", self.create_project_session)
+        app.router.add_get("/projects/{project_id}/files", self.project_files)
+        app.router.add_get("/projects/{project_id}/terminal", self.project_terminal)
+        app.router.add_get(
+            "/projects/{project_id}/sessions/{agent_id}/state",
+            self.project_session_state,
+        )
+        app.router.add_get(
+            "/projects/{project_id}/sessions/{agent_id}/messages",
+            self.project_session_messages,
+        )
+        app.router.add_get(
+            "/projects/{project_id}/sessions/{agent_id}/session-snapshot",
+            self.project_session_snapshot,
+        )
+        app.router.add_get(
+            "/projects/{project_id}/sessions/{agent_id}/events",
+            self.project_session_events,
+        )
+        app.router.add_get(
+            "/projects/{project_id}/sessions/{agent_id}/ws",
+            self.project_session_websocket,
+        )
+        app.router.add_post(
+            "/projects/{project_id}/sessions/{agent_id}/chat",
+            self.project_session_chat,
+        )
+        app.router.add_post(
+            "/projects/{project_id}/sessions/{agent_id}/action/{action_name}",
+            self.project_session_action,
+        )
         app.router.add_get(
             "/agent/{agent_id}/session-snapshot",
             self.session_snapshot,
@@ -71,6 +130,8 @@ class ChumpServer(AgentServer):
         app.on_cleanup.append(self._stop_managed_idle_shutdown)
         app.on_cleanup.append(self._close_search)
         app.on_cleanup.append(self._close_mcp)
+        app.on_cleanup.append(self._close_workspaces)
+        app.on_cleanup.append(self._close_storage)
 
     @web.middleware
     async def _track_active_requests(
@@ -89,6 +150,12 @@ class ChumpServer(AgentServer):
 
     async def _close_mcp(self, app: web.Application) -> None:
         await self.mcp.close()
+
+    async def _close_workspaces(self, app: web.Application) -> None:
+        await self.workspace_runtimes.close()
+
+    async def _close_storage(self, app: web.Application) -> None:
+        self.storage.close()
 
     async def health(self, request: web.Request) -> web.Response:
         await self._sync_mcp_config()
@@ -178,6 +245,216 @@ class ChumpServer(AgentServer):
             {"files": await self.search.files(query, max(1, min(limit, 100)))}
         )
 
+    async def list_projects(self, request: web.Request) -> web.Response:
+        projects = await self.projects.list()
+        return web.json_response(
+            {"projects": [project.to_dict() for project in projects]}
+        )
+
+    async def register_project(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("workspacePath"), str)
+            or body.get("approved") is not True
+            or (
+                body.get("name") is not None
+                and not isinstance(body.get("name"), str)
+            )
+        ):
+            raise web.HTTPBadRequest(
+                text="workspacePath and approved: true are required"
+            )
+        try:
+            project = await self.projects.register(
+                body["workspacePath"],
+                body.get("name"),
+            )
+        except FileNotFoundError as error:
+            raise web.HTTPBadRequest(text=str(error)) from error
+        return web.json_response({"project": project.to_dict()}, status=201)
+
+    async def get_project(self, request: web.Request) -> web.Response:
+        project = await self.projects.get(request.match_info["project_id"])
+        if project is None:
+            raise web.HTTPNotFound(text="project not found")
+        return web.json_response({"project": project.to_dict()})
+
+    async def rename_project(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("name"), str):
+            raise web.HTTPBadRequest(text="name is required")
+        try:
+            project = await self.projects.rename(
+                request.match_info["project_id"],
+                body["name"],
+            )
+        except ValueError as error:
+            raise web.HTTPBadRequest(text=str(error)) from error
+        if project is None:
+            raise web.HTTPNotFound(text="project not found")
+        return web.json_response({"project": project.to_dict()})
+
+    async def remove_project(self, request: web.Request) -> web.Response:
+        project_id = request.match_info["project_id"]
+        if await self.projects.get(project_id) is None:
+            raise web.HTTPNotFound(text="project not found")
+        await self.workspace_runtimes.evict(project_id)
+        await self.projects.remove(project_id)
+        return web.Response(status=204)
+
+    async def project_health(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        await runtime.sync_mcp_config()
+        return web.json_response(self._workspace_health(runtime))
+
+    async def project_sessions(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        page = parse_positive_int(request.query.get("page", "1"), "page")
+        page_size = min(
+            parse_positive_int(request.query.get("limit", "10"), "limit"),
+            10,
+        )
+        return web.json_response(
+            await runtime.session_page(page=page, page_size=page_size)
+        )
+
+    async def create_project_session(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            raise web.HTTPBadRequest(text="request body must be an object")
+        session_id = body.get("sessionId")
+        if session_id is None:
+            session_id = self._generated_session_id(runtime.project.id)
+        if not isinstance(session_id, str) or not re.fullmatch(
+            r"[A-Za-z0-9._-]{1,128}",
+            session_id,
+        ):
+            raise web.HTTPBadRequest(
+                text=(
+                    "sessionId must contain only letters, numbers, dots, "
+                    "underscores, and hyphens"
+                )
+            )
+        if await runtime.server.sessions.get(session_id) is not None:
+            raise web.HTTPConflict(text=f"session already exists: {session_id}")
+        return web.json_response(
+            {"projectId": runtime.project.id, "sessionId": session_id},
+            status=201,
+        )
+
+    async def project_files(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        query = request.query.get("query", "")
+        try:
+            limit = int(request.query.get("limit", "20"))
+        except ValueError:
+            raise web.HTTPBadRequest(text="limit must be an integer")
+        return web.json_response(
+            {
+                "files": await runtime.search.files(
+                    query,
+                    max(1, min(limit, 100)),
+                )
+            }
+        )
+
+    async def project_session_state(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        return await runtime.handlers.handle_get_state(request)
+
+    async def project_session_messages(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        return await runtime.handlers.handle_get_messages(request)
+
+    async def project_session_events(self, request: web.Request) -> web.StreamResponse:
+        runtime = await self._project_runtime(request)
+        return await runtime.handlers.handle_sse(request)
+
+    async def project_session_websocket(
+        self,
+        request: web.Request,
+    ) -> web.WebSocketResponse:
+        runtime = await self._project_runtime(request)
+        return await runtime.handlers.handle_websocket(request)
+
+    async def project_session_chat(self, request: web.Request) -> web.StreamResponse:
+        runtime = await self._project_runtime(request)
+        return await runtime.handlers.handle_chat(request)
+
+    async def project_session_action(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        return await runtime.handlers.handle_action(request)
+
+    async def project_session_snapshot(self, request: web.Request) -> web.Response:
+        runtime = await self._project_runtime(request)
+        return await self._session_snapshot_response(
+            runtime.server,
+            runtime.config.data_dir / "chump.sqlite3",
+            request.match_info["agent_id"],
+        )
+
+    async def project_terminal(self, request: web.Request) -> web.WebSocketResponse:
+        runtime = await self._project_runtime(request)
+        return await terminal_websocket(
+            request,
+            workspace_root=runtime.config.workspace_root,
+            allowed_origins=runtime.config.allowed_origins,
+        )
+
+    async def _project_runtime(self, request: web.Request) -> WorkspaceRuntime:
+        runtime = await self.workspace_runtimes.get(request.match_info["project_id"])
+        if runtime is None:
+            raise web.HTTPNotFound(text="project not found")
+        return runtime
+
+    @staticmethod
+    def _workspace_health(runtime: WorkspaceRuntime) -> dict[str, Any]:
+        config = runtime.config
+        return {
+            "status": "ok",
+            "version": _package_version("chump-server"),
+            "ai_query_version": _package_version("ai-query"),
+            "process_id": os.getpid(),
+            "project_id": runtime.project.id,
+            "workspace_root": str(config.workspace_root),
+            "git_branch": get_git_branch(config.workspace_root),
+            "data_dir": str(config.data_dir),
+            "provider": config.provider,
+            "model": config.model,
+            "max_steps": config.max_steps,
+            "command_timeout": config.command_timeout,
+            "managed_idle_timeout": config.managed_idle_timeout,
+            "reasoning": config.reasoning,
+            "verbose": config.verbose,
+            "active_sessions": len(runtime.server._agents),
+            "active_connections": runtime.active_connection_count(),
+            "uptime_seconds": round(time.time() - runtime.started_at, 3),
+            "instruction_files": [
+                str(item.path) for item in runtime.resources.system_instructions
+            ],
+            "skills": [
+                {"name": item.name, "description": item.description}
+                for item in runtime.resources.skills
+            ],
+            "available_providers": list(config.available_providers),
+            "available_models": {
+                provider: sorted(PROVIDER_MODELS.get(provider, ()))
+                for provider in config.available_providers
+            },
+            "mcp": runtime.mcp.status(),
+        }
+
+    @staticmethod
+    def _generated_session_id(project_id: str) -> str:
+        project_segment = project_id.removeprefix("project-")[:8]
+        timestamp = base36(int(time.time() * 1000))
+        return f"session-{project_segment}-{timestamp}-{str(uuid.uuid4())[:8]}"
+
     async def terminal(self, request: web.Request) -> web.WebSocketResponse:
         return await terminal_websocket(
             request,
@@ -187,21 +464,32 @@ class ChumpServer(AgentServer):
 
     async def session_snapshot(self, request: web.Request) -> web.Response:
         """Read an active session without waiting behind its mailbox action."""
-        agent_id = request.match_info["agent_id"]
-        was_warm = agent_id in self._agents
-        agent = self.get_or_create(agent_id)
+        return await self._session_snapshot_response(
+            self,
+            self.chump_config.data_dir / "chump.sqlite3",
+            request.match_info["agent_id"],
+        )
+
+    async def _session_snapshot_response(
+        self,
+        server: AgentServer,
+        db_path: Path,
+        agent_id: str,
+    ) -> web.Response:
+        was_warm = agent_id in server._agents
+        agent = server.get_or_create(agent_id)
         if agent._state is None:
             if not was_warm:
                 stored = await agent._storage.get(f"{agent_id}:state")
                 if stored is None:
-                    self._agents.pop(agent_id, None)
+                    server._agents.pop(agent_id, None)
                     raise web.HTTPNotFound()
             await agent.start()
-            await self.on_agent_create(agent)
-        self._agents[agent_id].last_activity = time.time()
+            await server.on_agent_create(agent)
+        server._agents[agent_id].last_activity = time.time()
         snapshot = await asyncio.to_thread(
             reconcile_delegated_session_snapshot,
-            self.chump_config.data_dir / "chump.sqlite3",
+            db_path,
             agent.capture_session_snapshot(),
         )
         return web.json_response(snapshot)
@@ -282,10 +570,19 @@ class ChumpServer(AgentServer):
                 return
 
     def _active_connection_count(self) -> int:
-        return active_connection_count(list(self._agents.values()))
+        return active_connection_count(list(self._agents.values())) + sum(
+            runtime.active_connection_count()
+            for runtime in self.workspace_runtimes.values()
+        )
 
     def _has_active_turn(self) -> bool:
-        return any(self.is_agent_busy(agent_id) for agent_id in self._agents)
+        return (
+            any(self.is_agent_busy(agent_id) for agent_id in self._agents)
+            or any(
+                runtime.has_active_turn()
+                for runtime in self.workspace_runtimes.values()
+            )
+        )
 
 
 def main() -> None:
@@ -331,6 +628,19 @@ def parse_positive_int(value: str, name: str) -> int:
     if parsed < 1:
         raise web.HTTPBadRequest(text=f"{name} must be at least 1")
     return parsed
+
+
+def base36(value: int) -> str:
+    if value < 0:
+        raise ValueError("base36 value must be non-negative")
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if value == 0:
+        return "0"
+    encoded = ""
+    while value:
+        value, remainder = divmod(value, 36)
+        encoded = alphabet[remainder] + encoded
+    return encoded
 
 
 if __name__ == "__main__":

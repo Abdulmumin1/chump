@@ -30,6 +30,7 @@ class ManagedIdleShutdownTests(unittest.TestCase):
         server = object.__new__(ChumpServer)
         server._agents = {"parent": object(), "delegated-child": object()}
         server.is_agent_busy = lambda agent_id: agent_id == "delegated-child"
+        server.workspace_runtimes = SimpleNamespace(values=lambda: ())
 
         self.assertTrue(server._has_active_turn())
 
@@ -37,6 +38,7 @@ class ManagedIdleShutdownTests(unittest.TestCase):
         server = object.__new__(ChumpServer)
         server._agents = {"parent": object()}
         server.is_agent_busy = lambda _agent_id: False
+        server.workspace_runtimes = SimpleNamespace(values=lambda: ())
 
         self.assertFalse(server._has_active_turn())
 
@@ -68,9 +70,10 @@ class AgentEvictionConfigTests(unittest.TestCase):
         )
 
         with (
-            patch("chump_server.main.ChumpAgent.configure"),
             patch("chump_server.main.WorkspaceSearch"),
             patch("chump_server.main.MCPManager"),
+            patch("chump_server.main.SQLiteStorage"),
+            patch("chump_server.main.bind_chump_agent"),
             patch("chump_server.main.AgentServer.__init__") as server_init,
         ):
             ChumpServer(config, resources=SimpleNamespace())
