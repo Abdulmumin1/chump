@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -189,7 +188,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
             "max_steps": self._config.max_steps,
             "retry": self._retry_status(),
             "command_timeout": self._config.command_timeout,
-            "managed_idle_timeout": self._config.managed_idle_timeout,
             "compaction": self._compaction_status(),
             "reasoning": self._config.reasoning,
             "verbose": self._config.verbose,
@@ -351,24 +349,6 @@ class ChumpAgent(Agent[dict[str, Any]]):
                 async for event in self.session.replay_events()
             ]
         }
-
-    @action
-    async def session_snapshot(self) -> dict[str, Any]:
-        """Capture transcript, turn state, and replay cursor as one snapshot."""
-        return self.capture_session_snapshot()
-
-    def capture_session_snapshot(self) -> dict[str, Any]:
-        """Synchronously copy all state owned by a session hydration cursor."""
-        return deepcopy(
-            {
-                "status": self._status_snapshot(),
-                "messages": [message.to_dict() for message in self.messages],
-                "events": list(self._event_log),
-                PENDING_DELEGATED_SESSIONS_STATE_KEY: parse_pending_delegated_sessions(
-                    self.state.get(PENDING_DELEGATED_SESSIONS_STATE_KEY)
-                ),
-            }
-        )
 
     @action
     async def abort_current_turn(self) -> dict[str, Any]:

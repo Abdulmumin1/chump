@@ -19,7 +19,7 @@ describe('loopback permission', () => {
 	});
 
 	it('provides actionable messages for prompt and denied states', () => {
-		expect(loopbackPermissionMessage('prompt')).toContain('Connect to projects');
+		expect(loopbackPermissionMessage('prompt')).toContain('Connect to local service');
 		expect(loopbackPermissionMessage('denied')).toContain('site’s settings');
 		expect(loopbackPermissionMessage('granted')).toBeNull();
 	});

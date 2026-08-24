@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.0
+
+### Minor Changes
+
+- Replace the daemon, proxy, and per-project server design with one authenticated shared server that the CLI starts or reuses for the CLI, web app, and API. `chump server` runs it in the foreground and `chump projects list/add/remove` manage registered projects. Removes daemon commands, per-project runtime controls, terminal proxying, and managed recovery.
+
 ## 0.4.1
 
 ### Patch Changes

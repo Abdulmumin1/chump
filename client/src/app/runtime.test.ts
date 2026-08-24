@@ -1,86 +1,120 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import {
-  managedServerVersionIsReusable,
-  rotateManagedLog,
-  serverSourceForMetadata,
-  workspaceLockIsStale,
+  ensureServerTarget,
+  parseCliArgs,
 } from "./runtime.ts";
-import type { ManagedServerMetadata } from "../core/types.ts";
+import { rotateServerLog } from "./server-command.ts";
 
-test("detects workspace locks left by exited processes", async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-lock-"));
-  const lockDir = path.join(rootPath, "server.lock");
-  await mkdir(lockDir);
-  await writeFile(
-    path.join(lockDir, "owner.json"),
-    JSON.stringify({ pid: 999_999_999, createdAt: Date.now() }),
-  );
-
-  assert.equal(await workspaceLockIsStale(lockDir), true);
-});
-
-test("keeps workspace locks owned by the current process", async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-lock-"));
-  const lockDir = path.join(rootPath, "server.lock");
-  await mkdir(lockDir);
-  await writeFile(
-    path.join(lockDir, "owner.json"),
-    JSON.stringify({ pid: process.pid, createdAt: Date.now() }),
-  );
-
-  assert.equal(await workspaceLockIsStale(lockDir), false);
-});
-
-test("rotates only one previous managed server log", async () => {
+test("rotates only one previous server log", async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-log-"));
   const logPath = path.join(rootPath, "server.log");
   await writeFile(logPath, "current log");
   await writeFile(`${logPath}.previous`, "stale previous log");
 
-  rotateManagedLog(logPath);
+  rotateServerLog(logPath);
 
   assert.equal(await readFile(`${logPath}.previous`, "utf8"), "current log");
   await assert.rejects(readFile(logPath, "utf8"), { code: "ENOENT" });
 });
 
-test("restarts bundled managed servers after a server version upgrade", () => {
-  assert.equal(managedServerVersionIsReusable("bundled", "0.1.24", "0.2.0"), false);
-  assert.equal(managedServerVersionIsReusable("bundled", "0.2.0", "0.2.0"), true);
-});
-
-test("does not impose the bundled version on local or overridden servers", () => {
-  assert.equal(managedServerVersionIsReusable("local", "0.1.24", "0.2.0"), true);
-  assert.equal(managedServerVersionIsReusable("env", undefined, "0.2.0"), true);
-});
-
-test("treats a foreground server as user-owned", () => {
-  const metadata: ManagedServerMetadata = {
-    url: "http://127.0.0.1:4000",
-    port: 4000,
-    pid: 123,
-    process_group_id: null,
-    lifecycle: "foreground",
-    command: "chump-server",
-    command_args: [],
-    command_source: "bundled",
-    workspace_root: "/workspace",
-    data_dir: "/state",
-    log_path: "/state/server.log",
-    started_at: "2026-08-24T00:00:00.000Z",
-  };
-
-  assert.equal(serverSourceForMetadata(metadata), "direct");
-  assert.equal(
-    serverSourceForMetadata({ ...metadata, lifecycle: "managed" }),
-    "managed",
+test("connect and CHUMP_SERVER_URL use credentials only for the registered local service", async () => {
+  const stateDirectory = await mkdtemp(path.join(os.tmpdir(), "chump-service-target-"));
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "chump-workspace-"));
+  const token = "service-secret-that-is-long-enough-for-private-auth";
+  const instanceId = "registered-service-instance";
+  const authorizationHeaders: string[] = [];
+  const server = createServer((request, response) => {
+    if (request.url === "/health") {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        status: "ok",
+        service: "chump-server",
+        version: "0.2.1",
+        instance_id: instanceId,
+        process_id: process.pid,
+      }));
+      return;
+    }
+    if (request.method === "POST" && request.url === "/projects") {
+      authorizationHeaders.push(request.headers.authorization ?? "");
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        project: {
+          id: "project-one",
+          name: "workspace",
+          workspacePath: workspaceRoot,
+          createdAt: 1,
+          lastOpenedAt: 1,
+        },
+      }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const serviceUrl = `http://127.0.0.1:${address.port}`;
+  await writeFile(
+    path.join(stateDirectory, "service.json"),
+    JSON.stringify({
+      version: 1,
+      url: serviceUrl,
+      pid: process.pid,
+      serverVersion: "0.2.1",
+      instanceId,
+      token,
+      startedAt: "2026-08-24T00:00:00.000Z",
+    }),
   );
-  assert.equal(
-    serverSourceForMetadata({ ...metadata, lifecycle: undefined }),
-    "managed",
-  );
+
+  const previousStateDirectory = process.env.CHUMP_GLOBAL_STATE_DIR;
+  const previousServerUrl = process.env.CHUMP_SERVER_URL;
+  process.env.CHUMP_GLOBAL_STATE_DIR = stateDirectory;
+  try {
+    const connected = await ensureServerTarget(
+      workspaceRoot,
+      parseCliArgs(["-c", `${serviceUrl}/`]),
+    );
+    assert.deepEqual(connected.apiTarget, {
+      kind: "service",
+      projectId: "project-one",
+      token,
+    });
+
+    process.env.CHUMP_SERVER_URL = serviceUrl;
+    const fromEnvironment = await ensureServerTarget(workspaceRoot, parseCliArgs([]));
+    assert.deepEqual(fromEnvironment.apiTarget, connected.apiTarget);
+
+    const explicitRemote = await ensureServerTarget(
+      workspaceRoot,
+      parseCliArgs(["-c", `http://localhost:${address.port}`]),
+    );
+    assert.deepEqual(explicitRemote.apiTarget, { kind: "direct" });
+    assert.deepEqual(authorizationHeaders, [
+      `Bearer ${token}`,
+      `Bearer ${token}`,
+    ]);
+  } finally {
+    restoreEnvironment("CHUMP_GLOBAL_STATE_DIR", previousStateDirectory);
+    restoreEnvironment("CHUMP_SERVER_URL", previousServerUrl);
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
 });
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}

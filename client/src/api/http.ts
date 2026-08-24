@@ -1,7 +1,6 @@
 import type {
   AgentEventLogResponse,
   AgentMessagesResponse,
-  AgentSessionSnapshotResponse,
   AgentStateResponse,
   ChumpConfig,
   ChumpHealth,
@@ -14,6 +13,7 @@ import type {
 } from "../core/types.ts";
 import { consumeSse } from "./sse.ts";
 import { ServerHttpError, ServerStreamInterruptedError } from "./errors.ts";
+import { buildAgentUrl, buildProjectUrl, targetHeaders } from "./target.ts";
 
 export async function streamChat(
   config: ChumpConfig,
@@ -33,9 +33,9 @@ export async function streamChat(
     {
       method: "POST",
       signal,
-      headers: {
+      headers: targetHeaders(config, {
         "content-type": "application/json",
-      },
+      }),
       body: JSON.stringify({
         message,
         attachments: serializeAttachments(attachments),
@@ -85,7 +85,9 @@ export async function getStatus(config: ChumpConfig): Promise<ChumpStatus> {
 }
 
 export async function getHealth(config: ChumpConfig): Promise<ChumpHealth> {
-  const response = await fetch(`${config.serverUrl}/health`);
+  const response = await fetch(buildProjectUrl(config, "/health"), {
+    headers: targetHeaders(config),
+  });
   if (!response.ok) {
     throw await serverHttpError(response);
   }
@@ -96,10 +98,10 @@ export async function getSessions(
   config: ChumpConfig,
   options: { page?: number; limit?: number } = {},
 ): Promise<SessionsResponse> {
-  const url = new URL(`${config.serverUrl}/sessions`);
+  const url = new URL(buildProjectUrl(config, "/sessions"));
   url.searchParams.set("page", String(options.page ?? 1));
   url.searchParams.set("limit", String(options.limit ?? 6));
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: targetHeaders(config) });
   if (!response.ok) {
     throw await serverHttpError(response);
   }
@@ -147,10 +149,10 @@ export async function searchFiles(
   query: string,
   limit = 20,
 ): Promise<FileSearchResult[]> {
-  const url = new URL(`${config.serverUrl}/files`);
+  const url = new URL(buildProjectUrl(config, "/files"));
   url.searchParams.set("query", query);
   url.searchParams.set("limit", String(limit));
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: targetHeaders(config) });
   if (!response.ok) {
     throw await serverHttpError(response);
   }
@@ -173,7 +175,9 @@ export async function compactMessages(
 export async function getState(
   config: ChumpConfig,
 ): Promise<ChumpState> {
-  const response = await fetch(`${buildAgentUrl(config)}/state`);
+  const response = await fetch(`${buildAgentUrl(config)}/state`, {
+    headers: targetHeaders(config),
+  });
   if (!response.ok) {
     throw await serverHttpError(response);
   }
@@ -183,7 +187,9 @@ export async function getState(
 export async function getMessages(
   config: ChumpConfig,
 ): Promise<AgentMessagesResponse> {
-  const response = await fetch(`${buildAgentUrl(config)}/messages`);
+  const response = await fetch(`${buildAgentUrl(config)}/messages`, {
+    headers: targetHeaders(config),
+  });
   if (!response.ok) {
     throw await serverHttpError(response);
   }
@@ -194,34 +200,6 @@ export async function getEventLog(
   config: ChumpConfig,
 ): Promise<AgentEventLogResponse> {
   return await invokeAction<AgentEventLogResponse>(config, "event_log");
-}
-
-export async function getSessionSnapshot(
-  config: ChumpConfig,
-): Promise<AgentSessionSnapshotResponse> {
-  const response = await fetch(`${buildAgentUrl(config)}/session-snapshot`);
-  if (response.ok) {
-    return (await response.json()) as AgentSessionSnapshotResponse;
-  }
-
-  const error = await serverHttpError(response);
-  if (error.status !== 404) {
-    throw error;
-  }
-
-  // Older managed servers do not expose the atomic snapshot route. Create or
-  // restore the target session through status first, then hydrate it through
-  // the established endpoints so /new and /session remain version-tolerant.
-  const status = await getStatus(config);
-  const [messages, eventLog] = await Promise.all([
-    getMessages(config),
-    getEventLog(config),
-  ]);
-  return {
-    status,
-    messages: messages.messages,
-    events: eventLog.events,
-  };
 }
 
 export async function abortCurrentTurn(
@@ -291,9 +269,9 @@ async function invokeAction<T>(
     `${buildAgentUrl(config)}/action/${actionName}`,
     {
       method: "POST",
-      headers: {
+      headers: targetHeaders(config, {
         "content-type": "application/json",
-      },
+      }),
       body: JSON.stringify(serializeActionBody(body)),
     },
   );
@@ -319,10 +297,6 @@ async function invokeAction<T>(
   }
 
   return data.result;
-}
-
-function buildAgentUrl(config: ChumpConfig): string {
-  return `${config.serverUrl}/agent/${config.agentId}`;
 }
 
 function normalizeStateResponse(response: AgentStateResponse): ChumpState {

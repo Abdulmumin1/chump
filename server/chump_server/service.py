@@ -117,6 +117,22 @@ async def service_auth_middleware(
     return await handler(request)
 
 
+@web.middleware
+async def service_scope_middleware(
+    request: web.Request,
+    handler: Any,
+) -> web.StreamResponse:
+    if request.path in {
+        "/health",
+        "/version",
+        "/projects",
+        "/directory-picker",
+        "/service/shutdown",
+    } or request.path.startswith("/projects/"):
+        return await handler(request)
+    raise web.HTTPNotFound(text="not found")
+
+
 def request_is_authorized(request: web.Request, token: str) -> bool:
     authorization = request.headers.get("Authorization", "")
     if authorization.startswith("Bearer ") and hmac.compare_digest(

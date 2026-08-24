@@ -3,12 +3,12 @@
 	import { dev } from '$app/environment';
 	import favicon from '$lib/assets/favicon.svg';
 	import {
-		consumeDaemonHandoff,
-		dispatchPendingDaemonHandoff,
-		prepareDaemonLaunchTarget,
-		stageDaemonHandoff
-	} from '$lib/chump/daemon-handoff';
-	import type { DaemonConnection } from '$lib/chump/daemon-api';
+		consumeLocalServiceHandoff,
+		dispatchPendingLocalServiceHandoff,
+		prepareLocalServiceLaunchTarget,
+		stageLocalServiceHandoff
+	} from '$lib/chump/local-service-handoff';
+	import type { LocalServiceConnection } from '$lib/chump/local-service-api';
 	import { initBodyFont } from '$lib/fonts';
 	import '../app.css';
 
@@ -26,13 +26,13 @@
 
 	onMount(() => {
 		initBodyFont();
-		const publishHandoff = (handoff: DaemonConnection) => {
-			stageDaemonHandoff(localStorage, handoff);
-			dispatchPendingDaemonHandoff(window, handoff);
+		const publishHandoff = (handoff: LocalServiceConnection) => {
+			stageLocalServiceHandoff(localStorage, handoff);
+			dispatchPendingLocalServiceHandoff(window, handoff);
 		};
 
 		const consumeCurrentHandoff = () => {
-			const handoff = consumeDaemonHandoff(window.location.href, sessionStorage, (url) => {
+			const handoff = consumeLocalServiceHandoff(window.location.href, sessionStorage, (url) => {
 				window.history.replaceState({}, '', url);
 			});
 			if (handoff) publishHandoff(handoff);
@@ -43,7 +43,7 @@
 
 		(window as LaunchQueueWindow).launchQueue?.setConsumer(({ targetURL }) => {
 			if (!targetURL) return;
-			const target = prepareDaemonLaunchTarget(targetURL, window.location.origin, sessionStorage);
+			const target = prepareLocalServiceLaunchTarget(targetURL, window.location.origin, sessionStorage);
 			if (!target) return;
 
 			if (target.connection) publishHandoff(target.connection);

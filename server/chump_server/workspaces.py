@@ -23,7 +23,7 @@ from .projects import Project, ProjectRegistry
 from .resources import ResourceCatalog
 from .search import WorkspaceSearch
 from .server.connections import active_connection_count
-from .server.sessions import diff_totals
+from .server.sessions import stored_sessions
 
 
 class WorkspaceRuntime:
@@ -72,33 +72,19 @@ class WorkspaceRuntime:
             meta.agent.refresh_mcp_tools()
 
     async def session_page(self, *, page: int, page_size: int) -> dict[str, Any]:
-        result = await self.server.sessions.list(page=page, page_size=page_size)
-        sessions = []
-        for info in result.items:
-            state = info.state if isinstance(info.state, dict) else {}
-            total_added, total_removed = diff_totals(state.get("file_diffs"))
-            sessions.append(
-                {
-                    "id": info.id,
-                    "active": info.active,
-                    "message_count": info.message_count,
-                    "event_count": info.event_count,
-                    "title": state.get("title"),
-                    "created_at": info.created_at,
-                    "updated_at": info.updated_at,
-                    "last_user_goal": state.get("last_user_goal"),
-                    "last_activity": info.last_activity,
-                    "connections": info.connection_count,
-                    "total_added": total_added,
-                    "total_removed": total_removed,
-                }
-            )
+        sessions, total = await asyncio.to_thread(
+            stored_sessions,
+            self.config.data_dir / "chump.sqlite3",
+            dict(self.server._agents),
+            page=page,
+            page_size=page_size,
+        )
         return {
             "sessions": sessions,
-            "page": result.page,
-            "page_size": result.page_size,
-            "total": result.total,
-            "total_pages": result.total_pages,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": max(1, (total + page_size - 1) // page_size),
         }
 
     def active_connection_count(self) -> int:

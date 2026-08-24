@@ -1,6 +1,4 @@
 <script lang="ts">
-    import PulseDot from "$lib/PulseDot.svelte";
-    import Spinner from "$lib/Spinner.svelte";
     import type { DelegatedSessionActivity } from "$lib/chump/types";
 
     let { activities, onSelectSession } = $props<{
@@ -18,7 +16,7 @@
 </script>
 
 <div
-    class=" flex w-full mx-auto max-w-[calc(100%-1rem)] items-stretch gap-2 overflow-x-auto"
+    class="flex w-full mx-auto max-w-[calc(100%-1rem)] items-stretch gap-2 overflow-x-auto"
     aria-live="polite"
     data-testid="delegated-activity-peek"
 >
@@ -30,21 +28,18 @@
             title={`Open ${activity.sessionId}`}
             onclick={() => onSelectSession?.(activity.sessionId)}
         >
-            <Spinner class="mt-1 shrink-0 text-text-tertiary" />
             <span class="min-w-0">
                 <span
-                    class="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-text-tertiary"
+                    class="delegated-header flex min-w-0 items-center gap-1.5 text-[11px] leading-4"
                 >
-                    <span class="shrink-0 font-medium text-text-secondary"
-                        >Sub-agent</span
-                    >
-                    <span class="text-text-muted">·</span>
+                    <span class="shrink-0 font-medium">Sub-agent</span>
+                    <span class="shrink-0">·</span>
                     <span class="truncate font-mono">{activity.sessionId}</span>
                 </span>
 
                 {#if activity.latestDetail?.kind === "reasoning"}
                     <span
-                        class="mt-0.5 block line-clamp-2 leading-[1.35] text-text-main truncate max-w-full"
+                        class="mt-0.5 block truncate leading-[1.35] text-text-main"
                     >
                         <span class="text-text-tertiary">Thinking ·</span>
                         {activity.latestDetail.text}
@@ -55,22 +50,22 @@
                     >
                         <span
                             class={activity.latestDetail.status === "error"
-                                ? "text-text-error"
-                                : "text-text-tertiary"}
+                                ? "shrink-0 text-text-error"
+                                : "shrink-0 text-text-tertiary"}
                         >
                             {toolStatusLabel(activity.latestDetail.status)}
                         </span>
-                        <span class="truncate font-mono text-text-main"
+                        <span class="shrink-0 font-mono text-text-main"
                             >{activity.latestDetail.name}</span
                         >
+                        {#if activity.latestDetail.detail}
+                            <span
+                                class="min-w-0 truncate font-mono text-[11px] leading-4 text-text-tertiary"
+                            >
+                                · {activity.latestDetail.detail}
+                            </span>
+                        {/if}
                     </span>
-                    {#if activity.latestDetail.detail}
-                        <span
-                            class="mt-0.5 block max-w-[22rem] truncate font-mono text-[11px] leading-4 text-text-tertiary"
-                        >
-                            {activity.latestDetail.detail}
-                        </span>
-                    {/if}
                 {:else}
                     <span
                         class="mt-0.5 block truncate leading-[1.35] text-text-main"
@@ -82,3 +77,45 @@
         </button>
     {/each}
 </div>
+
+<style>
+    .delegated-header {
+        --shimmer-spread: 64px;
+        background-image:
+            linear-gradient(
+                90deg,
+                transparent calc(50% - var(--shimmer-spread)),
+                var(--text-main),
+                transparent calc(50% + var(--shimmer-spread))
+            ),
+            linear-gradient(var(--text-tertiary), var(--text-tertiary));
+        background-position: 100% center;
+        background-repeat: no-repeat, padding-box;
+        background-size: 250% 100%, auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
+        animation: delegated-header-shimmer 2s linear infinite;
+    }
+
+    .delegated-header > span {
+        color: inherit;
+    }
+
+    @keyframes delegated-header-shimmer {
+        from {
+            background-position: 100% center;
+        }
+
+        to {
+            background-position: 0% center;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .delegated-header {
+            animation: none;
+        }
+    }
+</style>

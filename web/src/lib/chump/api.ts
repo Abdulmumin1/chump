@@ -2,7 +2,6 @@ import type {
 	ChatAttachment,
 	AgentEventLogResponse,
 	AgentMessagesResponse,
-	AgentSessionSnapshotResponse,
 	AgentStateResponse,
 	ChumpState,
 	ChumpHealth,
@@ -15,8 +14,16 @@ import type {
 import type { FileSearchResult } from '$lib/chump/types';
 
 export type ChumpApiTarget =
-	| { kind: 'direct'; serverUrl: string }
-	| { kind: 'daemon'; daemonUrl: string; token: string; projectId: string };
+	| {
+			kind: 'direct';
+			serverUrl: string;
+	  }
+	| {
+			kind: 'service';
+			serviceUrl: string;
+			token: string;
+			projectId: string;
+	  };
 
 export type TerminalWebSocketConnection = {
 	url: string;
@@ -48,16 +55,16 @@ export function terminalWebSocketConnection(
 	return {
 		url: endpoint.toString(),
 		protocols:
-			target.kind === 'daemon'
+			target.kind === 'service'
 				? ['chump-terminal-v1', `chump-auth.${target.token}`]
 				: ['chump-terminal-v1']
 	};
 }
 
 export function terminalTargetIdentity(target: ChumpApiTarget): string {
-	return target.kind === 'direct'
-		? `direct:${normalizeServerUrl(target.serverUrl)}`
-		: `daemon:${normalizeServerUrl(target.daemonUrl)}:${target.projectId}:${target.token}`;
+	return target.kind === 'service'
+		? `service:${normalizeServerUrl(target.serviceUrl)}:${target.projectId}:${target.token}`
+		: `direct:${normalizeServerUrl(target.serverUrl)}`;
 }
 
 export async function getHealth(target: ChumpApiTarget): Promise<ChumpHealth> {
@@ -102,34 +109,6 @@ export async function getMessages(target: ChumpApiTarget, agentId: string): Prom
 
 export async function getEventLog(target: ChumpApiTarget, agentId: string): Promise<AgentEventLogResponse> {
 	return await invokeAction<AgentEventLogResponse>(target, agentId, 'event_log');
-}
-
-export async function getSessionSnapshot(
-	target: ChumpApiTarget,
-	agentId: string
-): Promise<AgentSessionSnapshotResponse> {
-	const response = await fetch(`${buildAgentUrl(target, agentId)}/session-snapshot`, {
-		headers: requestHeaders(target)
-	});
-	if (response.ok) {
-		return (await response.json()) as AgentSessionSnapshotResponse;
-	}
-	if (response.status !== 404) {
-		throw new Error(await readErrorResponse(response));
-	}
-
-	// Older direct servers and daemons do not expose the atomic snapshot route.
-	// Restore the session through status, then hydrate through the legacy reads.
-	const status = await getStatus(target, agentId);
-	const [messages, eventLog] = await Promise.all([
-		getMessages(target, agentId),
-		getEventLog(target, agentId)
-	]);
-	return {
-		status,
-		messages: messages.messages,
-		events: eventLog.events
-	};
 }
 
 export async function setModel(
@@ -510,20 +489,18 @@ function projectUrl(target: ChumpApiTarget, path: string): string {
 	if (target.kind === 'direct') {
 		return `${normalizeServerUrl(target.serverUrl)}/${path}`;
 	}
-	return `${normalizeServerUrl(target.daemonUrl)}/projects/${encodeURIComponent(target.projectId)}/${path}`;
+	return `${normalizeServerUrl(target.serviceUrl)}/projects/${encodeURIComponent(target.projectId)}/${path}`;
 }
 
 function buildAgentUrl(target: ChumpApiTarget, agentId: string): string {
 	if (target.kind === 'direct') {
 		return `${normalizeServerUrl(target.serverUrl)}/agent/${encodeURIComponent(agentId)}`;
 	}
-	return `${normalizeServerUrl(target.daemonUrl)}/projects/${encodeURIComponent(target.projectId)}/sessions/${encodeURIComponent(agentId)}`;
+	return `${normalizeServerUrl(target.serviceUrl)}/projects/${encodeURIComponent(target.projectId)}/sessions/${encodeURIComponent(agentId)}`;
 }
 
 function requestHeaders(target: ChumpApiTarget): Record<string, string> {
-	return target.kind === 'daemon'
-		? { authorization: `Bearer ${target.token}` }
-		: {};
+	return target.kind === 'service' ? { authorization: `Bearer ${target.token}` } : {};
 }
 
 async function readErrorResponse(response: Response): Promise<string> {

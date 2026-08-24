@@ -33,7 +33,7 @@ When resolving any configuration option, Chump looks up values in the following 
 4. **Auth Settings** (`auth.json` containing credentials and fallbacks from `chump connect`)
 5. **In-Code Defaults**
 
-*Note: If you edit a configuration file, the running background managed server will automatically be detected as obsolete, stopped, and restarted with your new configurations on the next client prompt!*
+*Note: Restart the shared Chump server after changing configuration that is already loaded for an open workspace.*
 
 ---
 
@@ -49,7 +49,7 @@ The following fields can be configured in either your local `.chump/config.json`
 | `port` | `integer` | `CHUMP_PORT` | `8080` | Port for the backend server. |
 | `max_steps` | `integer` | `CHUMP_MAX_STEPS` | `250` | Maximum agent tool-use execution loop steps. |
 | `command_timeout` | `integer` | `CHUMP_COMMAND_TIMEOUT` | `120` | Timeout in seconds for running local bash commands. |
-| `managed_idle_timeout` | `integer` | `CHUMP_MANAGED_SERVER_IDLE_TIMEOUT` | `30` | Idle timeout in seconds before the managed background server automatically shuts down when not in use. |
+| `managed_idle_timeout` | `integer` | `CHUMP_MANAGED_SERVER_IDLE_TIMEOUT` | unset | Optional idle shutdown for directly launched remote or sandbox servers. The shared local service ignores it. |
 | `verbose` | `boolean` | `CHUMP_VERBOSE` | `true` | Enables verbose console logs for the backend server. |
 | `theme` | `string` | `CHUMP_THEME` | *Detected* | Force color theme to `light` or `dark` (if not specified, terminal environment is detected). |
 | `compaction_tokens` | `integer` | `CHUMP_COMPACTION_TOKENS` | `200000` | Max context tokens before prompting history compaction/truncation. |
@@ -188,7 +188,6 @@ Here is a fully loaded example of `config.json` configuring Chump to use Anthrop
   "theme": "dark",
   "max_steps": 250,
   "command_timeout": 300,
-  "managed_idle_timeout": 60,
   "verbose": false,
   "compaction": {
     "tokens": 150000,

@@ -24,6 +24,9 @@ DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
     # Local dev for the Svelte web client (Vite default port).
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    # Vite moves here when its default port is already in use.
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
     # SvelteKit preview / build (`vite preview` / `wrangler dev`) defaults.
     "http://localhost:4173",
     "http://127.0.0.1:4173",

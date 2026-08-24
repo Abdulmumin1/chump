@@ -13,19 +13,14 @@ import path from "node:path";
 
 export type WorkspaceStatePaths = {
   dataDir: string;
-  metadataPath: string;
-  lockDir: string;
-  logPath: string;
   clientLogPath: string;
 };
 
 export type GlobalStatePaths = {
   dataDir: string;
-  daemonAuthPath: string;
-  daemonMetadataPath: string;
-  daemonLockDir: string;
-  daemonLogPath: string;
-  projectsPath: string;
+  serviceRegistrationPath: string;
+  serviceLockDir: string;
+  serviceLogPath: string;
 };
 
 export function getGlobalStatePaths(): GlobalStatePaths {
@@ -35,11 +30,9 @@ export function getGlobalStatePaths(): GlobalStatePaths {
   mkdirSync(dataDir, { recursive: true });
   return {
     dataDir,
-    daemonAuthPath: path.join(dataDir, "daemon-auth.json"),
-    daemonMetadataPath: path.join(dataDir, "daemon.json"),
-    daemonLockDir: path.join(dataDir, "daemon.lock"),
-    daemonLogPath: path.join(dataDir, "daemon.log"),
-    projectsPath: path.join(dataDir, "projects.json"),
+    serviceRegistrationPath: path.join(dataDir, "service.json"),
+    serviceLockDir: path.join(dataDir, "service.lock"),
+    serviceLogPath: path.join(dataDir, "service.log"),
   };
 }
 
@@ -48,9 +41,6 @@ export function getWorkspaceStatePaths(workspaceRoot: string): WorkspaceStatePat
   migrateLegacyWorkspaceState(workspaceRoot, dataDir);
   return {
     dataDir,
-    metadataPath: path.join(dataDir, "server.json"),
-    lockDir: path.join(dataDir, "server.lock"),
-    logPath: path.join(dataDir, "server.log"),
     clientLogPath: path.join(dataDir, "client.log"),
   };
 }

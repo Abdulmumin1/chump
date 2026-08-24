@@ -33,10 +33,6 @@ test("lists discovered skills as Pi-style slash commands", () => {
     root.some((item) => item.command === "/skill:release"),
     true,
   );
-  assert.equal(
-    root.some((item) => item.command === "/reload"),
-    true,
-  );
 
   const [filtered] = completeSlashCommand("/skill:rel", context);
   assert.deepEqual(
@@ -59,13 +55,6 @@ test("parses a skill command while preserving its arguments", () => {
   assert.deepEqual(parseSlashCommand("/skill:review"), {
     command: "skill",
     args: ["review"],
-  });
-});
-
-test("parses the reload command", () => {
-  assert.deepEqual(parseSlashCommand("/reload"), {
-    command: "reload",
-    args: [],
   });
 });
 

@@ -9,7 +9,7 @@ import {
   getAllSessions,
   compactMessages,
   getHealth,
-  getSessionSnapshot,
+  getMessages,
   getSessions,
   getState,
   getStatus,
@@ -92,8 +92,6 @@ import {
   ensureServerTarget,
   parseCliArgs,
   printCliUsage,
-  startServerCommand,
-  stopManagedServer,
 } from "./runtime.ts";
 import {
   completionCommandUsage,
@@ -101,12 +99,6 @@ import {
   parseCompletionShell,
   renderShellCompletion,
 } from "./completion.ts";
-import {
-  ManagedServerRequestCoordinator,
-  reloadManagedServerUrl,
-  recoverManagedServerUrl,
-  type ServerRequestRunner,
-} from "./managed-recovery.ts";
 import {
   currentClientVersion,
   maybeRenderUpdateNotice,
@@ -117,18 +109,16 @@ import {
   projectCommandUsage,
   runProjectCommand,
 } from "./project-command.ts";
-import {
-  daemonCommandUsage,
-  parseDaemonCommand,
-  runDaemonCommand,
-} from "./daemon-command.ts";
 import { parseAppCommand, runAppCommand } from "./app-command.ts";
+import {
+  runLocalServiceForeground,
+  stopLocalService,
+} from "./local-service.ts";
 import { renderSessionFooter } from "../ui/footer.ts";
 import { isChumpEventType, parseChumpEvent } from "../core/events.ts";
 import type {
   ChumpConfig,
   CliOptions,
-  ManagedServerMetadata,
   PromptSubmission,
   ShareStatus,
   ChumpStatus,
@@ -137,6 +127,14 @@ import type {
   SseEvent,
   UsageSummary,
 } from "../core/types.ts";
+
+type ServerRequestRunner = <T>(
+  config: ChumpConfig,
+  request: (config: ChumpConfig) => Promise<T>,
+) => Promise<T>;
+
+const runServerRequestDirectly: ServerRequestRunner = async (config, request) =>
+  await request(config);
 
 async function runProvidersCommand(): Promise<void> {
   const workspaceRoot = resolveWorkspaceRoot(process.cwd());
@@ -214,15 +212,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
-  if (argv[0] === "daemon") {
-    if (argv[1] === "--help" || argv[1] === "-h") {
-      console.log(daemonCommandUsage());
-      return;
-    }
-    console.log(await runDaemonCommand(parseDaemonCommand(argv.slice(1))));
-    return;
-  }
-
   if (argv[0] === "projects") {
     if (argv[1] === "--help" || argv[1] === "-h") {
       console.log(projectCommandUsage());
@@ -255,7 +244,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 
   if (options.mode === "stop") {
-    console.log(await stopManagedServer(workspaceRoot));
+    console.log(await stopLocalService());
     return;
   }
 
@@ -270,9 +259,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 
   if (options.mode === "server") {
-    const result = await startServerCommand(workspaceRoot);
+    const result = await runLocalServiceForeground();
     if (!result.started) {
-      console.log(`server already running at ${result.metadata.url}`);
+      console.log(`server already running at ${result.registration.url}`);
     }
     return;
   }
@@ -289,31 +278,24 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   // Refresh on every interactive launch so a recently published release is
   // not hidden by yesterday's "up to date" cache entry. Start the request
-  // while the managed server initializes so it does not delay the UI.
+  // while the local service initializes so it does not delay the UI.
   const updateNoticePromise = maybeRenderUpdateNotice({ refresh: true });
   const target = await ensureServerTarget(workspaceRoot, options);
-  const managedRecoveryStrategy = target.metadata?.command_source === "local"
-    ? "direct-first"
-    : "daemon-first";
   let config = loadConfig({
     agentId: options.sessionId ?? undefined,
     serverUrl: target.serverUrl,
-    serverSource: target.serverSource,
+    apiTarget: target.apiTarget,
   });
-  const standaloneRequest = createStandaloneServerRequestRunner(
-    config,
-    managedRecoveryStrategy,
-  );
 
   if (options.mode === "status") {
-    const [health, status] = await standaloneRequest(
+    const [health, status] = await runServerRequestDirectly(
       config,
       (requestConfig) => Promise.all([
         getHealth(requestConfig),
         getStatus(requestConfig),
       ]),
     );
-    renderServerStatus(health, status, target.metadata);
+    renderServerStatus(health, status);
     return;
   }
 
@@ -325,7 +307,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   let closeEventStream: (() => void) | null = null;
   let activeSteerHandler: ((submission: PromptSubmission) => Promise<boolean>) | null = null;
   let resumeSessionId: string | null = null;
-  let connectionCountAtQuit: number | null = null;
   let localCompactionActive = false;
   let lastServerEventId = 0;
   let rootAgentId = config.agentId;
@@ -359,15 +340,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader.setStatus(null);
   };
 
-  const [health, initialSnapshot, sessions] = await standaloneRequest(
+  const [health, status, sessions] = await runServerRequestDirectly(
     config,
     (requestConfig) => Promise.all([
       getHealth(requestConfig),
-      getSessionSnapshot(requestConfig),
+      getStatus(requestConfig),
       getSessions(requestConfig),
     ]),
   );
-  const status = initialSnapshot.status;
   promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
   promptReader.setRuleBadge(await renderInputBadge(status));
   promptReader.setSessionSuggestions(sessions.sessions);
@@ -415,91 +395,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     }
     compactionStatus.stop();
   });
-  const refreshCliHydration = async (): Promise<void> => {
-    const [health, snapshot, sessions] = await Promise.all([
-      getHealth(config),
-      getSessionSnapshot(config),
-      getSessions(config),
-    ]);
-    const turnHydration = resolveRemoteTurnHydration(
-      snapshot.status,
-      snapshot.events,
-    );
-    const status = {
-      ...snapshot.status,
-      turn_running: turnHydration.running,
-      steering_queue: turnHydration.steeringQueue,
-    };
-    promptReader.setFooter(renderSessionFooter(config, status, shareManager.current()));
-    promptReader.setRuleBadge(await renderInputBadge(status));
-    promptReader.setSessionSuggestions(sessions.sessions);
-    promptReader.setModelSuggestions(
-      await loadModelSuggestions(health.available_models),
-    );
-    promptReader.setSkillSuggestions(health.skills);
-    promptReader.setMcpSuggestions(health.mcp ?? []);
-    promptReader.setQueuedDisplay(steeringQueueSubmissions({ items: status.steering_queue ?? [] }));
-    sharedTurnSync.applyTurnStatus({
-      running: status.turn_running === true,
-      steering_queue: status.steering_queue ?? [],
-    }, turnHydration.activityEvents);
-  };
+  const runServerRequest = runServerRequestDirectly;
 
-  const recoverManagedServerSession = async (): Promise<void> => {
-    if (config.serverSource !== "managed") {
-      throw new Error("managed server recovery is unavailable for direct connections");
-    }
-    const recoveredUrl = await recoverManagedServerUrl(
-      config.workspaceRoot,
-      config.serverUrl,
-      { strategy: managedRecoveryStrategy },
-    );
-    config.serverUrl = recoveredUrl;
-    config.serverSource = "managed";
-    closeEventStream?.();
-    closeEventStream = await startRecoverableEventStream(config);
-    await refreshCliHydration();
-  };
-
-  const reloadManagedServerSession = async (): Promise<(() => void) | null> => {
-    if (config.serverSource !== "managed") {
-      throw new Error("reload is unavailable for externally managed servers");
-    }
-
-    closeEventStream?.();
-    closeEventStream = null;
-    config.serverUrl = await reloadManagedServerUrl(
-      config.workspaceRoot,
-      config.serverUrl,
-      { strategy: managedRecoveryStrategy },
-    );
-    closeEventStream = await startRecoverableEventStream(config);
-    await refreshCliHydration();
-    return closeEventStream;
-  };
-
-  const requestCoordinator = new ManagedServerRequestCoordinator(
-    () => config,
-    recoverManagedServerSession,
-  );
-  const runServerRequest: ServerRequestRunner = (requestConfig, request, requestOptions) =>
-    requestCoordinator.run(requestConfig, request, requestOptions);
-
-  const startRecoverableEventStream = async (
+  const startSessionEventStream = async (
     streamConfig: ChumpConfig,
   ): Promise<(() => void) | null> => {
-    const currentStreamConfig = {
-      ...streamConfig,
-      serverUrl: config.serverUrl,
-      serverSource: config.serverSource,
-    };
-    return await startEventStream(currentStreamConfig, {
+    return await startEventStream(streamConfig, {
       lastEventId: lastServerEventId,
       onLastEventId: (eventId) => {
         lastServerEventId = eventId;
-      },
-      onConnectionError: async (error) => {
-        await requestCoordinator.recoverFromDisconnect(error);
       },
     });
   };
@@ -540,9 +444,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     promptReader.setQueuedDisplay(steeringQueueSubmissions({ items: status.steering_queue }));
   }
 
-  if (target.note) {
-    writeOutput(`[server] ${target.note}\n`);
-  }
   writeOutput(`${renderBanner(config, { workspaceRoot: health.workspace_root })}\n`);
   const updateNotice = await updateNoticePromise;
   if (updateNotice) {
@@ -568,13 +469,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       running: hydration.status.turn_running === true,
       steering_queue: hydration.status.steering_queue ?? [],
     }, hydration.activityEvents);
-    closeEventStream = await startRecoverableEventStream(config);
+    closeEventStream = await startSessionEventStream(config);
     promptReader.setSkillSuggestions((await runServerRequest(
       config,
       getHealth,
     )).skills);
   } else {
-    closeEventStream = await startRecoverableEventStream(config);
+    closeEventStream = await startSessionEventStream(config);
   }
 
   void readInputLoop(
@@ -589,7 +490,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         config,
         closeEventStream,
         shareManager,
-        metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
         setStatus: (statusText) => setCoordinatedStatus("turn", statusText),
         setLocalCompactionActive: (active) => {
@@ -610,7 +510,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setRemoteTurnStatus: (payload, activityEvents) =>
           sharedTurnSync.applyTurnStatus(payload, activityEvents),
         runServerRequest,
-        reloadManagedServer: reloadManagedServerSession,
         restartEventStream: async (nextConfig, resumeAfterEventId) => {
           closeEventStream?.();
           if (nextConfig.agentId !== config.agentId) {
@@ -618,7 +517,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
           } else if (resumeAfterEventId !== undefined) {
             lastServerEventId = resumeAfterEventId;
           }
-          closeEventStream = await startRecoverableEventStream(nextConfig);
+          closeEventStream = await startSessionEventStream(nextConfig);
           return closeEventStream;
         },
       });
@@ -656,7 +555,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         config,
         closeEventStream,
         shareManager,
-        metadata: target.metadata,
         setFooter: (footer) => promptReader.setFooter(footer),
         setStatus: (statusText) => setCoordinatedStatus("turn", statusText),
         setLocalCompactionActive: (active) => {
@@ -677,7 +575,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         setRemoteTurnStatus: (payload, activityEvents) =>
           sharedTurnSync.applyTurnStatus(payload, activityEvents),
         runServerRequest,
-        reloadManagedServer: reloadManagedServerSession,
         restartEventStream: async (nextConfig, resumeAfterEventId) => {
           closeEventStream?.();
           if (nextConfig.agentId !== config.agentId) {
@@ -685,7 +582,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
           } else if (resumeAfterEventId !== undefined) {
             lastServerEventId = resumeAfterEventId;
           }
-          closeEventStream = await startRecoverableEventStream(nextConfig);
+          closeEventStream = await startSessionEventStream(nextConfig);
           return closeEventStream;
         },
       });
@@ -765,14 +662,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       sharedTurnSync.install();
     }
   } finally {
-    if (config.serverSource === "managed") {
-      try {
-        const preQuitHealth = await getHealth(config);
-        connectionCountAtQuit = preQuitHealth.active_connections;
-      } catch {
-        // ignore
-      }
-    }
     promptReader.close();
     closeEventStream?.();
     await shareManager.dispose();
@@ -787,22 +676,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     writeOutput(`${renderMuted(`resume this session with: ${formatResumeCommand(resumeSessionId)}`)}\n`);
   }
 
-  if (config.serverSource === "managed" && connectionCountAtQuit !== null) {
-    // Subtract 1 for ourselves — the snapshot was taken while we were still connected
-    const remaining = Math.max(0, connectionCountAtQuit - 1);
-    const idleTimeout = health.managed_idle_timeout;
-    const parts: string[] = [];
-    if (remaining === 0) {
-      parts.push(`server: no clients connected`);
-      if (idleTimeout !== null) {
-        parts.push(`shutting down in ${idleTimeout}s`);
-      }
-    } else {
-      parts.push(`server: ${remaining} client${remaining === 1 ? "" : "s"} still connected`);
-    }
-    parts.push(`force stop: chump stop`);
-    writeOutput(`${renderMuted(parts.join(" · "))}\n`);
-  }
 }
 
 function assertInteractiveOutput(): void {
@@ -828,22 +701,16 @@ async function runPrintPrompt(
   const config = loadConfig({
     agentId: options.sessionId ?? undefined,
     serverUrl: target.serverUrl,
-    serverSource: target.serverSource,
+    apiTarget: target.apiTarget,
   });
-  const runServerRequest = createStandaloneServerRequestRunner(
-    config,
-    target.metadata?.command_source === "local"
-      ? "direct-first"
-      : "daemon-first",
-  );
+  const runServerRequest = runServerRequestDirectly;
 
   const startedAt = Date.now();
   if (options.verbose) {
-    writeVerbosePrintLine(`server: ${config.serverUrl} (${config.serverSource})`);
+    writeVerbosePrintLine(
+      `server: ${config.serverUrl} (${config.apiTarget.kind === "service" ? "local service" : "remote"})`,
+    );
     writeVerbosePrintLine(`session: ${config.agentId}`);
-    if (target.note) {
-      writeVerbosePrintLine(target.note);
-    }
     writeVerbosePrintLine(`prompt: ${message.length} chars`);
   }
 
@@ -899,9 +766,7 @@ async function runPrintPrompt(
         receivedEnd = true;
         streamError = messageText;
       },
-    }), {
-      canReplay: () => !receivedChunk && !receivedEnd,
-    });
+    }));
   } catch (error) {
     if (!receivedEnd) {
       await runServerRequest(config, abortCurrentTurn).catch(() => {});
@@ -927,24 +792,6 @@ async function runPrintPrompt(
   if (options.verbose) {
     writeVerbosePrintLine(`done: ${Date.now() - startedAt}ms`);
   }
-}
-
-function createStandaloneServerRequestRunner(
-  config: ChumpConfig,
-  strategy: "daemon-first" | "direct-first" = "daemon-first",
-): ServerRequestRunner {
-  const coordinator = new ManagedServerRequestCoordinator(
-    () => config,
-    async () => {
-      config.serverUrl = await recoverManagedServerUrl(
-        config.workspaceRoot,
-        config.serverUrl,
-        { strategy },
-      );
-    },
-  );
-  return (requestConfig, request, options) =>
-    coordinator.run(requestConfig, request, options);
 }
 
 async function readPipedStdin(): Promise<string | null> {
@@ -1279,10 +1126,6 @@ async function runChatTurn(
           localTranscript.render({ type: "stream_error", message });
         },
       }, streamAbortController.signal, submission.displayText),
-      {
-        canReplay: () =>
-          !receivedChunk && !receivedEnd && toolCallCount === 0,
-      },
     );
     if (!receivedEnd && !aborting) {
       await runServerRequest(config, abortCurrentTurn).catch(() => {});
@@ -1566,7 +1409,6 @@ function isBlockedActiveSlashCommand(value: string): boolean {
     "/new",
     "/model",
     "/thinking",
-    "/reload",
     "/clear",
     "/compact",
     "/agent",
@@ -1651,7 +1493,6 @@ async function handleSlashCommand(
     config: ReturnType<typeof loadConfig>;
     closeEventStream: (() => void) | null;
     shareManager: ShareManager;
-    metadata: ManagedServerMetadata | null;
     setFooter: (footer: string | null) => void;
     setStatus: (status: StatusDisplay) => void;
     setLocalCompactionActive: (active: boolean) => void;
@@ -1669,7 +1510,6 @@ async function handleSlashCommand(
       activityEvents?: readonly StoredEvent[],
     ) => void;
     runServerRequest: ServerRequestRunner;
-    reloadManagedServer: () => Promise<(() => void) | null>;
     restartEventStream: (
       config: ChumpConfig,
       resumeAfterEventId?: number,
@@ -1700,24 +1540,6 @@ async function handleSlashCommand(
         getState(requestConfig),
       ]));
       writeOutput(`${renderSessionStatusSummary(config, status, state)}\n`);
-      break;
-    }
-    case "reload": {
-      if (config.serverSource !== "managed") {
-        writeOutput(`${renderError("[reload] unavailable for externally managed servers")}\n`);
-        break;
-      }
-      context.setStatus("Reloading server");
-      writeOutput(`${renderMuted("restarting managed server...")}\n`);
-      closeEventStream = null;
-      try {
-        closeEventStream = await context.reloadManagedServer();
-        writeOutput(`${renderMuted(`reloaded server at ${config.serverUrl}`)}\n`);
-      } catch (error) {
-        writeOutput(`${renderError(`[reload] ${errorMessage(error)}`)}\n`);
-      } finally {
-        context.setStatus(null);
-      }
       break;
     }
     case "sessions": {
@@ -2083,32 +1905,33 @@ async function renderSwitchedSession(
   activityEvents: StoredEvent[];
   lastEventId: number;
 }> {
-  const [health, snapshot, sessions] = await runServerRequest(
+  const [health, status, messages, eventLog, sessions] = await runServerRequest(
     config,
     (requestConfig) => Promise.all([
       getHealth(requestConfig),
-      getSessionSnapshot(requestConfig),
+      getStatus(requestConfig),
+      getMessages(requestConfig),
+      getEventLog(requestConfig),
       getSessions(requestConfig),
     ]),
   );
-  const status = snapshot.status;
   setFooter(renderSessionFooter(config, status, shareManager.current()));
   setRuleBadge(await renderInputBadge(status));
   setSessionSuggestions(sessions.sessions);
-  const turnHydration = resolveRemoteTurnHydration(status, snapshot.events);
+  const turnHydration = resolveRemoteTurnHydration(status, eventLog.events);
   const hydratedStatus = {
     ...status,
     turn_running: turnHydration.running,
     steering_queue: turnHydration.steeringQueue,
   };
-  if (options.skipEmptyTranscript && snapshot.messages.length === 0) {
+  if (options.skipEmptyTranscript && messages.messages.length === 0) {
     return {
       status: hydratedStatus,
       activityEvents: turnHydration.activityEvents,
       lastEventId: turnHydration.lastEventId,
     };
   }
-  renderSessionTranscript(snapshot.messages, config.workspaceRoot);
+  renderSessionTranscript(messages.messages, config.workspaceRoot);
   return {
     status: hydratedStatus,
     activityEvents: turnHydration.activityEvents,

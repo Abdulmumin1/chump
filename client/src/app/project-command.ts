@@ -1,6 +1,12 @@
 import path from "node:path";
 
-import { ProjectRegistryStore, type Project } from "./projects.ts";
+import {
+  ensureLocalService,
+  listLocalProjects,
+  registerLocalProjectTarget,
+  removeLocalProject,
+  type Project,
+} from "./local-service.ts";
 
 export type ProjectCommand =
   | { action: "list" }
@@ -60,26 +66,43 @@ export function parseProjectCommand(
 
 export async function runProjectCommand(
   command: ProjectCommand,
-  store = new ProjectRegistryStore(),
+  client?: ProjectCommandClient,
 ): Promise<string> {
+  const projects = client ?? await localServiceProjectClient();
   if (command.action === "add") {
-    const project = await store.register(command.workspacePath, command.name);
+    const project = await projects.register(command.workspacePath, command.name);
     return formatProject(project);
   }
 
   if (command.action === "remove") {
-    const removed = await store.remove(command.projectId);
+    const removed = await projects.remove(command.projectId);
     if (!removed) {
       throw new Error(`project not found: ${command.projectId}`);
     }
     return `removed ${command.projectId}`;
   }
 
-  const projects = await store.list();
-  if (projects.length === 0) {
+  const registeredProjects = await projects.list();
+  if (registeredProjects.length === 0) {
     return "No projects registered.";
   }
-  return projects.map(formatProject).join("\n");
+  return registeredProjects.map(formatProject).join("\n");
+}
+
+type ProjectCommandClient = {
+  list(): Promise<Project[]>;
+  register(workspacePath: string, name?: string): Promise<Project>;
+  remove(projectId: string): Promise<boolean>;
+};
+
+async function localServiceProjectClient(): Promise<ProjectCommandClient> {
+  const service = await ensureLocalService();
+  return {
+    list: async () => await listLocalProjects(service),
+    register: async (workspacePath, name) =>
+      (await registerLocalProjectTarget(service, workspacePath, name)).project,
+    remove: async (projectId) => await removeLocalProject(service, projectId),
+  };
 }
 
 export function projectCommandUsage(): string {

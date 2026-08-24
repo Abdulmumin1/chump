@@ -19,8 +19,8 @@ test("parses each supported completion shell", () => {
 test("renders static completion scripts without invoking the CLI", () => {
   for (const shell of ["bash", "fish", "powershell", "zsh"] as const) {
     const script = renderShellCompletion(shell);
-    assert.match(script, /daemon/u);
     assert.match(script, /projects/u);
+    assert.doesNotMatch(script, /\bdaemon\b/u);
     assert.match(script, /none.*low.*high.*xhigh/u);
     assert.doesNotMatch(script, /\bchump __complete\b/u);
   }

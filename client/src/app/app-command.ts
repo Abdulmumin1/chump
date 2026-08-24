@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 
-import { DaemonAuthStore } from "./daemon-auth.ts";
-import { runDaemonCommand } from "./daemon-command.ts";
-import { DaemonMetadataStore } from "./daemon-metadata.ts";
+import {
+  ensureLocalProjectTarget,
+} from "./local-service.ts";
+import { resolveWorkspaceRoot } from "./config.ts";
 import {
   DEFAULT_CHUMP_WEB_URL,
   TRUSTED_CHUMP_WEB_ORIGINS,
@@ -51,21 +52,19 @@ export function parseAppCommand(argv: string[]): AppCommandOptions {
 export async function runAppCommand(
   options: AppCommandOptions,
 ): Promise<string> {
-  await runDaemonCommand("start");
-  const [daemon, token] = await Promise.all([
-    new DaemonMetadataStore().readActive(),
-    new DaemonAuthStore().readToken(),
-  ]);
-  if (!daemon) {
-    throw new Error("daemon metadata is unavailable after startup");
-  }
-  if (!token) {
-    throw new Error("daemon credential is unavailable after startup");
-  }
+  const target = await ensureLocalProjectTarget(
+    resolveWorkspaceRoot(process.cwd()),
+  );
+  const { service, project } = target;
 
   const webUrl = options.webUrl ?? process.env.CHUMP_WEB_URL ??
     DEFAULT_CHUMP_WEB_URL;
-  const connectUrl = buildDaemonConnectUrl(webUrl, daemon.url, token);
+  const connectUrl = buildServiceConnectUrl(
+    webUrl,
+    service.url,
+    service.token,
+    project.id,
+  );
 
   if (options.open !== false && connectUrl) {
     openUrl(connectUrl);
@@ -74,8 +73,9 @@ export async function runAppCommand(
   if (options.json) {
     return JSON.stringify(
       {
-        daemonUrl: daemon.url,
-        daemonToken: token,
+        serviceUrl: service.url,
+        serviceToken: service.token,
+        projectId: project.id,
         webUrl,
         connectUrl,
       },
@@ -85,7 +85,7 @@ export async function runAppCommand(
   }
 
   const lines = [
-    `daemon: ${daemon.url}`,
+    `service: ${service.url}`,
     `web:    ${webUrl}`,
   ];
   if (options.open !== false) {
@@ -96,16 +96,18 @@ export async function runAppCommand(
   return lines.join("\n");
 }
 
-export function buildDaemonConnectUrl(
+export function buildServiceConnectUrl(
   webUrl: string,
-  daemonUrl: string,
-  daemonToken: string,
+  serviceUrl: string,
+  serviceToken: string,
+  projectId: string,
 ): string {
   const parsed = new URL(webUrl);
   assertAllowedWebUrl(parsed);
   const handoff = new URLSearchParams();
-  handoff.set("daemonUrl", daemonUrl);
-  handoff.set("daemonToken", daemonToken);
+  handoff.set("serviceUrl", serviceUrl);
+  handoff.set("serviceToken", serviceToken);
+  handoff.set("projectId", projectId);
   parsed.hash = handoff.toString();
   return parsed.toString();
 }

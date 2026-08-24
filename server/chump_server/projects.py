@@ -12,7 +12,6 @@ from typing import Any
 from .config import global_state_dir
 
 PROJECT_REGISTRY_VERSION = 1
-PROJECT_STATUSES = {"ready", "starting", "busy", "offline", "error"}
 
 
 @dataclass(frozen=True)
@@ -22,7 +21,6 @@ class Project:
     workspace_path: Path
     created_at: int
     last_opened_at: int
-    status: str = "ready"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -31,12 +29,11 @@ class Project:
             "workspacePath": str(self.workspace_path),
             "createdAt": self.created_at,
             "lastOpenedAt": self.last_opened_at,
-            "status": self.status,
         }
 
 
 class ProjectRegistry:
-    """Persistent registry shared by the old launcher and chump-server."""
+    """Persistent project registry owned by chump-server."""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or global_state_dir() / "projects.json"
@@ -75,7 +72,6 @@ class ProjectRegistry:
                     workspace_path=canonical,
                     created_at=existing.created_at,
                     last_opened_at=timestamp,
-                    status="ready",
                 )
                 projects = [project if item.id == project.id else item for item in projects]
             else:
@@ -117,7 +113,6 @@ class ProjectRegistry:
                 workspace_path=existing.workspace_path,
                 created_at=existing.created_at,
                 last_opened_at=existing.last_opened_at,
-                status=existing.status,
             )
             await asyncio.to_thread(
                 self._write,
@@ -167,7 +162,6 @@ def parse_project(value: Any, registry_path: Path) -> Project:
     workspace_path = value.get("workspacePath")
     created_at = value.get("createdAt")
     last_opened_at = value.get("lastOpenedAt")
-    status = value.get("status")
     if (
         not isinstance(project_id, str)
         or not isinstance(name, str)
@@ -176,7 +170,6 @@ def parse_project(value: Any, registry_path: Path) -> Project:
         or not isinstance(created_at, (int, float))
         or isinstance(last_opened_at, bool)
         or not isinstance(last_opened_at, (int, float))
-        or status not in PROJECT_STATUSES
     ):
         raise ValueError(f"invalid Chump project registry: {registry_path}")
     return Project(
@@ -185,5 +178,4 @@ def parse_project(value: Any, registry_path: Path) -> Project:
         workspace_path=Path(workspace_path).expanduser().resolve(),
         created_at=int(created_at),
         last_opened_at=int(last_opened_at),
-        status=str(status),
     )

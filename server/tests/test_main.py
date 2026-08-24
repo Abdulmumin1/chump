@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import unittest
 from unittest.mock import AsyncMock, patch
 from pathlib import Path
@@ -241,95 +240,6 @@ class SessionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["page_size"], 10)
         self.assertEqual(payload["page_size"], 10)
         self.assertEqual(payload["total_pages"], 2)
-
-    async def test_session_snapshot_bypasses_the_active_agent_mailbox(self) -> None:
-        server = object.__new__(ChumpServer)
-        server.chump_config = SimpleNamespace(data_dir=Path("/missing"))
-        snapshot = {
-            "status": {"turn_running": True},
-            "messages": [],
-            "events": [{"id": 4, "type": "turn_status", "data": {}}],
-        }
-        agent = SimpleNamespace(
-            _state={},
-            capture_session_snapshot=lambda: snapshot,
-        )
-        server.get_or_create = lambda _agent_id: agent
-        server._agents = {
-            "running-child": SimpleNamespace(last_activity=0.0),
-        }
-        request = SimpleNamespace(match_info={"agent_id": "running-child"})
-
-        response = await server.session_snapshot(request)
-
-        self.assertEqual(json.loads(response.text), snapshot)
-        self.assertGreater(server._agents["running-child"].last_activity, 0)
-
-    async def test_session_snapshot_reconciles_terminal_delegated_children(
-        self,
-    ) -> None:
-        from tempfile import TemporaryDirectory
-
-        with TemporaryDirectory() as temporary_dir:
-            data_dir = Path(temporary_dir)
-            with sqlite3.connect(data_dir / "chump.sqlite3") as conn:
-                conn.execute(
-                    "CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT)"
-                )
-                conn.execute(
-                    "INSERT INTO kv_store (key, value) VALUES (?, ?)",
-                    (
-                        "issue-227:state",
-                        json.dumps(
-                            {
-                                "delegated_task_status": "completed",
-                                "delegated_task_error": None,
-                            }
-                        ),
-                    ),
-                )
-
-            server = object.__new__(ChumpServer)
-            server.chump_config = SimpleNamespace(data_dir=data_dir)
-            agent = SimpleNamespace(
-                _state={},
-                capture_session_snapshot=lambda: {
-                    "status": {"turn_running": False, "steering_queue": []},
-                    "messages": [],
-                    "events": [
-                        {
-                            "id": 1,
-                            "type": "turn_status",
-                            "data": {"running": True, "steering_queue": []},
-                        },
-                        {
-                            "id": 606,
-                            "type": "tool_call",
-                            "data": {
-                                "name": "start_session",
-                                "call_id": "start-227",
-                                "args": {"session_id": "issue-227"},
-                                "step": 5,
-                                "index": 0,
-                            },
-                        },
-                    ],
-                },
-            )
-            server.get_or_create = lambda _agent_id: agent
-            server._agents = {"parent": SimpleNamespace(last_activity=0.0)}
-            request = SimpleNamespace(match_info={"agent_id": "parent"})
-
-            response = await server.session_snapshot(request)
-            payload = json.loads(response.text)
-
-            self.assertEqual(payload["events"][-1]["type"], "turn_status")
-            self.assertFalse(payload["events"][-1]["data"]["running"])
-            self.assertEqual(
-                payload["messages"][-1]["content"][0]["tool_result"]["status"],
-                "completed",
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

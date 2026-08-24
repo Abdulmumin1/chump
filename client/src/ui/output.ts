@@ -11,7 +11,6 @@ import {
 import type {
   ChumpHealth,
   ChumpStatus,
-  ManagedServerMetadata,
   MCPServerStatusSummary,
 } from "../core/types.ts";
 
@@ -143,21 +142,11 @@ export function renderSessions(
 export function renderServerStatus(
   health: ChumpHealth,
   status: ChumpStatus,
-  metadata: ManagedServerMetadata | null,
 ): void {
   // Pause the input draft during server status rendering to prevent
   // input box borders/controls from mixing with the content
   withDraftPaused(() => {
-    if (!metadata) {
-      writeOutputLine(JSON.stringify({
-        health,
-        agent: status,
-      }, null, 2));
-      return;
-    }
-
     writeOutputLine(JSON.stringify({
-      server: metadata,
       health,
       agent: status,
     }, null, 2));

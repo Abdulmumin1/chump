@@ -36,13 +36,13 @@ from .resources import ResourceCatalog
 from .search import WorkspaceSearch
 from .server.connections import active_connection_count
 from .server.sessions import stored_sessions
-from .server.session_snapshot import reconcile_delegated_session_snapshot
 from .service import (
     DEFAULT_SERVICE_PORT,
     ServiceRegistration,
     ServiceRegistrationStore,
     service_auth_middleware,
     service_registration_key,
+    service_scope_middleware,
 )
 from .terminal import terminal_websocket
 from .workspaces import WorkspaceRuntime, WorkspaceRuntimeMap
@@ -107,6 +107,7 @@ class ChumpServer(AgentServer):
         if self.service_registration is not None:
             app[service_registration_key] = self.service_registration
             app.middlewares.append(service_auth_middleware)
+            app.middlewares.append(service_scope_middleware)
         app.middlewares.append(self._track_active_requests)
         app.router.add_get("/health", self.health)
         app.router.add_get("/version", self.version)
@@ -114,6 +115,8 @@ class ChumpServer(AgentServer):
         app.router.add_get("/files", self.files)
         app.router.add_get("/terminal", self.terminal)
         app.router.add_post("/directory-picker", self.directory_picker)
+        if self.service_registration is not None:
+            app.router.add_post("/service/shutdown", self.shutdown_service)
         app.router.add_get("/projects", self.list_projects)
         app.router.add_post("/projects", self.register_project)
         app.router.add_get("/projects/{project_id}", self.get_project)
@@ -137,10 +140,6 @@ class ChumpServer(AgentServer):
             self.project_session_messages,
         )
         app.router.add_get(
-            "/projects/{project_id}/sessions/{agent_id}/session-snapshot",
-            self.project_session_snapshot,
-        )
-        app.router.add_get(
             "/projects/{project_id}/sessions/{agent_id}/events",
             self.project_session_events,
         )
@@ -155,10 +154,6 @@ class ChumpServer(AgentServer):
         app.router.add_post(
             "/projects/{project_id}/sessions/{agent_id}/action/{action_name}",
             self.project_session_action,
-        )
-        app.router.add_get(
-            "/agent/{agent_id}/session-snapshot",
-            self.session_snapshot,
         )
         if self.service_registration is not None:
             app.on_startup.append(self._publish_service_registration)
@@ -204,6 +199,16 @@ class ChumpServer(AgentServer):
             self.service_registration_store.clear(self.service_registration.instance_id)
 
     async def health(self, request: web.Request) -> web.Response:
+        if self.service_registration is not None:
+            return web.json_response(
+                {
+                    "status": "ok",
+                    "service": "chump-server",
+                    "version": _package_version("chump-server"),
+                    "instance_id": self.service_registration.instance_id,
+                    "process_id": os.getpid(),
+                }
+            )
         await self._sync_mcp_config()
         return web.json_response(
             {
@@ -224,7 +229,6 @@ class ChumpServer(AgentServer):
                 "model": self.chump_config.model,
                 "max_steps": self.chump_config.max_steps,
                 "command_timeout": self.chump_config.command_timeout,
-                "managed_idle_timeout": self.chump_config.managed_idle_timeout,
                 "reasoning": self.chump_config.reasoning,
                 "verbose": self.chump_config.verbose,
                 "active_sessions": len(self._agents),
@@ -299,6 +303,10 @@ class ChumpServer(AgentServer):
 
     async def directory_picker(self, request: web.Request) -> web.Response:
         return web.json_response({"workspacePath": await pick_directory()})
+
+    async def shutdown_service(self, request: web.Request) -> web.Response:
+        await self.shutdown()
+        return web.json_response({"status": "shutting_down"})
 
     async def list_projects(self, request: web.Request) -> web.Response:
         projects = await self.projects.list()
@@ -473,14 +481,6 @@ class ChumpServer(AgentServer):
         runtime = await self._project_runtime(request)
         return await runtime.handlers.handle_action(request)
 
-    async def project_session_snapshot(self, request: web.Request) -> web.Response:
-        runtime = await self._project_runtime(request)
-        return await self._session_snapshot_response(
-            runtime.server,
-            runtime.config.data_dir / "chump.sqlite3",
-            request.match_info["agent_id"],
-        )
-
     async def project_terminal(self, request: web.Request) -> web.WebSocketResponse:
         runtime = await self._project_runtime(request)
         return await terminal_websocket(
@@ -511,7 +511,6 @@ class ChumpServer(AgentServer):
             "model": config.model,
             "max_steps": config.max_steps,
             "command_timeout": config.command_timeout,
-            "managed_idle_timeout": config.managed_idle_timeout,
             "reasoning": config.reasoning,
             "verbose": config.verbose,
             "active_sessions": len(runtime.server._agents),
@@ -544,38 +543,6 @@ class ChumpServer(AgentServer):
             workspace_root=self.chump_config.workspace_root,
             allowed_origins=self.chump_config.allowed_origins,
         )
-
-    async def session_snapshot(self, request: web.Request) -> web.Response:
-        """Read an active session without waiting behind its mailbox action."""
-        return await self._session_snapshot_response(
-            self,
-            self.chump_config.data_dir / "chump.sqlite3",
-            request.match_info["agent_id"],
-        )
-
-    async def _session_snapshot_response(
-        self,
-        server: AgentServer,
-        db_path: Path,
-        agent_id: str,
-    ) -> web.Response:
-        was_warm = agent_id in server._agents
-        agent = server.get_or_create(agent_id)
-        if agent._state is None:
-            if not was_warm:
-                stored = await agent._storage.get(f"{agent_id}:state")
-                if stored is None:
-                    server._agents.pop(agent_id, None)
-                    raise web.HTTPNotFound()
-            await agent.start()
-            await server.on_agent_create(agent)
-        server._agents[agent_id].last_activity = time.time()
-        snapshot = await asyncio.to_thread(
-            reconcile_delegated_session_snapshot,
-            db_path,
-            agent.capture_session_snapshot(),
-        )
-        return web.json_response(snapshot)
 
     def _stored_sessions(
         self,
@@ -666,7 +633,6 @@ class ChumpServer(AgentServer):
                 for runtime in self.workspace_runtimes.values()
             )
         )
-
 
 def main() -> None:
     arguments = sys.argv[1:]

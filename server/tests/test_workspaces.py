@@ -39,7 +39,6 @@ async def test_project_registry_round_trips_the_shared_json_schema(tmp_path: Pat
             "workspacePath": str(workspace.resolve()),
             "createdAt": 123,
             "lastOpenedAt": 123,
-            "status": "ready",
         }
     ]
 
@@ -103,7 +102,7 @@ async def test_one_server_isolates_duplicate_session_ids_by_workspace(
     assert state_b["title"] == "Workspace B session"
     assert agent_a is not agent_b
 
-    messages_response, status_response, snapshot_response = await asyncio.gather(
+    messages_response, status_response = await asyncio.gather(
         client.get(
             f"/projects/{project_a.id}/sessions/shared-session/messages"
         ),
@@ -111,13 +110,9 @@ async def test_one_server_isolates_duplicate_session_ids_by_workspace(
             f"/projects/{project_a.id}/sessions/shared-session/action/status",
             json={},
         ),
-        client.get(
-            f"/projects/{project_a.id}/sessions/shared-session/session-snapshot"
-        ),
     )
     assert messages_response.status == 200
     assert status_response.status == 200
-    assert snapshot_response.status == 200
     assert (await status_response.json())["result"]["workspace_root"] == str(
         workspace_a.resolve()
     )
@@ -182,11 +177,68 @@ async def test_one_server_isolates_duplicate_session_ids_by_workspace(
     assert (await rename_response.json())["project"]["name"] == "Renamed C"
     get_response = await client.get(f"/projects/{project_c['id']}")
     assert get_response.status == 200
+    runtime_c = await runtimes.get(project_c["id"])
+    assert runtime_c is not None
     remove_response = await client.delete(f"/projects/{project_c['id']}")
     assert remove_response.status == 204
+    assert runtime_c not in runtimes.values()
+    assert await runtimes.get(project_c["id"]) is None
 
     assert await runtimes.evict(project_a.id) is True
     assert await runtimes.get(project_b.id) is runtime_b
+
+
+@pytest.mark.asyncio
+async def test_project_sessions_are_listed_newest_first(
+    tmp_path: Path,
+    aiohttp_client,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    registry = ProjectRegistry(tmp_path / "projects.json")
+    project = await registry.register(workspace, now=1)
+    base_config = _test_config(tmp_path / "root")
+
+    def config_for(target: Path) -> ChumpConfig:
+        return replace(
+            base_config,
+            workspace_root=target,
+            data_dir=target / ".state",
+        )
+
+    runtimes = WorkspaceRuntimeMap(registry, config_loader=config_for)
+    server = ChumpServer(
+        base_config,
+        projects=registry,
+        workspace_runtimes=runtimes,
+    )
+    client = await aiohttp_client(server.create_app())
+    runtime = await runtimes.get(project.id)
+    assert runtime is not None
+
+    older = runtime.server.get_or_create("older-session")
+    newer = runtime.server.get_or_create("newer-session")
+    await asyncio.gather(older.start(), newer.start())
+    await older.update_state(title="Older", created_at=10, updated_at=10)
+    await newer.update_state(title="Newer", created_at=20, updated_at=20)
+    await asyncio.gather(
+        runtime.server.evict("older-session"),
+        runtime.server.evict("newer-session"),
+    )
+
+    oldest = runtime.server.get_or_create("oldest-session")
+    await oldest.start()
+    await oldest.update_state(title="Oldest", created_at=5, updated_at=5)
+    await runtime.server.evict("oldest-session")
+
+    response = await client.get(f"/projects/{project.id}/sessions?limit=2")
+    payload = await response.json()
+
+    assert response.status == 200
+    assert [item["id"] for item in payload["sessions"]] == [
+        "newer-session",
+        "older-session",
+    ]
 
 
 @pytest.mark.asyncio

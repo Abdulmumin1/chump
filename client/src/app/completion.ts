@@ -126,17 +126,11 @@ _chump_completion() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
   cword="$COMP_CWORD"
 
-  local commands="app client completion connect daemon projects providers server status stop update version"
+  local commands="app client completion connect projects providers server status stop update version"
   local global_options="-h --help -v --version -c --connect -s --session -p --print"
   local print_options="--verbose -m --model -t --thinking"
 
   case "\${COMP_WORDS[1]}" in
-    daemon)
-      if (( cword == 2 )); then
-        COMPREPLY=( $(compgen -W "start status stop" -- "$cur") )
-      fi
-      return
-      ;;
     projects)
       if (( cword == 2 )); then
         COMPREPLY=( $(compgen -W "list add remove" -- "$cur") )
@@ -203,12 +197,11 @@ complete -c chump -n '__fish_use_subcommand' -a app -d 'Open the Chump web app'
 complete -c chump -n '__fish_use_subcommand' -a client -d 'Start the CLI without auto-starting a server'
 complete -c chump -n '__fish_use_subcommand' -a completion -d 'Print shell completion'
 complete -c chump -n '__fish_use_subcommand' -a connect -d 'Connect a provider'
-complete -c chump -n '__fish_use_subcommand' -a daemon -d 'Manage the local coordinator'
 complete -c chump -n '__fish_use_subcommand' -a projects -d 'Manage registered projects'
 complete -c chump -n '__fish_use_subcommand' -a providers -d 'List providers'
-complete -c chump -n '__fish_use_subcommand' -a server -d 'Run the backend in the foreground'
+complete -c chump -n '__fish_use_subcommand' -a server -d 'Run the shared local service in the foreground'
 complete -c chump -n '__fish_use_subcommand' -a status -d 'Show server health'
-complete -c chump -n '__fish_use_subcommand' -a stop -d 'Stop the managed server'
+complete -c chump -n '__fish_use_subcommand' -a stop -d 'Stop the shared local service'
 complete -c chump -n '__fish_use_subcommand' -a update -d 'Update Chump'
 complete -c chump -n '__fish_use_subcommand' -a version -d 'Print the version'
 
@@ -221,7 +214,6 @@ complete -c chump -n '__fish_seen_argument -s p -l print' -l verbose -d 'Show di
 complete -c chump -n '__fish_seen_argument -s p -l print' -s m -l model -r -d 'Select a model with --print'
 complete -c chump -n '__fish_seen_argument -s p -l print' -s t -l thinking -r -a 'none low high xhigh' -d 'Set thinking level with --print'
 
-complete -c chump -n '__fish_seen_subcommand_from daemon' -a 'start status stop'
 complete -c chump -n '__fish_seen_subcommand_from projects; and not __fish_seen_subcommand_from list add remove' -a 'list add remove'
 complete -c chump -n '__fish_seen_subcommand_from projects; and __fish_seen_subcommand_from add' -l name -r -d 'Project name'
 complete -c chump -n '__fish_seen_subcommand_from app' -l web-url -r -d 'Web app URL'
@@ -239,7 +231,6 @@ Register-ArgumentCompleter -Native -CommandName chump -ScriptBlock {
     $words = @($commandAst.CommandElements | ForEach-Object { $_.Extent.Text })
     $command = if ($words.Count -gt 1) { $words[1] } else { $null }
     $candidates = switch ($command) {
-        'daemon' { @('start', 'status', 'stop') }
         'projects' {
             if ($words.Count -le 2) { @('list', 'add', 'remove') }
             elseif ($words[2] -eq 'add') { @('--name') }
@@ -249,7 +240,7 @@ Register-ArgumentCompleter -Native -CommandName chump -ScriptBlock {
         'completion' { @('bash', 'fish', 'powershell', 'zsh') }
         default {
             @(
-                'app', 'client', 'completion', 'connect', 'daemon', 'projects', 'providers',
+                'app', 'client', 'completion', 'connect', 'projects', 'providers',
                 'server', 'status', 'stop', 'update', 'version',
                 '-h', '--help', '-v', '--version', '-c', '--connect', '-s', '--session',
                 '-p', '--print'
@@ -286,12 +277,11 @@ _chump() {
     'client:start the CLI without auto-starting a server'
     'completion:print shell completion'
     'connect:connect a provider'
-    'daemon:manage the local coordinator'
     'projects:manage registered projects'
     'providers:list providers'
-    'server:run the backend in the foreground'
+    'server:run the shared local service in the foreground'
     'status:show server health'
-    'stop:stop the managed server'
+    'stop:stop the shared local service'
     'update:update Chump'
     'version:print the version'
   )
@@ -328,9 +318,6 @@ _chump() {
   fi
 
   case "$words[2]" in
-    daemon)
-      _values 'daemon command' start status stop
-      ;;
     projects)
       if (( CURRENT == 3 )); then
         _values 'projects command' list add remove

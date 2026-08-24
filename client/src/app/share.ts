@@ -126,7 +126,7 @@ function assertShareableLocalServer(serverUrl: string): string {
   }
 
   if (!isLoopbackHost(target.hostname)) {
-    throw new Error("share currently only supports localhost-managed servers");
+    throw new Error("share currently only supports localhost servers");
   }
 
   return target.toString().replace(/\/$/, "");

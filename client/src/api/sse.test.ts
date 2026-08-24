@@ -34,7 +34,7 @@ test("event replay resumes after the last applied ID without duplicates", async 
       {
         agentId: "replay-test",
         serverUrl: "http://127.0.0.1:8000",
-        serverSource: "direct",
+        apiTarget: { kind: "direct" },
         workspaceRoot: "/tmp/replay-test",
       },
       {
@@ -108,7 +108,7 @@ test("keeps reconnecting when an async recovery hook fails", async () => {
       {
         agentId: "recovery-test",
         serverUrl: "http://127.0.0.1:8000",
-        serverSource: "managed",
+        apiTarget: { kind: "direct" },
         workspaceRoot: "/tmp/recovery-test",
       },
       {

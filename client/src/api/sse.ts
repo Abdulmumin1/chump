@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ChumpConfig, SseEvent } from "../core/types.ts";
 import { ServerHttpError } from "./errors.ts";
+import { buildAgentUrl, targetHeaders } from "./target.ts";
 
 const EVENT_STREAM_CLIENT_ID = `cli-${randomUUID()}`;
 
@@ -61,9 +62,9 @@ export async function openEventStream(
 
         const response = await fetch(requestUrl.toString(), {
           signal: controller.signal,
-          headers: {
+          headers: targetHeaders(config, {
             accept: "text/event-stream",
-          },
+          }),
         });
 
         if (!response.ok) {
@@ -129,7 +130,6 @@ export async function openEventStream(
     controller?.abort();
   };
 }
-
 export async function consumeSse(
   response: Response,
   onEvent: (event: SseEvent) => void | Promise<void>,
@@ -205,8 +205,4 @@ function parseSseEvent(rawEvent: string): SseEvent | null {
     data: dataLines.join("\n"),
     id,
   };
-}
-
-function buildAgentUrl(config: ChumpConfig): string {
-  return `${config.serverUrl}/agent/${config.agentId}`;
 }

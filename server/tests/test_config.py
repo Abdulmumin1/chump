@@ -26,6 +26,8 @@ def test_default_max_steps_is_250():
 def test_default_allowed_origins_trust_current_and_legacy_web_apps():
     assert "https://chmp.dev" in DEFAULT_ALLOWED_ORIGINS
     assert "https://chump.yaqeen.me" in DEFAULT_ALLOWED_ORIGINS
+    assert "http://localhost:5173" in DEFAULT_ALLOWED_ORIGINS
+    assert "http://localhost:5174" in DEFAULT_ALLOWED_ORIGINS
 
 
 def test_default_chump_cloud_url_uses_the_primary_domain():

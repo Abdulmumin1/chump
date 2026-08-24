@@ -13,6 +13,7 @@ from chump_server.service import (
     ServiceRegistrationStore,
     service_auth_middleware,
     service_registration_key,
+    service_scope_middleware,
 )
 
 
@@ -115,3 +116,24 @@ async def test_service_auth_accepts_the_websocket_protocol_token(
     )
 
     assert response.status == 204
+
+
+@pytest.mark.asyncio
+async def test_service_scope_rejects_unscoped_workspace_routes(aiohttp_client) -> None:
+    async def ok(request):
+        return web.Response(status=204)
+
+    app = web.Application(
+        middlewares=[service_auth_middleware, service_scope_middleware]
+    )
+    app[service_registration_key] = registration()
+    app.router.add_get("/agent/{agent_id}/messages", ok)
+    app.router.add_get("/projects/{project_id}/sessions", ok)
+    client = await aiohttp_client(app)
+    headers = {"authorization": f"Bearer {registration().token}"}
+
+    unscoped = await client.get("/agent/session-one/messages", headers=headers)
+    scoped = await client.get("/projects/project-one/sessions", headers=headers)
+
+    assert unscoped.status == 404
+    assert scoped.status == 204
