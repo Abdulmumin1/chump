@@ -904,8 +904,10 @@
     class:w-0={isCollapsed}
     class:overflow-hidden={isCollapsed}
     class:border-l-0={isCollapsed}
-    class:w-[420px]={!isCollapsed && useInlineDiff}
-    class:w-full={!isCollapsed && !useInlineDiff}
+    class:w-[420px]={
+        !isCollapsed && useInlineDiff && selectedPath !== null
+    }
+    class:w-full={!isCollapsed && (!useInlineDiff || selectedPath === null)}
 >
     <div class="border-b border-border-subtle bg-bg-surface/95">
         <div class="flex min-w-0 items-center gap-2 px-3 py-3.5">
