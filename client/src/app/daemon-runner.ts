@@ -49,7 +49,6 @@ export async function startDaemon(
     close() {
       closePromise ??= closeDaemon(
         server,
-        runtimeSupervisor,
         metadataStore,
         metadata.pid,
       );
@@ -60,7 +59,6 @@ export async function startDaemon(
 
 async function closeDaemon(
   server: RunningDaemonServer,
-  runtimeSupervisor: ProjectRuntimeSupervisor,
   metadataStore: DaemonMetadataStore,
   pid: number,
 ): Promise<void> {
@@ -69,12 +67,6 @@ async function closeDaemon(
     await server.close();
   } catch (error) {
     serverError = error;
-  }
-
-  try {
-    await runtimeSupervisor.stopAll();
-  } catch (error) {
-    serverError ??= error;
   }
 
   await metadataStore.clear(pid);

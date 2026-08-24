@@ -43,6 +43,7 @@ export type ManagedServerMetadata = {
   port: number;
   pid: number | null;
   process_group_id?: number | null;
+  lifecycle?: "foreground" | "managed";
   command: string;
   command_args: string[];
   command_source: "env" | "local" | "bundled";

@@ -53,7 +53,7 @@ test("does not remove metadata replaced by another daemon", async () => {
   assert.deepEqual(await metadataStore.read(), replacement);
 });
 
-test("stops supervised project runtimes during daemon shutdown", async () => {
+test("leaves project runtimes running during daemon shutdown", async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-daemon-runner-"));
   const projectStore = new ProjectRegistryStore({
     registryPath: path.join(rootPath, "projects.json"),
@@ -79,5 +79,5 @@ test("stops supervised project runtimes during daemon shutdown", async () => {
 
   await daemon.close();
 
-  assert.equal(stopped, true);
+  assert.equal(stopped, false);
 });

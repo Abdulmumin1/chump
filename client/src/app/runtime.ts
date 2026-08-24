@@ -237,7 +237,7 @@ export async function ensureServerTarget(
       const started = await ensureManagedServer(workspaceRoot);
       return {
         serverUrl: started.metadata.url,
-        serverSource: "managed",
+        serverSource: serverSourceForMetadata(started.metadata),
         note: null,
         metadata: started.metadata,
       };
@@ -255,7 +255,7 @@ export async function ensureServerTarget(
       const reason = error instanceof Error ? error.message : String(error);
       return {
         serverUrl: started.metadata.url,
-        serverSource: "managed",
+        serverSource: serverSourceForMetadata(started.metadata),
         note: `daemon unavailable (${reason}); using local server at ${started.metadata.url}`,
         metadata: started.metadata,
       };
@@ -269,7 +269,7 @@ export async function ensureServerTarget(
     } else {
       return {
         serverUrl: metadata.url,
-        serverSource: "managed",
+        serverSource: serverSourceForMetadata(metadata),
         note: null,
         metadata,
       };
@@ -284,7 +284,7 @@ export async function ensureServerTarget(
   ) {
     return {
       serverUrl: refreshedMetadata.url,
-      serverSource: "managed",
+      serverSource: serverSourceForMetadata(refreshedMetadata),
       note: null,
       metadata: refreshedMetadata,
     };
@@ -295,7 +295,7 @@ export async function ensureServerTarget(
     await assertServerHealthy(fallbackUrl);
     return {
       serverUrl: fallbackUrl,
-      serverSource: metadata ? "managed" : "direct",
+      serverSource: metadata ? serverSourceForMetadata(metadata) : "direct",
       note: null,
       metadata,
     };
@@ -313,6 +313,15 @@ export async function recoverManagedServer(
 }> {
   return await withWorkspaceLock(workspaceRoot, async () => {
     const existing = await readManagedServerMetadata(workspaceRoot);
+    if (
+      existing?.lifecycle === "foreground" &&
+      await isServerHealthy(existing.url)
+    ) {
+      if (!(await managedServerIsReusable(existing, workspaceRoot))) {
+        throw foregroundServerConflict(existing.url);
+      }
+      return { started: false, metadata: existing };
+    }
     if (
       existing &&
       await isServerHealthy(existing.url) &&
@@ -444,6 +453,15 @@ export async function ensureManagedServer(workspaceRoot: string): Promise<{
 }> {
   const current = await readManagedServerMetadata(workspaceRoot);
   if (
+    current?.lifecycle === "foreground" &&
+    await isServerHealthy(current.url)
+  ) {
+    if (!(await managedServerIsReusable(current, workspaceRoot))) {
+      throw foregroundServerConflict(current.url);
+    }
+    return { started: false, metadata: current };
+  }
+  if (
     current &&
     await isServerHealthy(current.url) &&
     await managedServerIsReusable(current, workspaceRoot)
@@ -453,6 +471,15 @@ export async function ensureManagedServer(workspaceRoot: string): Promise<{
 
   return await withWorkspaceLock(workspaceRoot, async () => {
     const existing = await readManagedServerMetadata(workspaceRoot);
+    if (
+      existing?.lifecycle === "foreground" &&
+      await isServerHealthy(existing.url)
+    ) {
+      if (!(await managedServerIsReusable(existing, workspaceRoot))) {
+        throw foregroundServerConflict(existing.url);
+      }
+      return { started: false, metadata: existing };
+    }
     if (
       existing &&
       await isServerHealthy(existing.url) &&
@@ -504,6 +531,7 @@ async function runForegroundServer(workspaceRoot: string): Promise<{
       port,
       pid: child.pid ?? null,
       process_group_id: null,
+      lifecycle: "foreground",
       command: command.file,
       command_args: command.args,
       command_source: command.source,
@@ -582,6 +610,7 @@ async function spawnManagedServer(
       port,
       pid: child.pid ?? null,
       process_group_id: process.platform !== "win32" ? child.pid ?? null : null,
+      lifecycle: "managed",
       command: command.file,
       command_args: command.args,
       command_source: command.source,
@@ -1213,6 +1242,18 @@ async function managedServerIsReusable(metadata: ManagedServerMetadata, workspac
       workspaceRoot,
       metadata.command_source,
     );
+}
+
+export function serverSourceForMetadata(
+  metadata: ManagedServerMetadata,
+): "managed" | "direct" {
+  return metadata.lifecycle === "foreground" ? "direct" : "managed";
+}
+
+function foregroundServerConflict(url: string): Error {
+  return new Error(
+    `foreground server at ${url} does not match this client; stop it with Ctrl+C before starting another server`,
+  );
 }
 
 export function managedServerVersionIsReusable(

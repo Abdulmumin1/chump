@@ -7,8 +7,10 @@ import test from "node:test";
 import {
   managedServerVersionIsReusable,
   rotateManagedLog,
+  serverSourceForMetadata,
   workspaceLockIsStale,
 } from "./runtime.ts";
+import type { ManagedServerMetadata } from "../core/types.ts";
 
 test("detects workspace locks left by exited processes", async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), "chump-runtime-lock-"));
@@ -54,4 +56,31 @@ test("restarts bundled managed servers after a server version upgrade", () => {
 test("does not impose the bundled version on local or overridden servers", () => {
   assert.equal(managedServerVersionIsReusable("local", "0.1.24", "0.2.0"), true);
   assert.equal(managedServerVersionIsReusable("env", undefined, "0.2.0"), true);
+});
+
+test("treats a foreground server as user-owned", () => {
+  const metadata: ManagedServerMetadata = {
+    url: "http://127.0.0.1:4000",
+    port: 4000,
+    pid: 123,
+    process_group_id: null,
+    lifecycle: "foreground",
+    command: "chump-server",
+    command_args: [],
+    command_source: "bundled",
+    workspace_root: "/workspace",
+    data_dir: "/state",
+    log_path: "/state/server.log",
+    started_at: "2026-08-24T00:00:00.000Z",
+  };
+
+  assert.equal(serverSourceForMetadata(metadata), "direct");
+  assert.equal(
+    serverSourceForMetadata({ ...metadata, lifecycle: "managed" }),
+    "managed",
+  );
+  assert.equal(
+    serverSourceForMetadata({ ...metadata, lifecycle: undefined }),
+    "managed",
+  );
 });
