@@ -12,8 +12,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.managed_idle import is_resume_gap
 from chump_server.config import ChumpConfig
+from chump_server.git_actions import GitActionResult
 from chump_server.main import ChumpServer, parse_positive_int
 from aiohttp import web
+
+
+class FakeRequestContent:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    async def read(self, _limit: int) -> bytes:
+        return self.body
 
 
 class ManagedIdleShutdownTests(unittest.TestCase):
@@ -146,6 +155,66 @@ class SessionPaginationParsingTests(unittest.TestCase):
             parse_positive_int("zero", "page")
         with self.assertRaises(web.HTTPBadRequest):
             parse_positive_int("0", "page")
+
+
+class ProjectUtilityEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_directory_picker_returns_its_selection(self) -> None:
+        server = object.__new__(ChumpServer)
+
+        with patch(
+            "chump_server.main.pick_directory",
+            new=AsyncMock(return_value="/workspace/example"),
+        ):
+            response = await server.directory_picker(SimpleNamespace())
+
+        self.assertEqual(
+            json.loads(response.text),
+            {"workspacePath": "/workspace/example"},
+        )
+
+    async def test_git_commit_requires_selected_files(self) -> None:
+        server = object.__new__(ChumpServer)
+        server.projects = SimpleNamespace(
+            get=AsyncMock(
+                return_value=SimpleNamespace(workspace_path=Path("/workspace"))
+            )
+        )
+        request = SimpleNamespace(
+            match_info={"project_id": "project-one", "action": "commit"},
+            content=FakeRequestContent(b'{"message":"Update"}'),
+        )
+
+        with self.assertRaises(web.HTTPBadRequest) as raised:
+            await server.project_git_action(request)
+        self.assertEqual(raised.exception.text, "select at least one file to commit")
+
+    async def test_git_action_returns_the_command_result(self) -> None:
+        server = object.__new__(ChumpServer)
+        server.projects = SimpleNamespace(
+            get=AsyncMock(
+                return_value=SimpleNamespace(workspace_path=Path("/workspace"))
+            )
+        )
+        request = SimpleNamespace(
+            match_info={"project_id": "project-one", "action": "push"},
+            content=FakeRequestContent(b""),
+        )
+        result = GitActionResult(
+            ok=True,
+            stdout="pushed",
+            stderr="",
+            message="Pushed changes",
+        )
+
+        with patch(
+            "chump_server.main.run_project_git_action",
+            new=AsyncMock(return_value=result),
+        ) as run_action:
+            response = await server.project_git_action(request)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(response.text), result.to_dict())
+        run_action.assert_awaited_once()
 
 
 class SessionEndpointTests(unittest.IsolatedAsyncioTestCase):

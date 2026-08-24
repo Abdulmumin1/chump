@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import time
 import uuid
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ai_query.agents import AgentServer, SQLiteStorage
 from ai_query.agents.server.types import AgentServerConfig
@@ -16,6 +17,13 @@ from aiohttp import web
 from .git_utils import get_git_branch
 from .agent import bind_chump_agent
 from .config import ChumpConfig, PROVIDER_MODELS, load_config, load_global_config, load_repo_config
+from .directory_picker import pick_directory
+from .git_actions import (
+    GitAction,
+    GitActionOptions,
+    read_git_action_files,
+    run_project_git_action,
+)
 from .managed_idle import is_resume_gap
 from .mcp_runtime import MCPManager
 from .mcp_config import load_mcp_server_configs
@@ -28,6 +36,8 @@ from .server.sessions import stored_sessions
 from .server.session_snapshot import reconcile_delegated_session_snapshot
 from .terminal import terminal_websocket
 from .workspaces import WorkspaceRuntime, WorkspaceRuntimeMap
+
+MAX_JSON_BODY_BYTES = 64 * 1024
 
 
 class ChumpServer(AgentServer):
@@ -84,6 +94,7 @@ class ChumpServer(AgentServer):
         app.router.add_get("/sessions", self.sessions)
         app.router.add_get("/files", self.files)
         app.router.add_get("/terminal", self.terminal)
+        app.router.add_post("/directory-picker", self.directory_picker)
         app.router.add_get("/projects", self.list_projects)
         app.router.add_post("/projects", self.register_project)
         app.router.add_get("/projects/{project_id}", self.get_project)
@@ -93,6 +104,10 @@ class ChumpServer(AgentServer):
         app.router.add_get("/projects/{project_id}/sessions", self.project_sessions)
         app.router.add_post("/projects/{project_id}/sessions", self.create_project_session)
         app.router.add_get("/projects/{project_id}/files", self.project_files)
+        app.router.add_post(
+            "/projects/{project_id}/git/{action:commit-push|commit|push|create-pr}",
+            self.project_git_action,
+        )
         app.router.add_get("/projects/{project_id}/terminal", self.project_terminal)
         app.router.add_get(
             "/projects/{project_id}/sessions/{agent_id}/state",
@@ -245,6 +260,9 @@ class ChumpServer(AgentServer):
             {"files": await self.search.files(query, max(1, min(limit, 100)))}
         )
 
+    async def directory_picker(self, request: web.Request) -> web.Response:
+        return web.json_response({"workspacePath": await pick_directory()})
+
     async def list_projects(self, request: web.Request) -> web.Response:
         projects = await self.projects.list()
         return web.json_response(
@@ -362,6 +380,34 @@ class ChumpServer(AgentServer):
                 )
             }
         )
+
+    async def project_git_action(self, request: web.Request) -> web.Response:
+        project = await self.projects.get(request.match_info["project_id"])
+        if project is None:
+            raise web.HTTPNotFound(text="project not found")
+        body = await read_optional_json_object(request)
+        action = cast(GitAction, request.match_info["action"])
+        message = body.get("message")
+        files = read_git_action_files(body.get("files"))
+        if action in {"commit", "commit-push"}:
+            if not isinstance(message, str):
+                raise web.HTTPBadRequest(text="message is required")
+            if not files:
+                raise web.HTTPBadRequest(text="select at least one file to commit")
+        result = await run_project_git_action(
+            project.workspace_path,
+            action,
+            GitActionOptions(
+                message=message if isinstance(message, str) else None,
+                files=files,
+                pr_title=(
+                    body["title"] if isinstance(body.get("title"), str) else None
+                ),
+                pr_body=body["body"] if isinstance(body.get("body"), str) else None,
+                draft=body.get("draft") is True,
+            ),
+        )
+        return web.json_response(result.to_dict(), status=200 if result.ok else 409)
 
     async def project_session_state(self, request: web.Request) -> web.Response:
         runtime = await self._project_runtime(request)
@@ -628,6 +674,24 @@ def parse_positive_int(value: str, name: str) -> int:
     if parsed < 1:
         raise web.HTTPBadRequest(text=f"{name} must be at least 1")
     return parsed
+
+
+async def read_optional_json_object(request: web.Request) -> dict[str, Any]:
+    body = await request.content.read(MAX_JSON_BODY_BYTES + 1)
+    if len(body) > MAX_JSON_BODY_BYTES:
+        raise web.HTTPRequestEntityTooLarge(
+            max_size=MAX_JSON_BODY_BYTES,
+            actual_size=len(body),
+        )
+    if not body:
+        return {}
+    try:
+        value = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise web.HTTPBadRequest(text="request body must be valid JSON") from error
+    if not isinstance(value, dict):
+        raise web.HTTPBadRequest(text="request body must be a JSON object")
+    return value
 
 
 def base36(value: int) -> str:
