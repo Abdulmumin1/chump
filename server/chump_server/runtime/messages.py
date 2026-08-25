@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ai_query.types import ImagePart, Message, TextPart
@@ -18,10 +19,10 @@ def build_user_content(
     message: str,
     attachments: list[dict[str, Any]],
 ) -> str | list[TextPart | ImagePart]:
-    images = [
-        attachment for attachment in attachments if is_image_attachment(attachment)
+    files = [
+        attachment for attachment in attachments if is_file_attachment(attachment)
     ]
-    if not images:
+    if not files:
         return message
 
     parts: list[TextPart | ImagePart] = []
@@ -30,7 +31,7 @@ def build_user_content(
 
     while remaining:
         next_match: tuple[int, int, dict[str, Any]] | None = None
-        for index, attachment in enumerate(images):
+        for index, attachment in enumerate(files):
             if index in used:
                 continue
             label = str(attachment.get("label") or "")
@@ -54,7 +55,7 @@ def build_user_content(
         used.add(index)
         remaining = remaining[position + len(label) :]
 
-    for index, attachment in enumerate(images):
+    for index, attachment in enumerate(files):
         if index not in used:
             parts.append(image_attachment_part(attachment))
 
@@ -67,9 +68,9 @@ def build_user_display_content(
 ) -> str:
     display = message.rstrip()
     for attachment in attachments:
-        if not is_image_attachment(attachment):
+        if not is_file_attachment(attachment):
             continue
-        label = image_attachment_label(attachment)
+        label = attachment_label(attachment)
         if label and label not in display:
             display = f"{display} {label}".strip()
     return display
@@ -80,7 +81,10 @@ def append_text_part(parts: list[TextPart | ImagePart], text: str) -> None:
         parts.append(TextPart(text=text))
 
 
-def image_attachment_part(attachment: dict[str, Any]) -> ImagePart:
+def image_attachment_part(attachment: dict[str, Any]) -> TextPart | ImagePart:
+    path = attachment.get("path")
+    if isinstance(path, str) and path:
+        return TextPart(text=f"[File available at: {path}]")
     return ImagePart(
         image=f"data:{attachment['mime']};base64,{attachment['data']}",
         media_type=attachment["mime"],
@@ -88,24 +92,44 @@ def image_attachment_part(attachment: dict[str, Any]) -> ImagePart:
 
 
 def summarize_attachments(attachments: list[dict[str, Any]]) -> list[dict[str, str]]:
-    return [
-        {
-            "type": "image",
-            "label": image_attachment_label(attachment),
-            "filename": str(attachment.get("filename") or "image"),
+    summaries: list[dict[str, str]] = []
+    for attachment in attachments:
+        if not is_file_attachment(attachment):
+            continue
+        summary = {
+            "type": str(attachment.get("type") or "file"),
+            "label": attachment_label(attachment),
+            "filename": str(attachment.get("filename") or "file"),
             "mime": str(attachment.get("mime") or "application/octet-stream"),
         }
-        for attachment in attachments
-        if is_image_attachment(attachment)
-    ]
+        path = str(attachment.get("path") or "")
+        if path:
+            summary["attachment_id"] = Path(path).name
+        summaries.append(summary)
+    return summaries
 
 
-def image_attachment_label(attachment: dict[str, Any]) -> str:
+def attachment_label(attachment: dict[str, Any]) -> str:
     label = str(attachment.get("label") or "").strip()
     if label:
         return label
-    filename = str(attachment.get("filename") or "image")
-    return f"[Image: {filename}]"
+    filename = str(attachment.get("filename") or "file")
+    if attachment.get("type") == "image":
+        return f"[Image: {filename}]"
+    return f"[File: {filename}]"
+
+
+def image_attachment_label(attachment: dict[str, Any]) -> str:
+    return attachment_label(attachment)
+
+
+def is_file_attachment(attachment: Any) -> bool:
+    if not isinstance(attachment, dict):
+        return False
+    if attachment.get("type") == "file":
+        path = attachment.get("path")
+        return isinstance(path, str) and bool(path)
+    return is_image_attachment(attachment)
 
 
 def is_image_attachment(attachment: Any) -> bool:
@@ -113,10 +137,14 @@ def is_image_attachment(attachment: Any) -> bool:
         return False
     if attachment.get("type") != "image":
         return False
-    if not isinstance(attachment.get("data"), str) or not attachment["data"]:
-        return False
     mime = attachment.get("mime")
-    return isinstance(mime, str) and mime.startswith("image/")
+    if not isinstance(mime, str) or not mime.startswith("image/"):
+        return False
+    path = attachment.get("path")
+    data = attachment.get("data")
+    return (isinstance(path, str) and bool(path)) or (
+        isinstance(data, str) and bool(data)
+    )
 
 
 def message_content_text(content: Any) -> str:

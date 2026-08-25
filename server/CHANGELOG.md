@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.3.3
+
+- Replace binary chat attachments with server-managed file paths, support arbitrary browser file uploads, expose authenticated attachment previews, and give Chump an isolated temporary-work directory.
+
 ## 0.3.2
 
 - Prevent stale WebSocket or SSE clients from blocking live event delivery to other clients, including steering, tool, and assistant events.

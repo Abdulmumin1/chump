@@ -149,6 +149,31 @@ export async function searchFiles(
 	return result.files;
 }
 
+export async function uploadAttachment(target: ChumpApiTarget, file: File): Promise<ChatAttachment> {
+	const body = new FormData();
+	body.append('file', file, file.name);
+	const response = await fetch(projectUrl(target, 'attachments'), {
+		method: 'POST',
+		headers: requestHeaders(target),
+		body
+	});
+	if (!response.ok) throw new Error(await readErrorResponse(response));
+	const result = (await response.json()) as { attachment: ChatAttachment };
+	return result.attachment;
+}
+
+export async function fetchAttachmentPreview(
+	target: ChumpApiTarget,
+	attachmentId: string
+): Promise<string> {
+	const response = await fetch(
+		`${projectUrl(target, 'attachments')}/${encodeURIComponent(attachmentId)}`,
+		{ headers: requestHeaders(target) }
+	);
+	if (!response.ok) throw new Error(await readErrorResponse(response));
+	return URL.createObjectURL(await response.blob());
+}
+
 export async function clearMessages(
 	target: ChumpApiTarget,
 	agentId: string

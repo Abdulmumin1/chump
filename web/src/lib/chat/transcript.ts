@@ -368,7 +368,20 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
     const kind = typeof candidate.type === "string" ? candidate.type : "";
 
     if (kind === "text") {
-        return { kind: "text", text: asString(candidate.text) };
+        const text = asString(candidate.text);
+        const fileMatch = /^\[File available at: (.+)]$/.exec(text);
+        if (fileMatch) {
+            const path = fileMatch[1];
+            const filename = path.split(/[/\\]/).at(-1) || path;
+            return {
+                kind: "file",
+                text: filename,
+                filename: filename.replace(/^[0-9a-f-]{36}-/i, ""),
+                attachmentId: filename,
+                mediaType: imageMediaType(filename),
+            };
+        }
+        return { kind: "text", text };
     }
 
     if (kind === "tool_call") {
@@ -498,7 +511,30 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
         };
     }
 
+    if (kind === "file") {
+        const mediaType = asString(candidate.media_type);
+        const filename = asString(candidate.filename);
+        const label = asString(candidate.label);
+        return {
+            kind: "file",
+            text: filename || label || (mediaType ? `file · ${mediaType}` : "file"),
+            mediaType: mediaType || undefined,
+            filename: filename || undefined,
+            label: label || undefined,
+            attachmentId: asString(candidate.attachment_id) || undefined,
+        };
+    }
+
     return { kind: "text", text: stringifyValue(part) };
+}
+
+function imageMediaType(filename: string): string | undefined {
+    const extension = filename.split(".").at(-1)?.toLowerCase();
+    if (extension === "png") return "image/png";
+    if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+    if (extension === "webp") return "image/webp";
+    if (extension === "gif") return "image/gif";
+    return undefined;
 }
 
 function finiteNumber(value: unknown): number | undefined {

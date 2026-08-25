@@ -364,6 +364,6 @@ function serializeAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
       label: attachment.label,
       filename: attachment.filename,
       mime: attachment.mime,
-      data: attachment.data,
+      path: attachment.path,
     }));
 }

@@ -1452,6 +1452,7 @@
             {reasoningSummary}
             {health}
             {activeSessionId}
+            {apiTarget}
             onOpenConnectModal={openConnectModal}
         />
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from .config import chump_temp_dir
 from .resources import ResourceCatalog
 
 SYSTEM_PROMPT = """
@@ -55,6 +56,8 @@ def build_system_prompt(base_prompt: str, resources: ResourceCatalog) -> str:
                 "# Runtime Context",
                 f"Current date: {date.today().isoformat()}",
                 f"Current working directory: {resources.workspace_root}",
+                f"Chump temporary directory: {chump_temp_dir()}",
+                "Put temporary work you create in that directory. Only clean up temporary files inside that directory.",
             ]
         )
     )

@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -518,6 +519,13 @@ def global_state_dir() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     return _state_base_dir().resolve()
+
+
+def chump_temp_dir() -> Path:
+    path = (Path(tempfile.gettempdir()) / "chump").resolve()
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.chmod(0o700)
+    return path
 
 
 def _state_base_dir() -> Path:

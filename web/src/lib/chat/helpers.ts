@@ -182,7 +182,9 @@ export function attachmentSummaryLabel(
 
     const filename = asString(attachment.filename).trim();
     if (filename) {
-        return `[Image: ${filename}]`;
+        return attachment.type === "file"
+            ? `[File: ${filename}]`
+            : `[Image: ${filename}]`;
     }
 
     const mime = asString(attachment.mime).trim();
@@ -204,6 +206,21 @@ export function imageAttachmentSummaryPart(
     };
 }
 
+function attachmentSummaryPart(
+    attachment: Record<string, unknown>,
+): MessagePart {
+    if (attachment.type === "image") {
+        return imageAttachmentSummaryPart(attachment);
+    }
+    return {
+        type: "file",
+        media_type: asString(attachment.mime) || undefined,
+        filename: asString(attachment.filename) || undefined,
+        label: attachmentSummaryLabel(attachment) || undefined,
+        attachment_id: asString(attachment.attachment_id) || undefined,
+    };
+}
+
 export function buildUserMessageContentFromPayload(
     payload: Record<string, unknown>,
 ): StoredMessage["content"] {
@@ -219,10 +236,11 @@ export function buildUserMessageContentFromPayload(
         return text;
     }
 
-    const imageAttachments = attachments.filter(
-        (attachment) => attachment.type === "image",
+    const visibleAttachments = attachments.filter(
+        (attachment) =>
+            attachment.type === "image" || attachment.type === "file",
     );
-    if (imageAttachments.length === 0) {
+    if (visibleAttachments.length === 0) {
         return text;
     }
 
@@ -240,7 +258,7 @@ export function buildUserMessageContentFromPayload(
               }
             | null = null;
 
-        for (const [index, attachment] of imageAttachments.entries()) {
+        for (const [index, attachment] of visibleAttachments.entries()) {
             if (used.has(index)) continue;
             const label = attachmentSummaryLabel(attachment);
             if (!label) continue;
@@ -258,14 +276,14 @@ export function buildUserMessageContentFromPayload(
         }
 
         pushTextPart(parts, remaining.slice(0, nextMatch.position));
-        parts.push(imageAttachmentSummaryPart(nextMatch.attachment));
+        parts.push(attachmentSummaryPart(nextMatch.attachment));
         used.add(nextMatch.index);
         remaining = remaining.slice(nextMatch.position + nextMatch.label.length);
     }
 
-    for (const [index, attachment] of imageAttachments.entries()) {
+    for (const [index, attachment] of visibleAttachments.entries()) {
         if (!used.has(index)) {
-            parts.push(imageAttachmentSummaryPart(attachment));
+            parts.push(attachmentSummaryPart(attachment));
         }
     }
 

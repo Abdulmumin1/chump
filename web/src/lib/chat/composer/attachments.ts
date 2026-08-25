@@ -1,117 +1,49 @@
 import type { ChatAttachment } from "$lib/chump/types";
+import { uploadAttachment, type ChumpApiTarget } from "$lib/chump/api";
 
-const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-};
-
-export const ACCEPTED_IMAGE_TYPES =
-    "image/png,image/jpeg,image/webp,image/gif";
-
-export async function readFilesAsAttachments(
+export async function uploadFilesAsAttachments(
+    target: ChumpApiTarget,
     files: Iterable<File>,
 ): Promise<ChatAttachment[]> {
     const attachments: ChatAttachment[] = [];
-
     for (const file of files) {
-        if (
-            file.type.startsWith("image/") ||
-            /\.(png|jpe?g|webp|gif)$/i.test(file.name)
-        ) {
-            try {
-                attachments.push(await fileToAttachment(file));
-            } catch {
-                // Skip files that fail to read.
-            }
+        try {
+            attachments.push(await uploadAttachment(target, file));
+        } catch {
+            // Keep the usable uploads when one file fails.
         }
     }
-
     return attachments;
 }
 
-export async function readClipboardItemsAsAttachments(
+export async function uploadClipboardItemsAsAttachments(
+    target: ChumpApiTarget,
     items: Iterable<DataTransferItem>,
 ): Promise<ChatAttachment[]> {
-    const attachments: ChatAttachment[] = [];
-
+    const files: File[] = [];
     for (const item of items) {
-        if (!item.type.startsWith("image/")) {
-            continue;
-        }
-
-        const blob = item.getAsFile();
-        if (!blob) {
-            continue;
-        }
-
-        const filename = `clipboard${clipboardExtension(item.type)}`;
-        try {
-            attachments.push(await blobToAttachment(blob, filename));
-        } catch {
-            // Skip clipboard entries that fail to read.
-        }
+        if (item.kind !== "file") continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        const extension = clipboardFileExtension(file);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        files.push(
+            new File(
+                [file],
+                `clipboard-${timestamp}-${crypto.randomUUID().slice(0, 8)}${extension}`,
+                { type: file.type, lastModified: file.lastModified },
+            ),
+        );
     }
-
-    return attachments;
+    return await uploadFilesAsAttachments(target, files);
 }
 
-export function attachmentThumbSrc(attachment: ChatAttachment): string {
-    return `data:${attachment.mime};base64,${attachment.data}`;
-}
-
-function fileToAttachment(file: File): Promise<ChatAttachment> {
-    return new Promise((resolve, reject) => {
-        const ext = "." + (file.name.split(".").pop()?.toLowerCase() ?? "png");
-        const mime = IMAGE_MIME_BY_EXTENSION[ext] ?? file.type ?? "image/png";
-        const reader = new FileReader();
-
-        reader.onload = () => {
-            const dataUrl = reader.result as string;
-            const base64 = dataUrl.split(",")[1] ?? "";
-            resolve({
-                type: "image",
-                label: `[Image: ${file.name}]`,
-                filename: file.name,
-                mime,
-                data: base64,
-            });
-        };
-
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-    });
-}
-
-function blobToAttachment(blob: Blob, filename: string): Promise<ChatAttachment> {
-    const ext = "." + (filename.split(".").pop()?.toLowerCase() ?? "png");
-    const mime = IMAGE_MIME_BY_EXTENSION[ext] ?? blob.type ?? "image/png";
-
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = () => {
-            const dataUrl = reader.result as string;
-            const base64 = dataUrl.split(",")[1] ?? "";
-            resolve({
-                type: "image",
-                label: `[Image: ${filename}]`,
-                filename,
-                mime,
-                data: base64,
-            });
-        };
-
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-    });
-}
-
-function clipboardExtension(mimeType: string): string {
-    if (mimeType === "image/jpeg") return ".jpg";
-    if (mimeType === "image/webp") return ".webp";
-    if (mimeType === "image/gif") return ".gif";
-    return ".png";
+function clipboardFileExtension(file: File): string {
+    const extension = /\.[a-z0-9]+$/i.exec(file.name)?.[0];
+    if (extension) return extension.toLowerCase();
+    if (file.type === "image/jpeg") return ".jpg";
+    if (file.type === "image/webp") return ".webp";
+    if (file.type === "image/gif") return ".gif";
+    if (file.type === "image/png") return ".png";
+    return "";
 }

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from ai_query import Field, tool
 from ai_query.types import AbortError
 
-from ..config import ChumpConfig
+from ..config import ChumpConfig, chump_temp_dir
 from ..safety import PathResolver, validate_command
 from ._utils import _terminate_process, _truncate_command_output
 
@@ -67,6 +68,12 @@ def bind_bash(
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=str(directory),
+                env={
+                    **os.environ,
+                    "TMPDIR": str(chump_temp_dir()),
+                    "TMP": str(chump_temp_dir()),
+                    "TEMP": str(chump_temp_dir()),
+                },
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,

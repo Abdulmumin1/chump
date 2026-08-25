@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFile, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { release, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,13 +63,12 @@ export async function readImageAttachment(
     return null;
   }
 
-  const data = await readFile(filePath);
   return {
     type: "image",
     label: `[Image: ${path.basename(filePath)}]`,
     filename: path.basename(filePath),
     mime,
-    data: data.toString("base64"),
+    path: filePath,
   };
 }
 
@@ -111,7 +111,7 @@ export async function readClipboardText(): Promise<string | null> {
 }
 
 async function readMacClipboardImage(): Promise<ImageAttachment | null> {
-  const outputPath = path.join(tmpdir(), `chump-clipboard-${process.pid}-${Date.now()}.png`);
+  const outputPath = await clipboardImagePath();
   try {
     await execFileAsync(
       "osascript",
@@ -129,8 +129,8 @@ async function readMacClipboardImage(): Promise<ImageAttachment | null> {
       ],
       { timeout: 2000, maxBuffer: 1024 * 32 },
     );
-    const data = await readFile(outputPath);
-    if (data.length === 0) {
+    const info = await stat(outputPath).catch(() => null);
+    if (!info?.isFile() || info.size === 0) {
       return null;
     }
     return {
@@ -138,23 +138,21 @@ async function readMacClipboardImage(): Promise<ImageAttachment | null> {
       label: "[Image: clipboard.png]",
       filename: "clipboard.png",
       mime: "image/png",
-      data: data.toString("base64"),
+      path: outputPath,
     };
   } catch {
     return null;
-  } finally {
-    await rm(outputPath, { force: true }).catch(() => {});
   }
 }
 
 async function readWindowsClipboardImage(): Promise<ImageAttachment | null> {
+  const outputPath = await clipboardImagePath();
   const script = [
     "Add-Type -AssemblyName System.Windows.Forms;",
     "$img = [System.Windows.Forms.Clipboard]::GetImage();",
     "if ($img) {",
-    "$ms = New-Object System.IO.MemoryStream;",
-    "$img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png);",
-    "[System.Convert]::ToBase64String($ms.ToArray())",
+    `$img.Save('${outputPath.replaceAll("'", "''")}', [System.Drawing.Imaging.ImageFormat]::Png);`,
+    `'${outputPath.replaceAll("'", "''")}'`,
     "}",
   ].join(" ");
   try {
@@ -163,8 +161,7 @@ async function readWindowsClipboardImage(): Promise<ImageAttachment | null> {
       ["-NonInteractive", "-NoProfile", "-Command", script],
       { timeout: 2000, maxBuffer: 1024 * 1024 * 32 },
     );
-    const data = stdout.trim();
-    if (!data) {
+    if (!stdout.trim()) {
       return null;
     }
     return {
@@ -172,7 +169,7 @@ async function readWindowsClipboardImage(): Promise<ImageAttachment | null> {
       label: "[Image: clipboard.png]",
       filename: "clipboard.png",
       mime: "image/png",
-      data,
+      path: outputPath,
     };
   } catch {
     return null;
@@ -224,14 +221,22 @@ async function readCommandImage(command: string, args: string[]): Promise<ImageA
     if (!Buffer.isBuffer(stdout) || stdout.length === 0) {
       return null;
     }
+    const outputPath = await clipboardImagePath();
+    await writeFile(outputPath, stdout, { mode: 0o600 });
     return {
       type: "image",
       label: "[Image: clipboard.png]",
       filename: "clipboard.png",
       mime: "image/png",
-      data: stdout.toString("base64"),
+      path: outputPath,
     };
   } catch {
     return null;
   }
+}
+
+async function clipboardImagePath(): Promise<string> {
+  const directory = path.join(tmpdir(), "chump", "attachments");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  return path.join(directory, `clipboard-${randomUUID()}.png`);
 }
