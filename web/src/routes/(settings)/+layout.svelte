@@ -59,7 +59,7 @@
 			role="dialog"
 			aria-modal="true"
 		>
-			<div class="relative w-72 max-w-[80vw] h-full bg-bg-surface-alt border-r border-border-default">
+			<div class="relative w-72 max-w-[85vw] h-full overflow-hidden">
 				<SettingsSidebar
 					user={data.user}
 					bind:mobileOpen
@@ -75,7 +75,7 @@
 	{/if}
 
 	<!-- Desktop Sidebar -->
-	<div class="hidden md:block h-screen sticky top-0 shrink-0">
+	<div class="hidden md:block w-64 lg:w-72 h-screen sticky top-0 shrink-0">
 		<SettingsSidebar
 			user={data.user}
 		/>

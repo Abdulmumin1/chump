@@ -148,7 +148,7 @@
 	}
 </script>
 
-<aside class="flex flex-col h-full bg-bg-surface-alt border-r border-border-default w-64 lg:w-72 shrink-0 select-none">
+<aside class="flex flex-col h-full w-full bg-bg-surface-alt border-r border-border-default shrink-0 select-none">
 	<!-- Top App Header -->
 	<div class="p-4 pb-3 border-b border-border-default flex items-center justify-between">
 		<a
