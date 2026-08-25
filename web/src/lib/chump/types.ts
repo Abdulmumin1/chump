@@ -162,6 +162,14 @@ export type ImageMessagePart = {
 	filename?: string;
 };
 
+export type FileMessagePart = {
+	type: 'file';
+	media_type?: string;
+	label?: string;
+	filename?: string;
+	attachment_id?: string;
+};
+
 export type UnknownMessagePart = {
 	type?: string;
 	[key: string]: unknown;
@@ -173,6 +181,7 @@ export type MessagePart =
 	| ToolCallMessagePart
 	| ToolResultMessagePart
 	| ImageMessagePart
+	| FileMessagePart
 	| UnknownMessagePart;
 
 export type StoredMessage = {
@@ -275,11 +284,11 @@ export type SseEvent = {
 };
 
 export type ChatAttachment = {
-	type: "image";
+	type: "file";
 	label: string;
 	filename: string;
 	mime: string;
-	data: string;
+	path: string;
 };
 
 export type FileSearchResult = {

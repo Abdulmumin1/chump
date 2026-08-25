@@ -9,9 +9,8 @@
     import QueuedSteeringList from "$lib/chat/composer/QueuedSteeringList.svelte";
     import DelegatedActivityPeek from "$lib/chat/composer/DelegatedActivityPeek.svelte";
     import {
-        ACCEPTED_IMAGE_TYPES,
-        readClipboardItemsAsAttachments,
-        readFilesAsAttachments,
+        uploadClipboardItemsAsAttachments,
+        uploadFilesAsAttachments,
     } from "$lib/chat/composer/attachments";
     import {
         buildComposerSuggestions,
@@ -100,7 +99,8 @@
     const hasAttachments = $derived(composerAttachments.length > 0);
 
     async function addAttachments(files: Iterable<File>) {
-        const newAttachments = await readFilesAsAttachments(files);
+        if (!apiTarget) return;
+        const newAttachments = await uploadFilesAsAttachments(apiTarget, files);
         if (newAttachments.length === 0) {
             return;
         }
@@ -111,16 +111,14 @@
         const items = event.clipboardData?.items;
         if (!items) return;
 
-        const imageItems = Array.from(items).filter((item) =>
-            item.type.startsWith("image/"),
-        );
-        if (imageItems.length === 0) {
+        const fileItems = Array.from(items).filter((item) => item.kind === "file");
+        if (fileItems.length === 0 || !apiTarget) {
             return;
         }
 
         event.preventDefault();
         const newAttachments =
-            await readClipboardItemsAsAttachments(imageItems);
+            await uploadClipboardItemsAsAttachments(apiTarget, fileItems);
         if (newAttachments.length === 0) {
             return;
         }
@@ -437,16 +435,9 @@
         <div
             class="absolute inset-0 z-20 bg-accent/10 border-2 border-dashed border-accent rounded-lg flex items-center justify-center pointer-events-none"
         >
-            <span class="text-accent text-sm font-medium">Drop images here</span
+            <span class="text-accent text-sm font-medium">Drop files here</span
             >
         </div>
-    {/if}
-
-    {#if hasAttachments}
-        <AttachmentTray
-            attachments={composerAttachments}
-            onRemove={removeAttachment}
-        />
     {/if}
 
     <div class="max-w-4xl mx-auto relative z-10 flex flex-col w-full">
@@ -474,6 +465,13 @@
                 class="w-12 h-12 mb-6 absolute top-0 left-0 group-hover:-top-9 transition-all duration-300 -z-10"
             />
 
+            {#if hasAttachments}
+                <AttachmentTray
+                    attachments={composerAttachments}
+                    onRemove={removeAttachment}
+                />
+            {/if}
+
             <textarea
                 aria-label="Message Chump"
                 bind:this={textareaElement}
@@ -495,7 +493,7 @@
                 <div class="flex items-center gap-2">
                     <button
                         type="button"
-                        aria-label="Attach image"
+                        aria-label="Attach files"
                         class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated rounded-[6px] transition-colors disabled:opacity-50"
                         onclick={openFilePicker}
                         disabled={isLoadingSession}
@@ -518,8 +516,7 @@
                     <input
                         bind:this={fileInputElement}
                         type="file"
-                        aria-label="Upload images"
-                        accept={ACCEPTED_IMAGE_TYPES}
+                        aria-label="Upload files"
                         multiple
                         class="hidden"
                         onchange={handleFileInputChange}

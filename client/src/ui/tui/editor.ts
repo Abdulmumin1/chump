@@ -183,7 +183,7 @@ export class ChumpEditor extends Editor {
     if (image) {
       logClientEvent(
         "clipboardImage",
-        `${image.mime} bytes=${Buffer.byteLength(image.data, "base64")}`,
+        `${image.mime} path=${image.path}`,
       );
       this.insertImageAttachment(image);
       return;

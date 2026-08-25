@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.3
+
+### Patch Changes
+
+- Replace binary image payloads with local file-path attachments and keep clipboard files inside Chump's managed temporary directory.
+
 ## 0.5.2
 
 ### Patch Changes

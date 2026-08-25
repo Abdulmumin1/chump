@@ -1,6 +1,10 @@
 <script lang="ts">
     import { fade } from "svelte/transition";
     import DitherIdenticon from "$lib/DitherIdenticon.svelte";
+    import {
+        fetchAttachmentPreview,
+        type ChumpApiTarget,
+    } from "$lib/chump/api";
 
     type UserMessageBlock = {
         kind: string;
@@ -9,9 +13,13 @@
         mediaType?: string;
         label?: string;
         filename?: string;
+        attachmentId?: string;
     };
 
-    let { blocks = [] } = $props<{ blocks: UserMessageBlock[] }>();
+    let { blocks = [], apiTarget = null } = $props<{
+        blocks: UserMessageBlock[];
+        apiTarget?: ChumpApiTarget | null;
+    }>();
 
     let expanded = $state(false);
     let fullHeight = $state(0);
@@ -62,6 +70,19 @@
                 ? `Image · ${block.mediaType}`
                 : "Image attachment")
         );
+    }
+
+    async function previewFile(block: UserMessageBlock): Promise<void> {
+        if (!apiTarget || !block.attachmentId) return;
+        const previewUrl = await fetchAttachmentPreview(
+            apiTarget,
+            block.attachmentId,
+        );
+        if (block.mediaType?.startsWith("image/")) {
+            activeZoomImage = previewUrl;
+            return;
+        }
+        window.open(previewUrl, "_blank", "noopener,noreferrer");
     }
 </script>
 
@@ -139,6 +160,31 @@
                                 >
                             </div>
                         {/if}
+                    {:else if block.kind === "file"}
+                        <div class="inline-flex w-fit min-w-0 items-center gap-1.5 text-text-inverse">
+                            <svg
+                                class="h-3.5 w-3.5 flex-none"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828L18 9.828a4 4 0 00-5.656-5.656L5.758 10.758a6 6 0 108.484 8.484L20.5 13"
+                                ></path>
+                            </svg>
+                            <button
+                                type="button"
+                                class="break-all p-0 cursor-pointer text-left font-semibold underline underline-offset-2 disabled:cursor-default"
+                                disabled={!apiTarget || !block.attachmentId}
+                                onclick={() => void previewFile(block)}
+                            >
+                                {block.filename || block.text}
+                            </button>
+                        </div>
                     {:else if block.text}
                         <div class="whitespace-pre-wrap break-words">
                             {block.text}

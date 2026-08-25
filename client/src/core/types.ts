@@ -124,7 +124,7 @@ export type ImageAttachment = {
   label: string;
   filename: string;
   mime: string;
-  data: string;
+  path: string;
 };
 
 export type TextAttachment = {

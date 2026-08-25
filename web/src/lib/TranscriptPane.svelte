@@ -6,6 +6,7 @@
     import PulseDot from "$lib/PulseDot.svelte";
     import type { TranscriptMessage } from "$lib/chat/types";
     import type { ChumpHealth } from "$lib/chump/types";
+    import type { ChumpApiTarget } from "$lib/chump/api";
 
     let {
         transcript,
@@ -21,6 +22,7 @@
         activeSessionId = "",
         onOpenConnectModal,
         isLoadingSession = false,
+        apiTarget = null,
     } = $props<{
         transcript: TranscriptMessage[];
         transcriptElement: HTMLDivElement | null;
@@ -35,6 +37,7 @@
         activeSessionId?: string;
         onOpenConnectModal?: () => void;
         isLoadingSession?: boolean;
+        apiTarget?: ChumpApiTarget | null;
     }>();
 
     function isToolBlock(
@@ -89,7 +92,7 @@
                     <div
                         class="ml-auto w-full flex justify-end max-w-[85%] md:max-w-[75%]"
                     >
-                        <UserMessage blocks={item.blocks} />
+                        <UserMessage blocks={item.blocks} {apiTarget} />
                     </div>
                 {:else if item.role === "reasoning"}
                     <ReasoningTranscriptItem

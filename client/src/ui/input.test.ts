@@ -20,9 +20,9 @@ test("drops image attachments when their draft labels are cleared", () => {
     label: "[Image 1: clipboard.png]",
     filename: "clipboard.png",
     mime: "image/png",
-    data: "first",
+    path: "/tmp/first.png",
   };
-  const second = { ...first, label: "[Image 2: clipboard.png]", data: "second" };
+  const second = { ...first, label: "[Image 2: clipboard.png]", path: "/tmp/second.png" };
 
   assert.deepEqual(attachmentsForDraft("", [first, second]), []);
   assert.deepEqual(attachmentsForDraft(`${second.label} `, [first, second]), [second]);

@@ -40,7 +40,7 @@ from .runtime.messages import (
     build_session_title,
     build_user_content,
     build_user_display_content,
-    is_image_attachment,
+    is_file_attachment,
     message_content_text,
     summarize_attachments,
 )
@@ -661,7 +661,7 @@ class ChumpAgent(Agent[dict[str, Any]]):
         self._usage_summary["current_turn"] = zero_usage_dict()
         raw_attachments = attachments or []
         valid_attachments = [
-            item for item in raw_attachments if is_image_attachment(item)
+            item for item in raw_attachments if is_file_attachment(item)
         ]
         self._log(
             f"chat start: {message} attachments={len(valid_attachments)}/{len(raw_attachments)}"

@@ -19,7 +19,14 @@ from aiohttp import web
 
 from .git_utils import get_git_branch
 from .agent import bind_chump_agent
-from .config import ChumpConfig, PROVIDER_MODELS, load_config, load_global_config, load_repo_config
+from .config import (
+    ChumpConfig,
+    PROVIDER_MODELS,
+    chump_temp_dir,
+    load_config,
+    load_global_config,
+    load_repo_config,
+)
 from .directory_picker import pick_directory
 from .git_actions import (
     GitAction,
@@ -149,6 +156,8 @@ class ChumpServer(AgentServer):
         app.router.add_get("/version", self.version)
         app.router.add_get("/sessions", self.sessions)
         app.router.add_get("/files", self.files)
+        app.router.add_post("/attachments", self.upload_attachment)
+        app.router.add_get("/attachments/{attachment_id}", self.get_attachment)
         app.router.add_get("/terminal", self.terminal)
         app.router.add_post("/directory-picker", self.directory_picker)
         if self.service_registration is not None:
@@ -162,6 +171,13 @@ class ChumpServer(AgentServer):
         app.router.add_get("/projects/{project_id}/sessions", self.project_sessions)
         app.router.add_post("/projects/{project_id}/sessions", self.create_project_session)
         app.router.add_get("/projects/{project_id}/files", self.project_files)
+        app.router.add_post(
+            "/projects/{project_id}/attachments", self.upload_attachment
+        )
+        app.router.add_get(
+            "/projects/{project_id}/attachments/{attachment_id}",
+            self.get_attachment,
+        )
         app.router.add_post(
             "/projects/{project_id}/git/{action:commit-push|commit|push|create-pr}",
             self.project_git_action,
@@ -336,6 +352,52 @@ class ChumpServer(AgentServer):
         return web.json_response(
             {"files": await self.search.files(query, max(1, min(limit, 100)))}
         )
+
+    async def upload_attachment(self, request: web.Request) -> web.Response:
+        reader = await request.multipart()
+        part = await reader.next()
+        if part is None or part.name != "file" or not part.filename:
+            raise web.HTTPBadRequest(text="file is required")
+
+        filename = Path(part.filename).name
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", filename).strip(".-") or "file"
+        safe_name = safe_name[-180:]
+        directory = chump_temp_dir() / "attachments"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        file_path = directory / f"{uuid.uuid4()}-{safe_name}"
+        size = 0
+        with file_path.open("xb") as output:
+            while chunk := await part.read_chunk():
+                size += len(chunk)
+                output.write(chunk)
+        file_path.chmod(0o600)
+        if size == 0:
+            file_path.unlink(missing_ok=True)
+            raise web.HTTPBadRequest(text="file is empty")
+
+        mime = part.headers.get("Content-Type", "application/octet-stream")
+        return web.json_response(
+            {
+                "attachment": {
+                    "type": "file",
+                    "label": f"[File: {filename}]",
+                    "filename": filename,
+                    "mime": mime,
+                    "path": str(file_path),
+                }
+            },
+            status=201,
+        )
+
+    async def get_attachment(self, request: web.Request) -> web.FileResponse:
+        attachment_id = Path(request.match_info["attachment_id"]).name
+        if attachment_id != request.match_info["attachment_id"]:
+            raise web.HTTPNotFound(text="attachment not found")
+        file_path = chump_temp_dir() / "attachments" / attachment_id
+        if not file_path.is_file():
+            raise web.HTTPNotFound(text="attachment not found")
+        return web.FileResponse(file_path)
 
     async def directory_picker(self, request: web.Request) -> web.Response:
         return web.json_response({"workspacePath": await pick_directory()})

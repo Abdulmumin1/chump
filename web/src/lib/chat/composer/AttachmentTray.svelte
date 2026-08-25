@@ -1,6 +1,5 @@
 <script lang="ts">
     import type { ChatAttachment } from "$lib/chump/types";
-    import { attachmentThumbSrc } from "$lib/chat/composer/attachments";
 
     let {
         attachments,
@@ -11,20 +10,32 @@
     }>();
 </script>
 
-<div class="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
+<div class="flex flex-wrap gap-1.5 px-3 pt-2.5 md:px-4" aria-label="Attached files">
     {#each attachments as attachment, index (attachment.filename + index)}
         <div
-            class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-default bg-bg-code flex-shrink-0"
+            class="group flex min-w-0 max-w-56 items-center gap-1.5 rounded-full border border-border-default bg-bg-elevated py-1 pl-2.5 pr-1 text-xs text-text-secondary"
         >
-            <img
-                src={attachmentThumbSrc(attachment)}
-                alt="Preview of {attachment.filename}"
-                class="w-full h-full object-cover"
-            />
+            <svg
+                class="h-3.5 w-3.5 flex-none text-text-tertiary"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+            >
+                <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828L18 9.828a4 4 0 00-5.656-5.656L5.758 10.758a6 6 0 108.484 8.484L20.5 13"
+                ></path>
+            </svg>
+            <span class="truncate" title={attachment.filename}>
+                {attachment.filename}
+            </span>
             <button
                 type="button"
-                aria-label="Remove attachment"
-                class="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-bg-surface/80 text-text-tertiary hover:bg-error hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label="Remove {attachment.filename}"
+                class="flex h-5 w-5 flex-none items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-surface hover:text-text-primary"
                 onclick={() => onRemove(index)}
             >
                 <svg
@@ -41,11 +52,6 @@
                     ></path>
                 </svg>
             </button>
-            <span
-                class="absolute bottom-0 left-0 right-0 text-[8px] text-text-inverse bg-black/50 truncate px-1 leading-relaxed"
-            >
-                {attachment.filename}
-            </span>
         </div>
     {/each}
 </div>

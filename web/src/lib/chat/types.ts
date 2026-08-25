@@ -2,7 +2,7 @@ import type { ModelChoice } from "$lib/models";
 import type { ToolLifecycleStatus } from "$lib/chump/types";
 
 export type TranscriptBlock = {
-    kind: "text" | "tool-call" | "tool-result" | "image" | "reasoning";
+    kind: "text" | "tool-call" | "tool-result" | "image" | "file" | "reasoning";
     text: string;
     error?: boolean;
     toolCallId?: string;
@@ -22,6 +22,7 @@ export type TranscriptBlock = {
     mediaType?: string;
     label?: string;
     filename?: string;
+    attachmentId?: string;
 };
 
 export type TranscriptMessage = {
