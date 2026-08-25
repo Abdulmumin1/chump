@@ -59,7 +59,7 @@
 			role="dialog"
 			aria-modal="true"
 		>
-			<div class="relative w-72 max-w-[80vw] h-full bg-bg-surface-alt">
+			<div class="relative w-72 max-w-[80vw] h-full bg-bg-surface-alt border-r border-border-default">
 				<SettingsSidebar
 					user={data.user}
 					bind:mobileOpen
