@@ -60,7 +60,12 @@
 		]);
 		accounts = accountResult.data ?? [];
 		sessions = sessionResult.data ?? [];
-		errorMessage = accountResult.error?.message ?? sessionResult.error?.message ?? '';
+		// Better Auth requires a fresh session for listSessions, even though this
+		// page is otherwise valid. Do not turn that background limitation into a
+		// page-level error; sensitive actions still enforce freshness themselves.
+		errorMessage =
+			accountResult.error?.message ??
+			(sessionResult.error?.code === 'SESSION_NOT_FRESH' ? '' : sessionResult.error?.message ?? '');
 		loading = false;
 	}
 
