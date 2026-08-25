@@ -208,9 +208,9 @@
                 onclick={() => toggleActivityGroup(group)}
             >
                 <div class="flex min-w-0 items-center gap-3 overflow-hidden">
-                    <span class="flex-shrink-0 font-mono text-[11px] font-semibold text-text-secondary">{groupSummary(group)}</span>
+                    <span class="min-w-0 truncate font-mono text-[11px] font-semibold text-text-secondary">{groupSummary(group)}</span>
                     {#if groupPreview(group)}
-                        <span class="min-w-0 truncate font-mono text-[11px] text-text-secondary">{groupPreview(group)}</span>
+                        <span class="shrink-0 truncate font-mono text-[11px] text-text-secondary">{groupPreview(group)}</span>
                     {/if}
                 </div>
             </button>

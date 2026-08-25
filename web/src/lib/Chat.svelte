@@ -32,6 +32,7 @@
         clearMessages,
         compactMessages,
         getHealth,
+        getMessages,
         getSessions,
         loadSkill,
         normalizeServerUrl,
@@ -110,6 +111,7 @@
     let delegatedActivities = $state<DelegatedSessionActivity[]>([]);
     let isCompacting = $state(false);
     let isLoadingSession = $state(false);
+    let isSharing = $state(false);
     let connectionError = $state("");
     let transcriptElement = $state<HTMLDivElement | null>(null);
     let isAtBottom = $state(true);
@@ -129,6 +131,7 @@
     let qrVideoElement = $state<HTMLVideoElement | null>(null);
     let modelPickerOpen = $state(false);
     let projectPickerRequest = $state(0);
+    let isDesktopViewport = $state(false);
     let toasts = $state<
         Array<{
             id: number;
@@ -414,6 +417,55 @@
 
     function toggleReasoning(id: string, defaultExpanded = false) {
         expandedReasoning[id] = !(expandedReasoning[id] ?? defaultExpanded);
+    }
+
+    async function shareSession(): Promise<void> {
+        const target = apiTarget;
+        const sessionId = activeSessionId.trim();
+        if (!target || !sessionId) {
+            pushToast("Open a session to share it", "error");
+            return;
+        }
+        if (isSharing) return;
+        isSharing = true;
+        try {
+            const { messages: storedMessages } = await getMessages(target, sessionId);
+            if (!storedMessages || storedMessages.length === 0) {
+                pushToast("This session has no messages to share", "error");
+                return;
+            }
+            const activeSession = sessions.find(
+                (session) => session.id === sessionId,
+            );
+            const title = activeSession
+                ? sessionTitle(activeSession)
+                : sessionId.slice(0, 12);
+            const response = await fetch("/api/shared-sessions", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ title, messages: storedMessages }),
+            });
+            const result = (await response
+                .json()
+                .catch(() => null)) as {
+                url?: string;
+                error?: string;
+            } | null;
+            if (!response.ok || !result?.url) {
+                pushToast(
+                    result?.error ?? `Sharing failed (${response.status})`,
+                    "error",
+                );
+                return;
+            }
+            const shareUrl = new URL(result.url, window.location.origin).toString();
+            await navigator.clipboard.writeText(shareUrl);
+            pushToast("Share link copied to clipboard", "success");
+        } catch (error) {
+            pushToast(toErrorMessage(error), "error");
+        } finally {
+            isSharing = false;
+        }
     }
 
     function toggleSidebar() {
@@ -1095,7 +1147,14 @@
     }
 
     onMount(() => {
-        if (typeof window !== "undefined" && window.innerWidth >= 768) {
+        const desktopViewport = window.matchMedia("(min-width: 768px)");
+        const syncDesktopViewport = () => {
+            isDesktopViewport = desktopViewport.matches;
+        };
+        syncDesktopViewport();
+        desktopViewport.addEventListener("change", syncDesktopViewport);
+
+        if (desktopViewport.matches) {
             sidebarOpen = true;
         }
         const handleOpenProjectShortcut = (event: KeyboardEvent) => {
@@ -1184,6 +1243,7 @@
         }
 
         return () => {
+            desktopViewport.removeEventListener("change", syncDesktopViewport);
             window.removeEventListener("keydown", handleOpenProjectShortcut);
             window.removeEventListener("keydown", handleToggleSidebarShortcut);
             window.removeEventListener("storage", handlePendingLocalServiceHandoff);
@@ -1308,6 +1368,9 @@
         <ChatTopBar
             {sidebarOpen}
             onToggleSidebar={toggleSidebar}
+            canShare={Boolean(apiTarget && activeSessionId)}
+            {isSharing}
+            onShare={() => void shareSession()}
         />
 
         <TranscriptPane
@@ -1386,7 +1449,20 @@
     </main>
     {/snippet}
 
-    {#if sessionState}
+    {#snippet workspaceStatePane()}
+        {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
+            {#key activeSessionId}
+                <WorkspaceState
+                    state={sessionState}
+                    target={apiTarget}
+                    {sidebarOpen}
+                    onCollapsedChange={handleWorkspaceCollapsed}
+                />
+            {/key}
+        {/await}
+    {/snippet}
+
+    {#if sessionState && isDesktopViewport}
         <PaneGroup direction="horizontal" class="min-h-0 min-w-0 flex-1">
             <Pane defaultSize={58} minSize={25}>
                 {@render chatPane()}
@@ -1399,20 +1475,14 @@
                 collapsible
                 collapsedSize={0}
             >
-                {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
-                    {#key activeSessionId}
-                        <WorkspaceState
-                            state={sessionState}
-                            target={apiTarget}
-                            {sidebarOpen}
-                            onCollapsedChange={handleWorkspaceCollapsed}
-                        />
-                    {/key}
-                {/await}
+                {@render workspaceStatePane()}
             </Pane>
         </PaneGroup>
     {:else}
         {@render chatPane()}
+        {#if sessionState}
+            {@render workspaceStatePane()}
+        {/if}
     {/if}
 </div>
 

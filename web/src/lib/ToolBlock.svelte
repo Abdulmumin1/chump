@@ -147,7 +147,7 @@
                         >$</span
                     >
                     <span
-                        class="max-w-[500px] flex-shrink-0 truncate font-mono text-[11px] text-text-main"
+                        class="max-w-[500px] min-w-0 truncate font-mono text-[11px] text-text-main"
                         >{(block.toolName || "").replace("$ ", "")}</span
                     >
                 {:else if block.originalToolName === "read_file" || block.originalToolName === "view_file"}
@@ -184,7 +184,7 @@
                         >Search</span
                     >
                     {#if block.args?.query}
-                        <span class="truncate font-mono text-[11px] text-text-secondary">"{block.args.query}"{#if block.args.path} in {block.args.path}{/if}</span>
+                        <span class="min-w-0 truncate font-mono text-[11px] text-text-secondary">"{block.args.query}"{#if block.args.path} in {block.args.path}{/if}</span>
                     {/if}
                 {:else if block.originalToolName === "apply_patch"}
                     <span
@@ -193,7 +193,7 @@
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            class="ml-1 min-w-0 truncate font-mono text-[11px] text-text-secondary"
                             >{block.toolName}</span
                         >
                     {/if}
@@ -204,7 +204,7 @@
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            class="ml-1 min-w-0 truncate font-mono text-[11px] text-text-secondary"
                             >{block.toolName}</span
                         >
                     {/if}
@@ -214,7 +214,7 @@
                         >Web</span
                     >
                     {#if block.args?.query || block.args?.url}
-                        <span class="truncate font-mono text-[11px] text-text-secondary">{block.args.query || block.args.url}</span>
+                        <span class="min-w-0 truncate font-mono text-[11px] text-text-secondary">{block.args.query || block.args.url}</span>
                     {/if}
                 {:else if block.originalToolName === "skill" || block.originalToolName === "load_skill"}
                     <span
@@ -223,7 +223,7 @@
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            class="ml-1 min-w-0 truncate font-mono text-[11px] text-text-secondary"
                             >{(block.toolName || "").replace(/^Skill\s+/i, "")}</span
                         >
                     {/if}
@@ -249,7 +249,7 @@
                     >
                     {#if sessionToolDetail}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            class="ml-1 min-w-0 truncate font-mono text-[11px] text-text-secondary"
                             >{sessionToolDetail}</span
                         >
                     {/if}
@@ -260,7 +260,7 @@
                     >
                     {#if block.toolName !== block.originalToolName}
                         <span
-                            class="ml-1 truncate font-mono text-[11px] text-text-secondary"
+                            class="ml-1 min-w-0 truncate font-mono text-[11px] text-text-secondary"
                             >{block.toolName}</span
                         >
                     {/if}

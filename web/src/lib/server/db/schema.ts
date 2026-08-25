@@ -1,4 +1,5 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import type { StoredMessage } from '$lib/chump/types';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -158,6 +159,13 @@ export const invitation = sqliteTable(
 		index('invitation_email_idx').on(table.email)
 	]
 );
+
+export const sharedSession = sqliteTable('sharedSession', {
+	slug: text('slug').primaryKey(),
+	title: text('title').notNull(),
+	messages: text('messages', { mode: 'json' }).$type<StoredMessage[]>().notNull(),
+	createdAt: integer('createdAt', { mode: 'timestamp' }).notNull()
+});
 
 export const authSchema = {
 	user,

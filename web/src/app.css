@@ -233,18 +233,15 @@ input, textarea, select { font-size: 16px; }
 
 @layer components {
     .shimmer-text {
-        --shimmer-spread: 64px;
-        background-image:
-            linear-gradient(
-                90deg,
-                transparent calc(50% - var(--shimmer-spread)),
-                var(--text-main),
-                transparent calc(50% + var(--shimmer-spread))
-            ),
-            linear-gradient(var(--text-tertiary), var(--text-tertiary));
-        background-position: 100% center;
-        background-repeat: no-repeat, padding-box;
-        background-size: 250% 100%, auto;
+        background: linear-gradient(
+            90deg,
+            var(--text-tertiary) 0%,
+            var(--text-tertiary) 35%,
+            var(--text-main) 50%,
+            var(--text-tertiary) 65%,
+            var(--text-tertiary) 100%
+        );
+        background-size: 200% 100%;
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
@@ -274,11 +271,11 @@ input, textarea, select { font-size: 16px; }
 }
 
 @keyframes shimmer-text {
-    from {
-        background-position: 100% center;
+    0% {
+        background-position: 200% 0;
     }
-    to {
-        background-position: 0% center;
+    100% {
+        background-position: -200% 0;
     }
 }
 
