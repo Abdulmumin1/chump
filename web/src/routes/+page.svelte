@@ -62,7 +62,7 @@
 
 <div class="h-[100dvh] w-full bg-bg-body text-text-main flex flex-col items-center justify-between font-sans overflow-hidden pt-16 sm:pt-8 pb-16 sm:pb-24 relative box-border">
 	<!-- TOP NAV -->
-	<nav class="absolute top-6 w-full flex justify-center flex-wrap gap-y-3 sm:flex-nowrap sm:justify-end sm:pr-10 z-50 font-mono text-[10px] sm:text-xs tracking-[0.15em] items-center space-x-4 sm:space-x-6 px-4">
+	<nav class="absolute top-6 w-full flex justify-center flex-wrap gap-3 sm:gap-6 sm:flex-nowrap sm:justify-end sm:pr-10 z-50 font-mono text-[10px] sm:text-xs tracking-[0.15em] items-center px-4">
 		<a href="https://github.com/Abdulmumin1/chump" target="_blank" rel="noopener noreferrer" class="text-text-secondary hover:text-text-main transition-colors">GITHUB</a>
 		{#if data.user}
 			<a href={resolve('/account')} class="text-text-secondary hover:text-text-main transition-colors">ACCOUNT</a>
@@ -84,7 +84,7 @@
 	</nav>
 
 	<!-- HEADER -->
-	<header class="w-full max-w-4xl px-4 flex flex-col items-center pt-12 sm:pt-4 relative flex-shrink-0">
+	<header class="w-full max-w-4xl px-4 flex flex-col items-center pt-24 sm:pt-4 relative flex-shrink-0">
 		<div class="flex flex-row items-center justify-center w-full relative mb-[-0.25rem] md:mb-[-0.5rem] z-10">
 			<h1 class="text-3xl sm:text-5xl md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase whitespace-nowrap text-text-inverse flex items-center justify-center line-anim leading-none" style="font-family: 'Times New Roman', Times, serif; animation-delay: 0ms;">
 				Chump
