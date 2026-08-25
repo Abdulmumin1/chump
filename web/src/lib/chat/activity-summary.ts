@@ -108,6 +108,22 @@ export function summarizeTerminalActivity(
         }
     }
 
+    const sortOrder: Record<string, number> = {
+        "edit": 1,
+        "file written": 2,
+        "command": 3,
+        "skill": 4,
+        "session": 5,
+        "MCP": 6,
+        "file read": 7,
+        "search": 8,
+        "web request": 9,
+        "image viewed": 10,
+        "action": 11,
+    };
+
+    orderedKinds.sort((a, b) => (sortOrder[a] ?? 99) - (sortOrder[b] ?? 99));
+
     const toolParts = orderedKinds
         .slice(0, 3)
         .map((kind) => formatSummaryPart(kind, counts[kind]));
