@@ -4,7 +4,7 @@
 
 <div
     aria-hidden="true"
-    class="relative w-[240px] h-[310px] sm:w-[280px] sm:h-[360px] md:w-[320px] md:h-[410px] flex flex-col items-center transition-transform duration-700 hover:scale-[1.02] group max-h-[40vh]"
+    class="relative w-[200px] h-[260px] min-[400px]:w-[240px] min-[400px]:h-[310px] sm:w-[280px] sm:h-[360px] md:w-[320px] md:h-[410px] flex flex-col items-center transition-transform duration-700 hover:scale-[1.02] group max-h-[45vh]"
 >
     <!-- Mac Body -->
     <div
