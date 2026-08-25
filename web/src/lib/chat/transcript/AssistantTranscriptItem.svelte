@@ -186,7 +186,13 @@
                     type="button"
                     aria-expanded={isGroupExpanded(group)}
                 >
-                    <span class="font-mono text-[12px] font-medium">{summary.text}</span>
+                    <span class="font-mono text-[12px] font-medium">
+                        {#each summary.parts as part, i}
+                            <span class={i >= 2 ? "hidden sm:inline" : ""}>
+                                {i > 0 ? ", " : ""}{part}
+                            </span>
+                        {/each}
+                    </span>
                     <svg
                         class="size-3.5 transition-transform duration-200 {isGroupExpanded(group) ? 'rotate-90' : ''}"
                         fill="none"

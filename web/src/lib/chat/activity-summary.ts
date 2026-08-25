@@ -8,6 +8,7 @@ export type ToolPresentation = "hidden" | "visible" | "collapsible";
 
 type ActivitySummary = {
     text: string;
+    parts: string[];
     condensed: boolean;
 };
 
@@ -113,6 +114,7 @@ export function summarizeTerminalActivity(
 
     return {
         text: toolParts.join(", "),
+        parts: toolParts,
         condensed: orderedKinds.length > COMPACT_ACTION_TYPE_LIMIT,
     };
 }

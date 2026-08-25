@@ -84,6 +84,7 @@ describe("live tool lifecycle events", () => {
 
         expect(summary).toEqual({
             text: "Ran 1 command, Read 1 file",
+            parts: ["Ran 1 command", "Read 1 file"],
             condensed: false,
         });
     });
@@ -125,6 +126,7 @@ describe("live tool lifecycle events", () => {
 
         expect(summary).toEqual({
             text: "Ran 1 command, Read 1 file, Searched 1 time",
+            parts: ["Ran 1 command", "Read 1 file", "Searched 1 time"],
             condensed: true,
         });
     });
