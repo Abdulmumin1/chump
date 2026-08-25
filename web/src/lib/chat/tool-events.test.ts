@@ -88,7 +88,7 @@ describe("live tool lifecycle events", () => {
         });
     });
 
-    it("replaces varied activity accordions with an exploration duration", () => {
+    it("summarizes varied activity into detailed tool counts", () => {
         const summary = summarizeTerminalActivity(
             [
                 {
@@ -124,7 +124,7 @@ describe("live tool lifecycle events", () => {
         );
 
         expect(summary).toEqual({
-            text: "Explored for 1 minute",
+            text: "Ran 1 command, Read 1 file, Searched 1 time",
             condensed: true,
         });
     });

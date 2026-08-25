@@ -107,53 +107,14 @@ export function summarizeTerminalActivity(
         }
     }
 
-    if (orderedKinds.length > COMPACT_ACTION_TYPE_LIMIT) {
-        return {
-            text: `Explored for ${formatDuration(
-                activityDurationSeconds(
-                    startedAt,
-                    completedAt,
-                    summedToolDuration,
-                ),
-            )}`,
-            condensed: true,
-        };
-    }
+    const toolParts = orderedKinds
+        .slice(0, 3)
+        .map((kind) => formatSummaryPart(kind, counts[kind]));
 
-    const toolParts = orderedKinds.map((kind) =>
-        formatSummaryPart(kind, counts[kind]),
-    );
-    const thoughtPart = reasoningText.length > 0
-        ? [summarizeReasoning(...reasoningText)]
-        : [];
     return {
-        text: [...thoughtPart, ...toolParts].join(", "),
-        condensed: false,
+        text: toolParts.join(", "),
+        condensed: orderedKinds.length > COMPACT_ACTION_TYPE_LIMIT,
     };
-}
-
-function formatDuration(duration: number): string {
-    const seconds = Math.max(1, Math.round(duration));
-    if (seconds >= 60) {
-        const minutes = Math.max(1, Math.round(seconds / 60));
-        return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-    }
-    return `${seconds} second${seconds === 1 ? "" : "s"}`;
-}
-
-function activityDurationSeconds(
-    startedAt: number | undefined,
-    completedAt: number | undefined,
-    fallback: number,
-): number {
-    if (
-        startedAt !== undefined &&
-        completedAt !== undefined &&
-        completedAt >= startedAt
-    ) {
-        return (completedAt - startedAt) / 1000;
-    }
-    return fallback;
 }
 
 function toolSummaryKind(block: TranscriptBlock): string {
