@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.1
+
+### Patch Changes
+
+- Improve transcript activity presentation by keeping reasoning in event order, delaying short-lived tool calls, holding visible tools before collapsing them, and showing compact duration-based activity summaries.
+
 ## 0.5.0
 
 ### Minor Changes

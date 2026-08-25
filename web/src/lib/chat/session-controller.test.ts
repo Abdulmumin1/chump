@@ -206,6 +206,89 @@ describe("session loading", () => {
         }
     });
 
+    it("flushes reasoning before showing the following tool", async () => {
+        const eventStream = controllableEventStream();
+        globalThis.fetch = (async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url.endsWith("/action/status")) {
+                return Response.json({ result: status({ turn_running: true }) });
+            }
+            if (url.endsWith("/state")) return Response.json(sessionState());
+            if (url.endsWith("/messages")) {
+                return Response.json({ messages: [] });
+            }
+            if (url.endsWith("/action/event_log")) {
+                return Response.json({
+                    result: {
+                        events: [
+                            {
+                                id: 1,
+                                type: "turn_status",
+                                data: { running: true, steering_queue: [] },
+                            },
+                        ],
+                    },
+                });
+            }
+            if (url.includes("/events?")) {
+                return new Response(eventStream.stream, {
+                    headers: { "content-type": "text/event-stream" },
+                });
+            }
+            throw new Error(`unexpected request: ${url}`);
+        }) as typeof fetch;
+
+        const state = controllerState();
+        const controller = createSessionController(state, {
+            closeConnectModal: () => {},
+            scrollTranscriptToEnd: async () => {},
+        });
+
+        try {
+            await controller.selectSession("session-one");
+            eventStream.enqueue(
+                'id: 2\nevent: reasoning\ndata: {"text":"**Planning the complete edit before running it**","created_at":10}\n\n',
+            );
+            eventStream.enqueue(
+                'id: 3\nevent: tool_call\ndata: {"name":"apply_patch","call_id":"edit-1","args":{"patch_text":"patch"},"step":1,"index":0,"schema_version":1,"created_at":20}\n\n',
+            );
+            eventStream.enqueue(
+                'id: 4\nevent: tool_result\ndata: {"name":"apply_patch","call_id":"edit-1","ok":true,"status":"ok","preview":"done","step":1,"index":0,"schema_version":1,"created_at":22}\n\n',
+            );
+
+            await waitFor(() => JSON.stringify(state.messages).includes("edit-1"));
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            const assistant = state.messages.find(
+                (message) => message.role === "assistant",
+            );
+            if (!assistant || !Array.isArray(assistant.content)) {
+                throw new Error("expected live assistant parts");
+            }
+            expect(
+                assistant.content.map((part) => part.type),
+            ).toEqual(["reasoning", "tool_call"]);
+            expect(assistant.content[0]).toMatchObject({
+                type: "reasoning",
+                text: "**Planning the complete edit before running it**",
+                data: {
+                    presentation_started_at: 10_000,
+                    presentation_completed_at: 10_000,
+                },
+            });
+            expect(assistant.content[1]).toMatchObject({
+                type: "tool_call",
+                tool_call: {
+                    status: "completed",
+                    presentation_started_at: 20_000,
+                    presentation_completed_at: 22_000,
+                },
+            });
+        } finally {
+            controller.destroy();
+        }
+    });
+
     it("keeps the latest useful delegated reasoning and tool detail", async () => {
         const eventStream = controllableEventStream();
         globalThis.fetch = (async (input: string | URL | Request) => {

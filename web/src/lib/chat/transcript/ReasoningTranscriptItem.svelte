@@ -35,6 +35,7 @@
                 id={`${item.id}-${index}`}
                 text={block.text}
                 active={isSending && itemIndex === transcriptLength - 1 && index === item.blocks.length - 1}
+                streaming={item.live === true}
                 expanded={expandedReasoning[`${item.id}-${index}`]}
                 onToggle={onToggleReasoning}
                 summary={reasoningSummary}

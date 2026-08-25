@@ -22,13 +22,33 @@ export function buildTranscript(source: StoredMessage[]): TranscriptMessage[] {
                 if (candidate.type === "reasoning") {
                     const fragment = asString(candidate.text);
                     if (fragment) {
+                        const timing = asRecord(candidate.data);
+                        const startedAt = finiteNumber(
+                            timing?.presentation_started_at,
+                        );
+                        const completedAt = finiteNumber(
+                            timing?.presentation_completed_at,
+                        );
                         const previous = blocks.at(-1);
                         if (previous?.kind === "reasoning") {
                             previous.text = mergeReasoningText(previous.text, fragment);
+                            previous.startedAt = earliestTimestamp(
+                                previous.startedAt,
+                                startedAt,
+                            );
+                            previous.completedAt = latestTimestamp(
+                                previous.completedAt,
+                                completedAt,
+                            );
                         } else {
                             const text = cleanReasoningText(fragment);
                             if (text) {
-                                blocks.push({ kind: "reasoning", text });
+                                blocks.push({
+                                    kind: "reasoning",
+                                    text,
+                                    startedAt,
+                                    completedAt,
+                                });
                             }
                         }
                     }
@@ -202,7 +222,13 @@ export function mergeReasoningText(existing: string, incoming: string): string {
         return existing;
     }
 
-    return existing + appended;
+    return existing + reasoningSummaryBoundary(existing, appended) + appended;
+}
+
+function reasoningSummaryBoundary(existing: string, incoming: string): string {
+    return /\*{2}\s*$/u.test(existing) && /^\s*\*{2}/u.test(incoming)
+        ? "\n\n"
+        : "";
 }
 
 export function reasoningSummary(...texts: string[]): string {
@@ -221,6 +247,14 @@ function mergeToolResultIntoCall(
     parentBlock.error = block.error;
     parentBlock.status = block.status;
     parentBlock.duration = block.duration ?? parentBlock.duration;
+    parentBlock.startedAt = earliestTimestamp(
+        parentBlock.startedAt,
+        block.startedAt,
+    );
+    parentBlock.completedAt = latestTimestamp(
+        parentBlock.completedAt,
+        block.completedAt,
+    );
     if (block.metadata) {
         parentBlock.metadata = block.metadata;
         parentBlock.isDiff =
@@ -233,7 +267,10 @@ function normalizeReasoningChunk(value: string, trimStart: boolean): string {
     const normalized = value
         .replace(/\r\n?/g, "\n")
         .replace(/[^\S\n]+/g, " ")
-        .replace(/ *\n */g, "\n");
+        .replace(/ *\n */g, "\n")
+        // Some providers send adjacent summary headings as one Markdown string
+        // (`**First****Second**`). Keep the headings separate in live output too.
+        .replace(/(?<!\*)\*{4}(?=[^\s*])/gu, "**\n\n**");
     return trimStart ? normalized.trimStart() : normalized;
 }
 
@@ -243,6 +280,12 @@ function appendNovelSuffix(existing: string, incoming: string): string {
     if (existing.endsWith(incoming)) return "";
     if (incoming.startsWith(existing)) {
         return incoming.slice(existing.length);
+    }
+    // Adjacent summary headings legitimately share the `**` Markdown marker.
+    // Do not treat that marker as streamed-content overlap or the next heading
+    // loses its opener and renders on the previous heading's line.
+    if (reasoningSummaryBoundary(existing, incoming)) {
+        return incoming;
     }
 
     const tail = existing.slice(-Math.min(existing.length, incoming.length, 1024));
@@ -261,6 +304,7 @@ function cleanReasoningText(value: string): string {
         .replace(/\r\n?/g, "\n")
         .replace(/[^\S\n]+/g, " ")
         .replace(/ *\n */g, "\n")
+        .replace(/(?<!\*)\*{4}(?=[^\s*])/gu, "**\n\n**")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
     if (!normalized) return "";
@@ -407,6 +451,8 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
                 typeof toolCall?.duration === "number"
                     ? toolCall.duration
                     : undefined,
+            startedAt: finiteNumber(toolCall?.presentation_started_at),
+            completedAt: finiteNumber(toolCall?.presentation_completed_at),
             isDiff,
             diffContent,
         };
@@ -430,6 +476,8 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
                 typeof toolResult?.duration === "number"
                     ? toolResult.duration
                     : undefined,
+            startedAt: finiteNumber(toolResult?.presentation_started_at),
+            completedAt: finiteNumber(toolResult?.presentation_completed_at),
             toolName,
             originalToolName: toolName,
         };
@@ -451,6 +499,30 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
     }
 
     return { kind: "text", text: stringifyValue(part) };
+}
+
+function finiteNumber(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value)
+        ? value
+        : undefined;
+}
+
+function earliestTimestamp(
+    first: number | undefined,
+    second: number | undefined,
+): number | undefined {
+    if (first === undefined) return second;
+    if (second === undefined) return first;
+    return Math.min(first, second);
+}
+
+function latestTimestamp(
+    first: number | undefined,
+    second: number | undefined,
+): number | undefined {
+    if (first === undefined) return second;
+    if (second === undefined) return first;
+    return Math.max(first, second);
 }
 
 function isSkillTool(toolName: string): boolean {

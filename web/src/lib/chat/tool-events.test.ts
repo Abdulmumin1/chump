@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import type { StoredMessage } from "$lib/chump/types";
 import {
+    summarizeTerminalActivity,
+    toolPresentation,
+} from "$lib/chat/activity-summary";
+import {
+    applyActivityTimingsFromEventLog,
     applyLiveEventToMessages,
     removeSteeredQueueItem,
 } from "$lib/chat/events";
 import {
     buildTranscript,
     isTerminalActivityBlock,
+    mergeReasoningText,
     reasoningSummary,
 } from "$lib/chat/transcript";
 
@@ -23,6 +29,171 @@ describe("live tool lifecycle events", () => {
     it("adds the rounded duration of each reasoning block", () => {
         expect(reasoningSummary("First thought.", "Second thought.")).toBe(
             "Thought for 2 seconds",
+        );
+    });
+
+    it("delays tools and holds long-running completions before collapsing", () => {
+        const running = {
+            kind: "tool-call" as const,
+            text: "",
+            originalToolName: "bash",
+            status: "running" as const,
+            startedAt: 1_000,
+        };
+        expect(toolPresentation(running, 1_999)).toBe("hidden");
+        expect(toolPresentation(running, 2_000)).toBe("visible");
+
+        expect(
+            toolPresentation(
+                {
+                    ...running,
+                    status: "completed",
+                    completedAt: 1_800,
+                },
+                1_800,
+            ),
+        ).toBe("collapsible");
+
+        const slowCompletion = {
+            ...running,
+            status: "completed" as const,
+            completedAt: 2_500,
+        };
+        expect(toolPresentation(slowCompletion, 4_499)).toBe("visible");
+        expect(toolPresentation(slowCompletion, 4_500)).toBe("collapsible");
+    });
+
+    it("summarizes small activity groups without command or file previews", () => {
+        const summary = summarizeTerminalActivity(
+            [
+                {
+                    kind: "tool-call",
+                    text: "",
+                    originalToolName: "bash",
+                    toolName: "$ git log -n 30 --oneline",
+                },
+                {
+                    kind: "tool-call",
+                    text: "",
+                    originalToolName: "read_file",
+                    toolName: "reasoning.ts",
+                },
+            ],
+            reasoningSummary,
+        );
+
+        expect(summary).toEqual({
+            text: "Ran 1 command, Read 1 file",
+            condensed: false,
+        });
+    });
+
+    it("replaces varied activity accordions with an exploration duration", () => {
+        const summary = summarizeTerminalActivity(
+            [
+                {
+                    kind: "tool-call",
+                    text: "",
+                    originalToolName: "bash",
+                    duration: 0.25,
+                    startedAt: 1_000,
+                    completedAt: 1_250,
+                },
+                {
+                    kind: "tool-call",
+                    text: "",
+                    originalToolName: "read_file",
+                    duration: 0.3,
+                },
+                {
+                    kind: "tool-call",
+                    text: "",
+                    originalToolName: "search",
+                    duration: 1.8,
+                },
+                {
+                    kind: "tool-call",
+                    text: "",
+                    originalToolName: "apply_patch",
+                    duration: 0.2,
+                    startedAt: 60_000,
+                    completedAt: 62_000,
+                },
+            ],
+            reasoningSummary,
+        );
+
+        expect(summary).toEqual({
+            text: "Explored for 1 minute",
+            condensed: true,
+        });
+    });
+
+    it("restores actual tool timing from the durable event log", () => {
+        const messages: StoredMessage[] = [
+            {
+                role: "assistant",
+                content: [
+                    {
+                        type: "tool_call",
+                        tool_call: {
+                            id: "call-1",
+                            name: "bash",
+                            arguments: { command: "pwd" },
+                        },
+                    },
+                ],
+            },
+        ];
+
+        const timed = applyActivityTimingsFromEventLog(messages, [
+            {
+                id: 1,
+                type: "tool_call.started",
+                data: { call_id: "call-1", created_at: 10 },
+            },
+            {
+                id: 2,
+                type: "tool_execution.finished",
+                data: { call_id: "call-1", created_at: 14.5 },
+            },
+        ]);
+
+        expect(timed[0]?.content[0]).toMatchObject({
+            tool_call: {
+                presentation_started_at: 10_000,
+                presentation_completed_at: 14_500,
+            },
+        });
+    });
+
+    it("keeps adjacent reasoning summaries separated by newlines", () => {
+        let text = mergeReasoningText("", "**Investigating createToolCallPromise concurrency**");
+        text = mergeReasoningText(text, "**Reviewing createToolCallPromise function**");
+        text = mergeReasoningText(text, "**Inspecting initial test cases**");
+
+        expect(text).toBe(
+            "**Investigating createToolCallPromise concurrency**\n\n**Reviewing createToolCallPromise function**\n\n**Inspecting initial test cases**",
+        );
+    });
+
+    it("separates adjacent summary headings received in a single chunk", () => {
+        const text = mergeReasoningText(
+            "",
+            "**Planning nested tool rendering****Designing session tool status rendering**",
+        );
+        expect(text).toBe(
+            "**Planning nested tool rendering**\n\n**Designing session tool status rendering**",
+        );
+    });
+
+    it("preserves streamed reasoning headings across live events", () => {
+        let messages: StoredMessage[] = [];
+        messages = apply(messages, "reasoning", { text: "**Investigating createToolCallPromise concurrency**" });
+        messages = apply(messages, "reasoning", { text: "**Reviewing createToolCallPromise function**" });
+        const transcript = buildTranscript(messages);
+        expect(transcript[0]?.blocks[0]?.text).toBe(
+            "**Investigating createToolCallPromise concurrency**\n\n**Reviewing createToolCallPromise function**",
         );
     });
 

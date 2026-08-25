@@ -7,6 +7,7 @@
     import ChatComposer from "$lib/ChatComposer.svelte";
     import Toasts from "$lib/Toasts.svelte";
     import ChatTopBar from "$lib/chat/ChatTopBar.svelte";
+    import { summarizeWorkspaceChanges } from "$lib/chump/workspace-changes";
     import ConnectServerModal from "$lib/chat/ConnectServerModal.svelte";
     import ModelPickerModal from "$lib/chat/ModelPickerModal.svelte";
     import CommandPalette from "$lib/chat/CommandPalette.svelte";
@@ -98,6 +99,12 @@
         expand: () => void;
     } | null>(null);
     let sessions = $state<SessionSummary[]>([]);
+    let isWorkspaceCollapsed = $state(
+        browser
+            ? localStorage.getItem("workspace-panel-collapsed") === "true"
+            : false,
+    );
+    let workspaceModalOpen = $state(false);
     let sessionPage = $state(1);
     let sessionTotalPages = $state(1);
     let sessionTotal = $state(0);
@@ -115,6 +122,7 @@
     let connectionError = $state("");
     let transcriptElement = $state<HTMLDivElement | null>(null);
     let isAtBottom = $state(true);
+    let transcriptScrollScheduled = false;
     let stopEvents: (() => void) | null = null;
     let lastEventId = 0;
     let loadToken = 0;
@@ -140,6 +148,28 @@
         }>
     >([]);
     let toastId = 0;
+
+    const workspaceChangesSummary = $derived(
+        summarizeWorkspaceChanges(sessionState),
+    );
+
+    const workspaceChangesForTopBar = $derived.by(() => {
+        if (!sessionState) return null;
+        if (isDesktopViewport) {
+            if (!isWorkspaceCollapsed) return null;
+            return {
+                ...workspaceChangesSummary,
+                isCollapsed: true,
+            };
+        }
+        if (sidebarOpen || workspaceChangesSummary.totalChanges === 0) {
+            return null;
+        }
+        return {
+            ...workspaceChangesSummary,
+            isCollapsed: false,
+        };
+    });
     let modelSearchQuery = $state("");
 
     function setSessionWorking(sessionId: string, working: boolean): void {
@@ -477,10 +507,34 @@
     }
 
     function handleWorkspaceCollapsed(collapsed: boolean): void {
+        isWorkspaceCollapsed = collapsed;
         if (collapsed) {
             workspacePane?.collapse();
         } else {
             workspacePane?.expand();
+        }
+    }
+
+    function toggleWorkspaceCollapse(): void {
+        isWorkspaceCollapsed = !isWorkspaceCollapsed;
+        if (browser) {
+            localStorage.setItem(
+                "workspace-panel-collapsed",
+                String(isWorkspaceCollapsed),
+            );
+        }
+        if (isWorkspaceCollapsed) {
+            workspacePane?.collapse();
+        } else {
+            workspacePane?.expand();
+        }
+    }
+
+    function handleToggleWorkspace(): void {
+        if (isDesktopViewport) {
+            toggleWorkspaceCollapse();
+        } else {
+            workspaceModalOpen = true;
         }
     }
 
@@ -841,10 +895,19 @@
     }
 
     async function scrollTranscriptToEnd(): Promise<void> {
+        // Streaming presentation can advance once per frame. Coalesce the
+        // resulting layout reads/writes so autoscroll does not become another
+        // source of jitter or compete with Markdown rendering.
+        if (transcriptScrollScheduled) return;
+        transcriptScrollScheduled = true;
         await tick();
-        transcriptElement?.scrollTo({
-            top: transcriptElement.scrollHeight,
-            behavior: "smooth",
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        transcriptScrollScheduled = false;
+        const element = transcriptElement;
+        if (!element) return;
+        element.scrollTo({
+            top: element.scrollHeight,
+            behavior: "auto",
         });
     }
 
@@ -1371,6 +1434,8 @@
             canShare={Boolean(apiTarget && activeSessionId)}
             {isSharing}
             onShare={() => void shareSession()}
+            workspaceChanges={workspaceChangesForTopBar}
+            onToggleWorkspace={handleToggleWorkspace}
         />
 
         <TranscriptPane
@@ -1456,6 +1521,8 @@
                     state={sessionState}
                     target={apiTarget}
                     {sidebarOpen}
+                    bind:isCollapsed={isWorkspaceCollapsed}
+                    bind:modalOpen={workspaceModalOpen}
                     onCollapsedChange={handleWorkspaceCollapsed}
                 />
             {/key}
@@ -1474,6 +1541,8 @@
                 minSize={25}
                 collapsible
                 collapsedSize={0}
+                onCollapse={() => handleWorkspaceCollapsed(true)}
+                onExpand={() => handleWorkspaceCollapsed(false)}
             >
                 {@render workspaceStatePane()}
             </Pane>

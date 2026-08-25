@@ -18,6 +18,7 @@ export type ChumpEventType = (typeof CHUMP_EVENT_TYPES)[number];
 export type JsonRecord = Record<string, unknown>;
 export type VersionedEventPayload = JsonRecord & {
   schema_version: typeof CHUMP_EVENT_SCHEMA_VERSION;
+  created_at?: number;
 };
 
 export type SteeringItem = JsonRecord & {

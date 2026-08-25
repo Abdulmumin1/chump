@@ -6,6 +6,7 @@
         id,
         text,
         active = false,
+        streaming = false,
         expanded,
         onToggle,
         summary,
@@ -13,6 +14,7 @@
         id: string;
         text: string;
         active?: boolean;
+        streaming?: boolean;
         expanded: boolean | undefined;
         onToggle: (id: string, defaultExpanded?: boolean) => void;
         summary: (text: string) => string;
@@ -111,6 +113,7 @@
             >
                 <MarkdownText
                     {text}
+                    {streaming}
                     classes="text-[12px] text-text-secondary leading-relaxed"
                 />
             </div>

@@ -42,6 +42,7 @@
 		"drizzle-orm": "0.45.2",
 		"ghostty-web": "0.4.0",
 		"marked": "^18.0.3",
+		"svelte-streamdown": "^3.1.2",
 		"valibot": "^1.4.2"
 	}
 }

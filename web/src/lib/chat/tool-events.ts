@@ -39,6 +39,7 @@ export function applyToolLifecycleEvent(
     source: StoredMessage[],
     type: string,
     data: Record<string, unknown>,
+    occurredAt?: number,
 ): StoredMessage[] {
     const identity = readIdentity(data);
 
@@ -48,11 +49,11 @@ export function applyToolLifecycleEvent(
         type === "tool_call.ready" ||
         type === "tool_call"
     ) {
-        return upsertToolCall(source, type, data, identity);
+        return upsertToolCall(source, type, data, identity, occurredAt);
     }
 
     if (type === "tool_execution.started") {
-        return updateToolCallStatus(source, identity, "running");
+        return updateToolCallStatus(source, identity, "running", undefined, occurredAt);
     }
 
     if (type === "tool_execution.finished") {
@@ -62,14 +63,21 @@ export function applyToolLifecycleEvent(
             identity,
             status,
             numberValue(data.duration),
+            occurredAt,
         );
-        return upsertToolResult(withStatus, data, identity, status);
+        return upsertToolResult(withStatus, data, identity, status, occurredAt);
     }
 
     if (type === "tool_result") {
         const status = readResultStatus(data);
-        const withStatus = updateToolCallStatus(source, identity, status);
-        return upsertToolResult(withStatus, data, identity, status);
+        const withStatus = updateToolCallStatus(
+            source,
+            identity,
+            status,
+            undefined,
+            occurredAt,
+        );
+        return upsertToolResult(withStatus, data, identity, status, occurredAt);
     }
 
     return source;
@@ -80,6 +88,7 @@ function upsertToolCall(
     type: string,
     data: Record<string, unknown>,
     identity: ToolIdentity,
+    occurredAt?: number,
 ): StoredMessage[] {
     const location = findToolCall(
         source,
@@ -112,6 +121,7 @@ function upsertToolCall(
                 step: identity.step,
                 index: identity.index,
                 status,
+                presentation_started_at: occurredAt,
             },
         });
     }
@@ -143,6 +153,7 @@ function updateToolCallStatus(
     identity: ToolIdentity,
     status: ToolLifecycleStatus,
     duration?: number,
+    occurredAt?: number,
 ): StoredMessage[] {
     const location = findToolCall(source, identity);
     if (!location) {
@@ -157,8 +168,15 @@ function updateToolCallStatus(
                 status,
             },
             identity,
+            occurredAt,
         );
-        return updateToolCallStatus(created, identity, status, duration);
+        return updateToolCallStatus(
+            created,
+            identity,
+            status,
+            duration,
+            occurredAt,
+        );
     }
     return replaceToolCall(source, location, (current) => ({
         ...current,
@@ -168,6 +186,11 @@ function updateToolCallStatus(
         index: identity.index ?? current.index,
         status,
         duration: duration ?? current.duration,
+        presentation_started_at:
+            current.presentation_started_at ?? occurredAt,
+        presentation_completed_at: isTerminalStatus(status)
+            ? occurredAt ?? current.presentation_completed_at
+            : current.presentation_completed_at,
     }));
 }
 
@@ -176,6 +199,7 @@ function upsertToolResult(
     data: Record<string, unknown>,
     identity: ToolIdentity,
     status: ToolLifecycleStatus,
+    occurredAt?: number,
 ): StoredMessage[] {
     const call = findToolCall(source, identity)?.part.tool_call;
     const callId = identity.callId || call?.id || syntheticCallId(identity);
@@ -191,6 +215,9 @@ function upsertToolResult(
             index: identity.index,
             status,
             duration: numberValue(data.duration),
+            presentation_started_at: call?.presentation_started_at,
+            presentation_completed_at:
+                occurredAt ?? call?.presentation_completed_at,
         },
     };
     const existing = findToolResult(source, callId, identity);
@@ -356,6 +383,12 @@ function syntheticCallId(identity: ToolIdentity): string {
 
 function numberValue(value: unknown): number | undefined {
     return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isTerminalStatus(status: ToolLifecycleStatus): boolean {
+    return (
+        status === "completed" || status === "error" || status === "aborted"
+    );
 }
 
 function parseArguments(value: string): Record<string, unknown> | null {

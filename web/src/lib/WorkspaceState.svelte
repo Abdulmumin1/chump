@@ -3,6 +3,7 @@
     import { tick } from "svelte";
     import { processPatch } from "@pierre/diffs";
     import type { ChangeRecord, ChumpState } from "$lib/chump/types";
+    import { buildFileGroups, type FileGroup } from "$lib/chump/workspace-changes";
     import {
         terminalTargetIdentity as identifyTerminalTarget,
         type ChumpApiTarget,
@@ -19,22 +20,24 @@
         state: sessionState,
         target,
         sidebarOpen = false,
+        isCollapsed = $bindable(
+            browser
+                ? localStorage.getItem("workspace-panel-collapsed") === "true"
+                : false,
+        ),
+        modalOpen = $bindable(false),
         onCollapsedChange,
     } = $props<{
         state: ChumpState | null;
         target: ChumpApiTarget | null;
         sidebarOpen?: boolean;
+        isCollapsed?: boolean;
+        modalOpen?: boolean;
         onCollapsedChange?: (collapsed: boolean) => void;
     }>();
 
     const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
     const INLINE_DIFF_MEDIA_QUERY = "(min-width: 1800px)";
-
-    let isCollapsed = $state(
-        browser
-            ? localStorage.getItem("workspace-panel-collapsed") === "true"
-            : false,
-    );
 
     function toggleCollapse() {
         isCollapsed = !isCollapsed;
@@ -50,7 +53,6 @@
         onCollapsedChange?.(isCollapsed);
     });
 
-    let modalOpen = $state(false);
     let selectedPath: string | null = $state(null);
     let userClosedDiff = $state(false);
     let searchQuery = $state("");
@@ -82,15 +84,6 @@
         oldLine: number | null;
         newLine: number | null;
         text: string;
-    };
-
-    type FileGroup = {
-        path: string;
-        added: number;
-        removed: number;
-        changeCount: number;
-        records: ChangeRecord[];
-        lastIndex: number;
     };
 
     type WorkspaceTab = "terminal" | "browser" | "processes" | "changes";
@@ -188,78 +181,6 @@
             selectedPath = filteredFiles[0].path;
         }
     });
-
-    function buildFileGroups(currentState: ChumpState | null): FileGroup[] {
-        const grouped = new Map<string, FileGroup>();
-        const changeRecords = normalizeChangeRecords(
-            currentState?.change_records,
-        );
-
-        changeRecords.forEach((record, index) => {
-            const existing = grouped.get(record.path);
-            if (existing) {
-                existing.added += record.added;
-                existing.removed += record.removed;
-                existing.changeCount += 1;
-                existing.records.push(record);
-                existing.lastIndex = index;
-                return;
-            }
-
-            grouped.set(record.path, {
-                path: record.path,
-                added: record.added,
-                removed: record.removed,
-                changeCount: 1,
-                records: [record],
-                lastIndex: index,
-            });
-        });
-
-        const fileDiffs = currentState?.file_diffs ?? {};
-        const touchedPaths = currentState?.files_touched ?? [];
-        const fallbackPaths = new Set<string>([
-            ...touchedPaths,
-            ...Object.keys(fileDiffs),
-        ]);
-
-        for (const path of fallbackPaths) {
-            if (grouped.has(path)) continue;
-            const summary = fileDiffs[path] ?? { added: 0, removed: 0 };
-            grouped.set(path, {
-                path,
-                added: summary.added ?? 0,
-                removed: summary.removed ?? 0,
-                changeCount: 0,
-                records: [],
-                lastIndex: -1,
-            });
-        }
-
-        return Array.from(grouped.values()).sort((a, b) => {
-            if (a.lastIndex !== b.lastIndex) {
-                return b.lastIndex - a.lastIndex;
-            }
-            return a.path.localeCompare(b.path);
-        });
-    }
-
-    function normalizeChangeRecords(
-        value: ChumpState["change_records"] | undefined,
-    ): ChangeRecord[] {
-        if (!Array.isArray(value)) return [];
-        return value.filter(isChangeRecord);
-    }
-
-    function isChangeRecord(value: unknown): value is ChangeRecord {
-        if (!value || typeof value !== "object") return false;
-        const record = value as Record<string, unknown>;
-        return (
-            typeof record.path === "string" &&
-            typeof record.added === "number" &&
-            typeof record.removed === "number"
-        );
-    }
 
     function splitPath(path: string): { dir: string; name: string } {
         if (!path) return { dir: "", name: "" };
@@ -1249,78 +1170,6 @@
                 {@render diffPanel()}
             </div>
         </div>
-    </div>
-{/if}
-
-<!-- Desktop Expand Button when Collapsed -->
-{#if isCollapsed}
-    <div class="fixed top-4 right-14 z-30 hidden md:flex pointer-events-none">
-        <button
-            onclick={toggleCollapse}
-            class="pointer-events-auto flex h-8 items-center gap-2 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary hover:text-text-main active:scale-95 transition-all"
-            aria-label="Expand workspace panel"
-        >
-            <svg
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-            >
-                <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M15 19l-7-7 7-7"
-                />
-            </svg>
-            <span class="text-[10px] font-bold tracking-wider uppercase"
-                >Changes</span
-            >
-            {#if totalAdded > 0 || totalRemoved > 0}
-                <span class="flex items-center gap-1 font-mono text-[11px]">
-                    {#if totalAdded > 0}
-                        <span class="text-text-success">+{totalAdded}</span>
-                    {/if}
-                    {#if totalRemoved > 0}
-                        <span class="text-text-error">-{totalRemoved}</span>
-                    {/if}
-                </span>
-            {/if}
-        </button>
-    </div>
-{/if}
-
-<!-- Mobile Toggle Button -->
-{#if totalChangesCount > 0 && !sidebarOpen}
-    <div class="fixed top-3 right-[52px] z-30 md:hidden pointer-events-none">
-        <button
-            onclick={() => {
-                searchQuery = "";
-                selectedPath = null;
-                modalOpen = true;
-            }}
-            class="pointer-events-auto flex h-8 items-center gap-2 px-2.5 rounded-md bg-bg-surface border border-border-default text-text-secondary active:scale-95 transition-all"
-        >
-            <span class="text-[10px] font-bold tracking-wider uppercase"
-                >Changes</span
-            >
-            {#if totalAdded > 0 || totalRemoved > 0}
-                <span class="flex items-center gap-1 font-mono text-[11px]">
-                    {#if totalAdded > 0}
-                        <span class="text-text-success">+{totalAdded}</span>
-                    {/if}
-                    {#if totalRemoved > 0}
-                        <span class="text-text-error">-{totalRemoved}</span>
-                    {/if}
-                </span>
-            {:else}
-                <span
-                    class="flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-bg-elevated text-[9px] font-bold text-text-main"
-                >
-                    {totalChangesCount}
-                </span>
-            {/if}
-        </button>
     </div>
 {/if}
 

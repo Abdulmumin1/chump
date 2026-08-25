@@ -124,6 +124,8 @@ export type ToolCallMessagePart = {
 		index?: number;
 		status?: ToolLifecycleStatus;
 		duration?: number;
+		presentation_started_at?: number;
+		presentation_completed_at?: number;
 	};
 };
 
@@ -139,6 +141,8 @@ export type ToolResultMessagePart = {
 		index?: number;
 		status?: ToolLifecycleStatus;
 		duration?: number;
+		presentation_started_at?: number;
+		presentation_completed_at?: number;
 	};
 };
 

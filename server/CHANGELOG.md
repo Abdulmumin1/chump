@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.3.1
+
+- Add creation timestamps to emitted agent events so clients can track real activity duration across tool calls and session reloads.
+
 ## 0.3.0
 
 - Run one authenticated shared server for the CLI, web app, and API, with a lazy in-process workspace runtime per registered project instead of a daemon and per-project child servers.

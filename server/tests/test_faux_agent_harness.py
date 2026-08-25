@@ -743,6 +743,7 @@ async def test_faux_provider_drives_and_reloads_a_complete_chump_turn(
         "preview": "profile:chump",
         "metadata": {},
         "duration": tool_result["data"]["duration"],
+        "created_at": tool_result["data"]["created_at"],
         "schema_version": 1,
     }
 
@@ -818,6 +819,7 @@ async def test_provider_failure_before_first_token_is_persisted_and_streamed(
     assert turn_error["data"] == {
         "message": "provider rejected request",
         "error_type": "RuntimeError",
+        "created_at": turn_error["data"]["created_at"],
         "schema_version": 1,
     }
     assert [event["type"] for event in events][-2:] == [

@@ -28,7 +28,9 @@ import {
 } from "$lib/chump/events";
 import { listModelChoices, type ModelChoice } from "$lib/models";
 import {
+    applyActivityTimingsFromEventLog,
     applyLiveEventToMessages,
+    eventTimestampMilliseconds,
     parseSteeringQueue,
     removeSteeredQueueItem,
 } from "$lib/chat/events";
@@ -36,6 +38,7 @@ import { isToolLifecycleEvent } from "$lib/chat/tool-events";
 import { parseJson, toErrorMessage } from "$lib/chat/helpers";
 import { mergeReasoningText } from "$lib/chat/transcript";
 import type { SteeringQueueItem } from "$lib/chat/types";
+import { StreamSmoother } from "$lib/chat/StreamSmoother";
 
 export type SessionControllerState = {
     get serverUrl(): string;
@@ -95,6 +98,109 @@ export function createSessionController(
     },
 ) {
     let hydrationGeneration = 0;
+    let presentation: {
+        assistant: StreamSmoother;
+        reasoning: StreamSmoother;
+    } | null = null;
+    let presentationChannel: "assistant" | "reasoning" | null = null;
+    let presentationOccurredAt: Record<
+        "assistant" | "reasoning",
+        number | undefined
+    > = {
+        assistant: undefined,
+        reasoning: undefined,
+    };
+    let presentationFinished = false;
+
+    function discardPresentation(flush: boolean): void {
+        if (!presentation) return;
+        if (flush) {
+            presentation.assistant.flush();
+            presentation.reasoning.flush();
+        } else {
+            presentation.assistant.reset();
+            presentation.reasoning.reset();
+        }
+        presentation = null;
+        presentationChannel = null;
+        presentationOccurredAt = {
+            assistant: undefined,
+            reasoning: undefined,
+        };
+        presentationFinished = false;
+    }
+
+    function startPresentation(
+        sessionId: string,
+        currentStreamToken: number,
+    ): void {
+        discardPresentation(false);
+        presentationOccurredAt = {
+            assistant: undefined as number | undefined,
+            reasoning: undefined as number | undefined,
+        };
+
+        const createSmoother = (type: "assistant_text" | "reasoning") => {
+            const channel = type === "assistant_text" ? "assistant" : "reasoning";
+            let displayed = "";
+            return new StreamSmoother({
+                onReveal: (fullText) => {
+                    if (!isCurrentStream(sessionId, currentStreamToken)) return;
+
+                    // Smoother callbacks contain the complete visible prefix;
+                    // the event reducer consumes only the newly-visible suffix.
+                    const fragment = fullText.startsWith(displayed)
+                        ? fullText.slice(displayed.length)
+                        : fullText;
+                    displayed = fullText;
+                    if (!fragment) return;
+
+                    state.messages = applyLiveEventToMessages(
+                        state.messages,
+                        type,
+                        type === "assistant_text"
+                            ? { content: fragment }
+                            : { text: fragment },
+                        presentationOccurredAt[channel],
+                    );
+                    void callbacks.scrollTranscriptToEnd();
+                },
+            });
+        };
+
+        presentation = {
+            assistant: createSmoother("assistant_text"),
+            reasoning: createSmoother("reasoning"),
+        };
+        presentationFinished = false;
+    }
+
+    function pushPresentationChunk(
+        channel: "assistant" | "reasoning",
+        chunk: string,
+        occurredAt: number,
+    ): void {
+        if (!presentation) return;
+        if (presentationChannel && presentationChannel !== channel) {
+            presentation[presentationChannel].flush();
+        }
+        presentationChannel = channel;
+        presentationOccurredAt[channel] = occurredAt;
+        presentation[channel].push(chunk);
+    }
+
+    function flushPresentation(): void {
+        presentation?.assistant.flush();
+        presentation?.reasoning.flush();
+        presentationChannel = null;
+    }
+
+    function finishPresentation(): void {
+        flushPresentation();
+        presentation?.assistant.finish();
+        presentation?.reasoning.finish();
+        presentationFinished = true;
+    }
 
     async function connectToServer(
         options: {
@@ -280,6 +386,7 @@ export function createSessionController(
         state.lastEventId = 0;
         state.stopEvents?.();
         state.stopEvents = null;
+        discardPresentation(false);
         state.streamToken += 1;
         state.isLoadingSession = true;
         try {
@@ -325,7 +432,10 @@ export function createSessionController(
                 items: nextStatus.steering_queue ?? [],
             });
             state.sessionState = nextState;
-            state.messages = nextMessages.messages;
+            state.messages = applyActivityTimingsFromEventLog(
+                nextMessages.messages,
+                nextEventLog.events,
+            );
             state.lastEventId = Math.max(
                 0,
                 ...nextEventLog.events.map((event) => event.id),
@@ -439,6 +549,7 @@ export function createSessionController(
         invalidateHydration();
         state.stopEvents?.();
         state.stopEvents = null;
+        discardPresentation(false);
     }
 
     function beginHydration(apiTarget: ChumpApiTarget): TargetGuard {
@@ -518,6 +629,7 @@ export function createSessionController(
         state.stopEvents?.();
         const currentStreamToken = state.streamToken + 1;
         state.streamToken = currentStreamToken;
+        startPresentation(sessionId, currentStreamToken);
         state.stopEvents = openEventStream(
             apiTarget,
             sessionId,
@@ -555,6 +667,7 @@ export function createSessionController(
         const rawPayload = parseJson(event.data);
 
         if (event.event === "error") {
+            discardPresentation(true);
             state.connectionError = toErrorMessage(
                 rawPayload ?? (event.data || "An event stream error occurred"),
             );
@@ -577,23 +690,37 @@ export function createSessionController(
             return;
         }
         const payload = chumpEvent?.data ?? rawPayload;
+        const occurredAt =
+            eventTimestampMilliseconds(payload) ?? Date.now();
 
         if (chumpEvent?.type === "turn_error") {
+            discardPresentation(true);
             state.connectionError = chumpEvent.data.message;
             state.delegatedActivities = [];
             return;
         }
 
         if (event.event === "assistant_text" || event.event === "reasoning") {
-            state.messages = applyLiveEventToMessages(
-                state.messages,
-                event.event,
-                payload,
-            );
-            if (isCurrentStream(sessionId, currentStreamToken)) {
-                await callbacks.scrollTranscriptToEnd();
+            const chunk =
+                event.event === "assistant_text"
+                    ? payload?.content
+                    : payload?.text;
+            if (typeof chunk === "string") {
+                pushPresentationChunk(
+                    event.event === "assistant_text"
+                        ? "assistant"
+                        : "reasoning",
+                    chunk,
+                    occurredAt,
+                );
             }
             return;
+        }
+
+        if (isToolLifecycleEvent(event.event)) {
+            // Text must stay in provider order. A paced reasoning buffer cannot
+            // continue revealing below a tool that has already started.
+            flushPresentation();
         }
 
         if (!isCurrentStream(sessionId, currentStreamToken)) {
@@ -615,6 +742,12 @@ export function createSessionController(
         }
 
         if (event.event === "turn_status" && payload) {
+            if (payload.running === true && presentationFinished) {
+                // The event stream stays open between turns. Do not append a
+                // new answer to a smoother that was already marked finished.
+                discardPresentation(true);
+                startPresentation(sessionId, currentStreamToken);
+            }
             state.isSending = payload.running === true;
             if (Array.isArray(payload.steering_queue)) {
                 state.steeringQueue = parseSteeringQueue({
@@ -622,6 +755,7 @@ export function createSessionController(
                 });
             }
             if (!state.isSending) {
+                finishPresentation();
                 state.delegatedActivities = [];
                 void refreshSessionsList();
             }
@@ -658,6 +792,7 @@ export function createSessionController(
             state.messages,
             event.event,
             payload,
+            occurredAt,
         );
         if (event.event === "user_message") {
             state.steeringQueue = removeSteeredQueueItem(

@@ -38,6 +38,7 @@ CHUMP_EVENT_TYPES: frozenset[str] = frozenset(
 
 class VersionedEventPayload(TypedDict):
     schema_version: Literal[1]
+    created_at: NotRequired[float]
 
 
 class AssistantTextPayload(VersionedEventPayload):

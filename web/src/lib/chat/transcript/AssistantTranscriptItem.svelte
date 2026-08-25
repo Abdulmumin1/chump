@@ -2,6 +2,11 @@
     import { slide } from "svelte/transition";
     import MarkdownText from "$lib/MarkdownText.svelte";
     import ToolBlock from "$lib/ToolBlock.svelte";
+    import {
+        nextToolPresentationDeadline,
+        summarizeTerminalActivity,
+        toolPresentation,
+    } from "$lib/chat/activity-summary";
     import ReasoningBlock from "$lib/chat/transcript/ReasoningBlock.svelte";
     import { isTerminalActivityBlock } from "$lib/chat/transcript";
     import type { TranscriptBlock, TranscriptMessage } from "$lib/chat/types";
@@ -29,8 +34,28 @@
         | { kind: "activity"; blocks: Array<{ block: TranscriptBlock; index: number }> };
 
     let expandedActivityGroups = $state<Record<string, boolean>>({});
+    let presentationNow = $state(Date.now());
 
     let blockGroups = $derived.by(() => groupBlocks(item.blocks, active));
+
+    $effect(() => {
+        const current = presentationNow;
+        let deadline: number | undefined;
+        for (const block of item.blocks as TranscriptBlock[]) {
+            const next = nextToolPresentationDeadline(block, current);
+            if (next === undefined) continue;
+            deadline = deadline === undefined ? next : Math.min(deadline, next);
+        }
+        if (deadline === undefined) return;
+
+        const timer = setTimeout(
+            () => {
+                presentationNow = Date.now();
+            },
+            Math.max(0, deadline - Date.now() + 16),
+        );
+        return () => clearTimeout(timer);
+    });
 
     function groupBlocks(blocks: TranscriptBlock[], isActive: boolean): BlockGroup[] {
         const groups: BlockGroup[] = [];
@@ -38,11 +63,15 @@
 
         while (index < blocks.length) {
             const block = blocks[index];
+            if (toolPresentation(block, presentationNow) === "hidden") {
+                index += 1;
+                continue;
+            }
             const isActiveReasoning =
                 isActive &&
                 index === blocks.length - 1 &&
                 block.kind === "reasoning";
-            if (isActiveReasoning || !isTerminalActivityBlock(block)) {
+            if (isActiveReasoning || !isCollapsibleActivityBlock(block)) {
                 groups.push({ kind: "single", block, index });
                 index += 1;
                 continue;
@@ -52,13 +81,20 @@
             while (
                 index < blocks.length &&
                 !(isActive && index === blocks.length - 1 && blocks[index].kind === "reasoning") &&
-                isTerminalActivityBlock(blocks[index])
+                isCollapsibleActivityBlock(blocks[index])
             ) {
                 activityBlocks.push({ block: blocks[index], index });
                 index += 1;
             }
 
-            if (activityBlocks.length > 1) {
+            if (
+                activityBlocks.length > 1 ||
+                activityBlocks.some(
+                    ({ block: activityBlock }) =>
+                        activityBlock.kind === "tool-call" ||
+                        activityBlock.kind === "tool-result",
+                )
+            ) {
                 groups.push({ kind: "activity", blocks: activityBlocks });
             } else {
                 groups.push({ kind: "single", block: activityBlocks[0].block, index: activityBlocks[0].index });
@@ -66,6 +102,12 @@
         }
 
         return groups;
+    }
+
+    function isCollapsibleActivityBlock(block: TranscriptBlock): boolean {
+        if (!isTerminalActivityBlock(block)) return false;
+        if (block.kind === "reasoning") return true;
+        return toolPresentation(block, presentationNow) === "collapsible";
     }
 
     function groupKey(group: Extract<BlockGroup, { kind: "activity" }>): string {
@@ -81,79 +123,11 @@
         expandedActivityGroups[key] = !(expandedActivityGroups[key] ?? false);
     }
 
-    function toolPreview(block: TranscriptBlock): string {
-        if (block.originalToolName === "bash" || block.originalToolName === "execute_command") {
-            return (block.toolName || "").replace("$ ", "");
-        }
-        if (block.originalToolName === "mcp") {
-            const server = String(block.args?.server ?? "");
-            const tool = String(block.args?.tool_name ?? "");
-            const query = String(block.args?.query ?? "");
-            return [server, tool].filter(Boolean).join(" / ") || query;
-        }
-        return block.toolName && block.toolName !== block.originalToolName ? block.toolName : "";
-    }
-
-    function toolSummaryKind(block: TranscriptBlock): string {
-        if (block.originalToolName === "bash" || block.originalToolName === "execute_command") return "command";
-        if (block.originalToolName === "read_file" || block.originalToolName === "view_file") return "file read";
-        if (block.originalToolName === "view_image") return "image viewed";
-        if (block.originalToolName === "write_file" || block.originalToolName === "create_file") return "file written";
-        if (block.originalToolName === "apply_patch") return "edit";
-        if (block.originalToolName === "search") return "search";
-        if (block.originalToolName === "website" || block.originalToolName === "web_search" || block.originalToolName === "web_fetch") return "web request";
-        if (block.originalToolName === "skill" || block.originalToolName === "load_skill") return "skill";
-        if (block.originalToolName === "mcp") return "MCP";
-        if (block.originalToolName === "list_sessions" || block.originalToolName === "inspect_session" || block.originalToolName === "start_session") return "session";
-        return "action";
-    }
-
-    function formatSummaryPart(kind: string, count: number): string {
-        if (kind === "command") return `Ran ${count} command${count === 1 ? "" : "s"}`;
-        if (kind === "file read") return `Read ${count} file${count === 1 ? "" : "s"}`;
-        if (kind === "image viewed") return `Viewed ${count} image${count === 1 ? "" : "s"}`;
-        if (kind === "file written") return `Wrote ${count} file${count === 1 ? "" : "s"}`;
-        if (kind === "edit") return `Edited ${count} file${count === 1 ? "" : "s"}`;
-        if (kind === "search") return `Searched ${count} time${count === 1 ? "" : "s"}`;
-        if (kind === "web request") return `Fetched ${count} web result${count === 1 ? "" : "s"}`;
-        if (kind === "skill") return `Loaded ${count} skill${count === 1 ? "" : "s"}`;
-        if (kind === "MCP") return `Used MCP ${count} time${count === 1 ? "" : "s"}`;
-        if (kind === "session") return `Used ${count} session tool${count === 1 ? "" : "s"}`;
-        return `${count} action${count === 1 ? "" : "s"}`;
-    }
-
-    function groupSummary(group: Extract<BlockGroup, { kind: "activity" }>): string {
-        const counts: Record<string, number> = {};
-        const orderedKinds: string[] = [];
-        const reasoningText: string[] = [];
-
-        for (const { block } of group.blocks) {
-            if (block.kind === "reasoning") {
-                reasoningText.push(block.text);
-                continue;
-            }
-            const kind = toolSummaryKind(block);
-            if (!(kind in counts)) {
-                orderedKinds.push(kind);
-            }
-            counts[kind] = (counts[kind] ?? 0) + 1;
-        }
-
-        const toolParts = orderedKinds.map((kind) =>
-            formatSummaryPart(kind, counts[kind]),
+    function groupSummary(group: Extract<BlockGroup, { kind: "activity" }>) {
+        return summarizeTerminalActivity(
+            group.blocks.map(({ block }) => block),
+            reasoningSummary,
         );
-        const thoughtPart = reasoningText.length > 0
-            ? [reasoningSummary(...reasoningText)]
-            : [];
-        return [...thoughtPart, ...toolParts].join(", ");
-    }
-
-    function groupPreview(group: Extract<BlockGroup, { kind: "activity" }>): string {
-        return group.blocks
-            .map(({ block }) => toolPreview(block))
-            .filter(Boolean)
-            .slice(0, 3)
-            .join(", ");
     }
 </script>
 
@@ -165,7 +139,7 @@
             {@const index = group.index}
             {#if block.kind === "text" && block.text.trim()}
                 <div class="px-2">
-                    <MarkdownText text={block.text} />
+                    <MarkdownText text={block.text} streaming={item.live === true} />
                 </div>
             {:else if block.kind === "tool-call" || block.kind === "tool-result"}
                 <ToolBlock
@@ -203,17 +177,29 @@
                 </div>
             {/if}
         {:else}
-            <button
-                class="group flex w-full items-center justify-between rounded-[8px] px-2 py-1.5 transition-colors hover:bg-bg-elevated focus:outline-none"
-                onclick={() => toggleActivityGroup(group)}
-            >
-                <div class="flex min-w-0 items-center gap-3 overflow-hidden">
-                    <span class="min-w-0 truncate font-mono text-[11px] font-semibold text-text-secondary">{groupSummary(group)}</span>
-                    {#if groupPreview(group)}
-                        <span class="shrink-0 truncate font-mono text-[11px] text-text-secondary">{groupPreview(group)}</span>
-                    {/if}
-                </div>
-            </button>
+            {@const summary = groupSummary(group)}
+            <div class="flex w-full items-center gap-3 py-1.5">
+                <span class="h-px min-w-4 flex-1 bg-border-default"></span>
+                <button
+                    class="group flex shrink-0 items-center gap-1.5 px-1 text-text-secondary transition-colors hover:text-text-main focus:outline-none"
+                    onclick={() => toggleActivityGroup(group)}
+                    type="button"
+                    aria-expanded={isGroupExpanded(group)}
+                >
+                    <span class="font-mono text-[12px] font-medium">{summary.text}</span>
+                    <svg
+                        class="size-3.5 transition-transform duration-200 {isGroupExpanded(group) ? 'rotate-90' : ''}"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        aria-hidden="true"
+                    >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+                <span class="h-px min-w-4 flex-1 bg-border-default"></span>
+            </div>
 
             {#if isGroupExpanded(group)}
                 <div transition:slide={{ duration: 160 }} class="mt-1.5 space-y-2 pl-4">

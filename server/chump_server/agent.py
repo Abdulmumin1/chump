@@ -479,9 +479,11 @@ class ChumpAgent(Agent[dict[str, Any]]):
         *,
         replay: bool = True,
     ) -> int:
+        payload = dict(data)
+        payload.setdefault("created_at", time.time())
         return await super().emit(
             event,
-            version_chump_event_payload(event, data),
+            version_chump_event_payload(event, payload),
             replay=replay,
         )
 

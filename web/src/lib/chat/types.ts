@@ -14,6 +14,8 @@ export type TranscriptBlock = {
     hasResult?: boolean;
     status?: ToolLifecycleStatus;
     duration?: number;
+    startedAt?: number;
+    completedAt?: number;
     isDiff?: boolean;
     diffContent?: string;
     imageSrc?: string;
