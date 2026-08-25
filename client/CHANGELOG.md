@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.2
+
+### Patch Changes
+
+- Prevent stale event connections from blocking live streaming updates.
+
 ## 0.5.1
 
 ### Patch Changes
