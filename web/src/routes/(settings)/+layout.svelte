@@ -84,7 +84,7 @@
 	<!-- Main Content Area -->
 	<main class="flex-1 min-w-0 flex flex-col min-h-screen">
 		<!-- Desktop Breadcrumb Top Bar -->
-		<header class="hidden md:flex items-center justify-between px-8 py-4 border-b border-border-default bg-bg-body/90 backdrop-blur-xs sticky top-0 z-10">
+		<header class="hidden md:flex h-14 items-center justify-between px-8 border-b border-border-default bg-bg-body/90 backdrop-blur-xs sticky top-0 z-10">
 			<nav class="flex items-center gap-2 text-xs font-mono text-text-tertiary" aria-label="Breadcrumb">
 				<span>Settings</span>
 				<span>/</span>

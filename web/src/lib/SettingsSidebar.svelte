@@ -150,7 +150,7 @@
 
 <aside class="flex flex-col h-full w-full bg-bg-surface-alt border-r border-border-default shrink-0 select-none">
 	<!-- Top App Header -->
-	<div class="p-4 pb-3 border-b border-border-default flex items-center justify-between">
+	<div class="h-14 px-4 border-b border-border-default flex items-center justify-between">
 		<a
 			href={resolve('/c')}
 			class="group inline-flex items-center gap-2 text-xs font-mono tracking-wider uppercase text-text-tertiary hover:text-text-main transition-colors"
