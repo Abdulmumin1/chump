@@ -84,7 +84,7 @@
 	</nav>
 
 	<!-- HEADER -->
-	<header class="w-full max-w-4xl px-4 flex flex-col items-center pt-24 sm:pt-4 relative flex-shrink-0">
+	<header class="w-full max-w-4xl px-4 flex flex-col items-center pt-24 sm:pt-8 md:pt-12 relative flex-shrink-0">
 		<div class="flex flex-row items-center justify-center w-full relative mb-[-0.25rem] md:mb-[-0.5rem] z-10">
 			<h1 class="text-[clamp(1.5rem,8vw,6rem)] md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase whitespace-nowrap text-text-inverse flex items-center justify-center line-anim leading-none" style="font-family: 'Times New Roman', Times, serif; animation-delay: 0ms;">
 				Chump
@@ -105,7 +105,7 @@
 		</div>
 		
 		<h2 class="text-[clamp(1.5rem,8vw,6rem)] md:text-7xl lg:text-[6rem] font-serif tracking-tighter uppercase text-center whitespace-nowrap text-text-inverse flex items-center justify-center line-anim mt-1 sm:mt-0 leading-none" style="font-family: 'Times New Roman', Times, serif; animation-delay: 180ms;">
-			Coding Agent
+			<span class="relative z-20">Coding Agent</span>
 		</h2>
 	</header>
 
