@@ -722,6 +722,7 @@
                 connectionError = toErrorMessage(error);
             }
         } finally {
+            sessionController.finishPresentationForSession(sessionId);
             setSessionWorking(sessionId, false);
             if (!request.controller.signal.aborted && activeSessionId === sessionId) {
                 isSending = false;

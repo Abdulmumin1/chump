@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.3.2
+
+- Prevent stale WebSocket or SSE clients from blocking live event delivery to other clients, including steering, tool, and assistant events.
+
 ## 0.3.1
 
 - Add creation timestamps to emitted agent events so clients can track real activity duration across tool calls and session reloads.

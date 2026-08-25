@@ -181,12 +181,19 @@ export function createSessionController(
         occurredAt: number,
     ): void {
         if (!presentation) return;
+        const turnAlreadyFinished = presentationFinished;
         if (presentationChannel && presentationChannel !== channel) {
             presentation[presentationChannel].flush();
         }
         presentationChannel = channel;
         presentationOccurredAt[channel] = occurredAt;
         presentation[channel].push(chunk);
+        if (turnAlreadyFinished) {
+            // The request/status completion can win the race against the final
+            // SSE text event. Once completion is known, never leave a late
+            // chunk waiting in the presentation buffer.
+            presentation[channel].flush();
+        }
     }
 
     function flushPresentation(): void {
@@ -200,6 +207,11 @@ export function createSessionController(
         presentation?.assistant.finish();
         presentation?.reasoning.finish();
         presentationFinished = true;
+    }
+
+    function finishPresentationForSession(sessionId: string): void {
+        if (state.activeSessionId !== sessionId) return;
+        finishPresentation();
     }
 
     async function connectToServer(
@@ -806,7 +818,11 @@ export function createSessionController(
                 isToolLifecycleEvent(event.event)) &&
             isCurrentStream(sessionId, currentStreamToken)
         ) {
-            await callbacks.scrollTranscriptToEnd();
+            // Scrolling is presentation-only. Never hold the ordered SSE
+            // consumer on a paint; doing so can leave tool calls and results
+            // queued behind requestAnimationFrame until the page is active or
+            // refreshed.
+            void callbacks.scrollTranscriptToEnd();
         }
     }
 
@@ -823,6 +839,9 @@ export function createSessionController(
     function applyStatus(nextStatus: ChumpStatus): void {
         state.status = nextStatus;
         state.isSending = nextStatus.turn_running === true;
+        if (!state.isSending) {
+            finishPresentation();
+        }
     }
 
     return {
@@ -836,6 +855,7 @@ export function createSessionController(
         createFreshSession,
         ensureActiveSession,
         clearSessionView,
+        finishPresentationForSession,
         destroy,
     };
 }

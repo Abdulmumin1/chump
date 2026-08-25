@@ -48,6 +48,7 @@ from .terminal import terminal_websocket
 from .workspaces import WorkspaceRuntime, WorkspaceRuntimeMap
 
 MAX_JSON_BODY_BYTES = 64 * 1024
+EVENT_DELIVERY_TIMEOUT_SECONDS = 1.0
 
 
 class ChumpServer(AgentServer):
@@ -101,6 +102,41 @@ class ChumpServer(AgentServer):
         self._managed_idle_task: asyncio.Task[None] | None = None
         self._managed_idle_resume_grace_until: float | None = None
         self._active_requests = 0
+
+    def _create_emit_handler(self, agent: Any):
+        """Broadcast live events without letting one stale client block all streams."""
+
+        async def deliver(event: str, data: dict[str, Any], event_id: int) -> None:
+            ws_msg = json.dumps({"type": event, "id": event_id, **data})
+            for conn in list(agent._connections):
+                try:
+                    await asyncio.wait_for(
+                        conn.send(ws_msg),
+                        timeout=EVENT_DELIVERY_TIMEOUT_SECONDS,
+                    )
+                except TimeoutError:
+                    agent._connections.discard(conn)
+                except Exception:
+                    agent._connections.discard(conn)
+
+            sse_msg = f"id: {event_id}\nevent: {event}\ndata: {json.dumps(data)}\n\n"
+            for sse in list(agent._sse_connections):
+                try:
+                    await asyncio.wait_for(
+                        sse.write(sse_msg.encode()),
+                        timeout=EVENT_DELIVERY_TIMEOUT_SECONDS,
+                    )
+                except asyncio.CancelledError:
+                    task = asyncio.current_task()
+                    if task is not None and task.cancelling():
+                        raise
+                    agent._sse_connections.discard(sse)
+                except TimeoutError:
+                    agent._sse_connections.discard(sse)
+                except Exception:
+                    agent._sse_connections.discard(sse)
+
+        return deliver
 
     def on_app_setup(self, app: web.Application) -> None:
         app._client_max_size = 64 * 1024 * 1024
