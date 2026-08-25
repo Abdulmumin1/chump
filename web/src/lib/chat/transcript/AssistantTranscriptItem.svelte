@@ -133,7 +133,7 @@
 
 <div class="flex flex-col min-w-0 {item.live ? 'opacity-90' : ''}">
     {#each blockGroups as group, groupIndex (`${item.id}-${group.kind === 'single' ? group.index : group.blocks[0].index}`)}
-        <div class={`${groupIndex > 0 ? "mt-2" : ""} min-h-[36px]`}>
+        <div transition:slide|local={{ duration: 250 }} class={`${groupIndex > 0 ? "mt-2" : ""} min-h-[36px]`}>
         {#if group.kind === "single"}
             {@const block = group.block}
             {@const index = group.index}
