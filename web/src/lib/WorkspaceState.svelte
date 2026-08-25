@@ -59,6 +59,10 @@
     let browserInput = $state("");
     let browserUrl = $state("");
     let mobileDiffFontSize = $state(11);
+    let fileBrowserWidth = $state(
+        browser ? Number(localStorage.getItem("workspace-file-browser-width")) || 320 : 320,
+    );
+    let isResizingFileBrowser = $state(false);
     let isMobileViewport = $state(
         browser && window.matchMedia(MOBILE_MEDIA_QUERY).matches,
     );
@@ -69,6 +73,31 @@
     let terminalTargetIdentity = $derived.by(() => {
         return target ? identifyTerminalTarget(target) : "disconnected";
     });
+
+    function resizeFileBrowser(event: PointerEvent): void {
+        if (!isResizingFileBrowser || !browser) return;
+        fileBrowserWidth = Math.min(
+            Math.max(240, window.innerWidth - event.clientX),
+            Math.min(560, window.innerWidth - 320),
+        );
+    }
+
+    function stopResizingFileBrowser(): void {
+        if (!isResizingFileBrowser) return;
+        isResizingFileBrowser = false;
+        if (browser) {
+            localStorage.setItem(
+                "workspace-file-browser-width",
+                String(fileBrowserWidth),
+            );
+        }
+    }
+
+    function startResizingFileBrowser(event: PointerEvent): void {
+        if (!browser) return;
+        isResizingFileBrowser = true;
+        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    }
 
     function openBrowserUrl(): void {
         const value = browserInput.trim();
@@ -808,7 +837,11 @@
     </div>
 {/snippet}
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window
+    onkeydown={handleWindowKeydown}
+    onpointermove={resizeFileBrowser}
+    onpointerup={stopResizingFileBrowser}
+/>
 
 <div class="hidden h-full min-h-0 min-w-0 md:flex">
 {#if !isCollapsed && (activeTab !== "changes" || selectedPath)}
@@ -821,15 +854,26 @@
 
 {#if activeTab === "changes" && (useInlineDiff || !selectedPath)}
 <aside
-    class="hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main md:flex"
+    class="relative hidden h-full min-h-0 flex-shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-bg-surface-alt text-text-main md:flex"
     class:w-0={isCollapsed}
     class:overflow-hidden={isCollapsed}
     class:border-l-0={isCollapsed}
-    class:w-[420px]={
+    style:width={
         !isCollapsed && useInlineDiff && selectedPath !== null
+            ? `${fileBrowserWidth}px`
+            : undefined
     }
     class:w-full={!isCollapsed && (!useInlineDiff || selectedPath === null)}
 >
+    {#if useInlineDiff && selectedPath !== null}
+        <div
+            class="absolute bottom-0 left-0 top-0 z-10 w-1 cursor-col-resize hover:bg-text-highlight/40"
+            role="separator"
+            aria-label="Resize file browser"
+            aria-orientation="vertical"
+            onpointerdown={startResizingFileBrowser}
+        ></div>
+    {/if}
     <div class="border-b border-border-subtle bg-bg-surface/95">
         <div class="flex min-w-0 items-center gap-2 px-3 py-3.5">
             {#if !useInlineDiff || !selectedPath}
