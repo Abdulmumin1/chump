@@ -17,7 +17,7 @@
 	const pathname = $derived(page.url.pathname);
 	const currentTab = $derived(page.url.searchParams.get('tab') ?? '');
 	const userAvatarUrl = $derived(
-		`https://api.dicebear.com/10.x/line-face/svg?seed=${encodeURIComponent(user.name || user.email || 'user')}`
+		`https://api.dicebear.com/10.x/line-face/svg?seed=${encodeURIComponent(user.name || user.email || 'user')}&backgroundColor=b6b7ba&inkColor=333338`
 	);
 
 	type ValidRoute = '/account' | '/organizations';

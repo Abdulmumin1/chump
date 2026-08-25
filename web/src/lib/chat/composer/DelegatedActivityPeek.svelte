@@ -30,7 +30,7 @@
         >
             <span class="min-w-0">
                 <span
-                    class="delegated-header flex min-w-0 items-center gap-1.5 text-[11px] leading-4"
+                    class="shimmer-text flex min-w-0 items-center gap-1.5 text-[11px] leading-4"
                 >
                     <span class="shrink-0 font-medium">Sub-agent</span>
                     <span class="shrink-0">·</span>
@@ -77,45 +77,3 @@
         </button>
     {/each}
 </div>
-
-<style>
-    .delegated-header {
-        --shimmer-spread: 64px;
-        background-image:
-            linear-gradient(
-                90deg,
-                transparent calc(50% - var(--shimmer-spread)),
-                var(--text-main),
-                transparent calc(50% + var(--shimmer-spread))
-            ),
-            linear-gradient(var(--text-tertiary), var(--text-tertiary));
-        background-position: 100% center;
-        background-repeat: no-repeat, padding-box;
-        background-size: 250% 100%, auto;
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        -webkit-text-fill-color: transparent;
-        animation: delegated-header-shimmer 2s linear infinite;
-    }
-
-    .delegated-header > span {
-        color: inherit;
-    }
-
-    @keyframes delegated-header-shimmer {
-        from {
-            background-position: 100% center;
-        }
-
-        to {
-            background-position: 0% center;
-        }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        .delegated-header {
-            animation: none;
-        }
-    }
-</style>

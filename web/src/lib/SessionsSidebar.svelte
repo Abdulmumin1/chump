@@ -110,7 +110,7 @@
     });
     let userAvatarUrl = $derived.by(() => {
         const seed = user?.name || user?.email || "user";
-        return `https://api.dicebear.com/10.x/line-face/svg?seed=${encodeURIComponent(seed)}`;
+        return `https://api.dicebear.com/10.x/line-face/svg?seed=${encodeURIComponent(seed)}&backgroundColor=b6b7ba&inkColor=333338`;
     });
 
     function toggleSearch() {
