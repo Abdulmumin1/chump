@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { StoredMessage } from "$lib/chump/types";
 import {
+    isCollapsibleActivityBlock,
     summarizeTerminalActivity,
     toolPresentation,
 } from "$lib/chat/activity-summary";
@@ -61,6 +62,86 @@ describe("live tool lifecycle events", () => {
         };
         expect(toolPresentation(slowCompletion, 4_499)).toBe("visible");
         expect(toolPresentation(slowCompletion, 4_500)).toBe("collapsible");
+    });
+
+    it("uses browser observation time so delayed events never flash", () => {
+        const delayedFastCompletion = {
+            kind: "tool-call" as const,
+            text: "",
+            originalToolName: "read_file",
+            status: "completed" as const,
+            startedAt: 1_000,
+            completedAt: 5_000,
+            observedStartedAt: 10_000,
+            observedCompletedAt: 10_100,
+        };
+
+        expect(toolPresentation(delayedFastCompletion, 10_100)).toBe(
+            "collapsible",
+        );
+
+        const revealedCompletion = {
+            ...delayedFastCompletion,
+            observedCompletedAt: 11_100,
+        };
+        expect(toolPresentation(revealedCompletion, 13_099)).toBe("visible");
+        expect(toolPresentation(revealedCompletion, 13_100)).toBe(
+            "collapsible",
+        );
+    });
+
+    it("records separate event and browser observation times", () => {
+        let messages: StoredMessage[] = [];
+        messages = applyLiveEventToMessages(
+            messages,
+            "tool_call",
+            {
+                call_id: "call-delayed",
+                name: "read_file",
+                args: { path: "README.md" },
+                step: 1,
+                index: 0,
+            },
+            1_000,
+            10_000,
+        );
+        messages = applyLiveEventToMessages(
+            messages,
+            "tool_result",
+            {
+                call_id: "call-delayed",
+                name: "read_file",
+                ok: true,
+                status: "ok",
+                preview: "contents",
+                step: 1,
+                index: 0,
+            },
+            5_000,
+            10_100,
+        );
+        messages = applyLiveEventToMessages(
+            messages,
+            "tool_result",
+            {
+                call_id: "call-delayed",
+                name: "read_file",
+                ok: true,
+                status: "ok",
+                preview: "contents",
+                step: 1,
+                index: 0,
+            },
+            5_100,
+            15_000,
+        );
+
+        expect(buildTranscript(messages)[0]?.blocks[0]).toMatchObject({
+            startedAt: 1_000,
+            completedAt: 5_100,
+            observedStartedAt: 10_000,
+            observedCompletedAt: 10_100,
+        });
     });
 
     it("summarizes small activity groups without command or file previews", () => {
@@ -219,6 +300,38 @@ describe("live tool lifecycle events", () => {
                 status: "completed",
                 hasResult: true,
             }),
+        ).toBe(true);
+    });
+
+    it("keeps a completed parallel tool visible while its sibling is running", () => {
+        const completed = {
+            kind: "tool-call" as const,
+            text: "",
+            originalToolName: "bash",
+            status: "completed" as const,
+            step: 20,
+        };
+        const running = {
+            kind: "tool-call" as const,
+            text: "",
+            originalToolName: "bash",
+            status: "running" as const,
+            step: 20,
+        };
+
+        expect(
+            isCollapsibleActivityBlock(
+                completed,
+                [completed, running],
+                Date.now(),
+            ),
+        ).toBe(false);
+        expect(
+            isCollapsibleActivityBlock(
+                completed,
+                [{ ...running, status: "completed" }],
+                Date.now(),
+            ),
         ).toBe(true);
     });
 
@@ -452,11 +565,13 @@ describe("live tool lifecycle events", () => {
             args: { command: "printf first" },
             result: "first output",
             status: "completed",
+            step: 3,
         });
         expect(second).toMatchObject({
             args: { command: "printf second" },
             result: "second output",
             status: "completed",
+            step: 3,
         });
     });
 

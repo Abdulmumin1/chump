@@ -3,12 +3,12 @@
     import MarkdownText from "$lib/MarkdownText.svelte";
     import ToolBlock from "$lib/ToolBlock.svelte";
     import {
+        isCollapsibleActivityBlock,
         nextToolPresentationDeadline,
         summarizeTerminalActivity,
         toolPresentation,
     } from "$lib/chat/activity-summary";
     import ReasoningBlock from "$lib/chat/transcript/ReasoningBlock.svelte";
-    import { isTerminalActivityBlock } from "$lib/chat/transcript";
     import type { TranscriptBlock, TranscriptMessage } from "$lib/chat/types";
 
     let {
@@ -71,7 +71,10 @@
                 isActive &&
                 index === blocks.length - 1 &&
                 block.kind === "reasoning";
-            if (isActiveReasoning || !isCollapsibleActivityBlock(block)) {
+            if (
+                isActiveReasoning ||
+                !isCollapsibleActivityBlock(block, blocks, presentationNow)
+            ) {
                 groups.push({ kind: "single", block, index });
                 index += 1;
                 continue;
@@ -81,7 +84,11 @@
             while (
                 index < blocks.length &&
                 !(isActive && index === blocks.length - 1 && blocks[index].kind === "reasoning") &&
-                isCollapsibleActivityBlock(blocks[index])
+                isCollapsibleActivityBlock(
+                    blocks[index],
+                    blocks,
+                    presentationNow,
+                )
             ) {
                 activityBlocks.push({ block: blocks[index], index });
                 index += 1;
@@ -102,12 +109,6 @@
         }
 
         return groups;
-    }
-
-    function isCollapsibleActivityBlock(block: TranscriptBlock): boolean {
-        if (!isTerminalActivityBlock(block)) return false;
-        if (block.kind === "reasoning") return true;
-        return toolPresentation(block, presentationNow) === "collapsible";
     }
 
     function groupKey(group: Extract<BlockGroup, { kind: "activity" }>): string {
@@ -187,7 +188,7 @@
                     aria-expanded={isGroupExpanded(group)}
                 >
                     <span class="font-mono text-[12px] font-medium">
-                        {#each summary.parts as part, i}
+                        {#each summary.parts as part, i (part)}
                             <span class={i >= 2 ? "hidden sm:inline" : ""}>
                                 {i > 0 ? ", " : ""}{part}
                             </span>

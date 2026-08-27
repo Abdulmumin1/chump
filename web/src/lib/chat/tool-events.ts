@@ -40,6 +40,7 @@ export function applyToolLifecycleEvent(
     type: string,
     data: Record<string, unknown>,
     occurredAt?: number,
+    observedAt?: number,
 ): StoredMessage[] {
     const identity = readIdentity(data);
 
@@ -49,11 +50,25 @@ export function applyToolLifecycleEvent(
         type === "tool_call.ready" ||
         type === "tool_call"
     ) {
-        return upsertToolCall(source, type, data, identity, occurredAt);
+        return upsertToolCall(
+            source,
+            type,
+            data,
+            identity,
+            occurredAt,
+            observedAt,
+        );
     }
 
     if (type === "tool_execution.started") {
-        return updateToolCallStatus(source, identity, "running", undefined, occurredAt);
+        return updateToolCallStatus(
+            source,
+            identity,
+            "running",
+            undefined,
+            occurredAt,
+            observedAt,
+        );
     }
 
     if (type === "tool_execution.finished") {
@@ -64,8 +79,16 @@ export function applyToolLifecycleEvent(
             status,
             numberValue(data.duration),
             occurredAt,
+            observedAt,
         );
-        return upsertToolResult(withStatus, data, identity, status, occurredAt);
+        return upsertToolResult(
+            withStatus,
+            data,
+            identity,
+            status,
+            occurredAt,
+            observedAt,
+        );
     }
 
     if (type === "tool_result") {
@@ -76,8 +99,16 @@ export function applyToolLifecycleEvent(
             status,
             undefined,
             occurredAt,
+            observedAt,
         );
-        return upsertToolResult(withStatus, data, identity, status, occurredAt);
+        return upsertToolResult(
+            withStatus,
+            data,
+            identity,
+            status,
+            occurredAt,
+            observedAt,
+        );
     }
 
     return source;
@@ -89,6 +120,7 @@ function upsertToolCall(
     data: Record<string, unknown>,
     identity: ToolIdentity,
     occurredAt?: number,
+    observedAt?: number,
 ): StoredMessage[] {
     const location = findToolCall(
         source,
@@ -122,6 +154,7 @@ function upsertToolCall(
                 index: identity.index,
                 status,
                 presentation_started_at: occurredAt,
+                presentation_observed_started_at: observedAt,
             },
         });
     }
@@ -154,6 +187,7 @@ function updateToolCallStatus(
     status: ToolLifecycleStatus,
     duration?: number,
     occurredAt?: number,
+    observedAt?: number,
 ): StoredMessage[] {
     const location = findToolCall(source, identity);
     if (!location) {
@@ -169,6 +203,7 @@ function updateToolCallStatus(
             },
             identity,
             occurredAt,
+            observedAt,
         );
         return updateToolCallStatus(
             created,
@@ -176,6 +211,7 @@ function updateToolCallStatus(
             status,
             duration,
             occurredAt,
+            observedAt,
         );
     }
     return replaceToolCall(source, location, (current) => ({
@@ -188,9 +224,14 @@ function updateToolCallStatus(
         duration: duration ?? current.duration,
         presentation_started_at:
             current.presentation_started_at ?? occurredAt,
+        presentation_observed_started_at:
+            current.presentation_observed_started_at ?? observedAt,
         presentation_completed_at: isTerminalStatus(status)
             ? occurredAt ?? current.presentation_completed_at
             : current.presentation_completed_at,
+        presentation_observed_completed_at: isTerminalStatus(status)
+            ? current.presentation_observed_completed_at ?? observedAt
+            : current.presentation_observed_completed_at,
     }));
 }
 
@@ -200,6 +241,7 @@ function upsertToolResult(
     identity: ToolIdentity,
     status: ToolLifecycleStatus,
     occurredAt?: number,
+    observedAt?: number,
 ): StoredMessage[] {
     const call = findToolCall(source, identity)?.part.tool_call;
     const callId = identity.callId || call?.id || syntheticCallId(identity);
@@ -218,6 +260,10 @@ function upsertToolResult(
             presentation_started_at: call?.presentation_started_at,
             presentation_completed_at:
                 occurredAt ?? call?.presentation_completed_at,
+            presentation_observed_started_at:
+                call?.presentation_observed_started_at,
+            presentation_observed_completed_at:
+                call?.presentation_observed_completed_at ?? observedAt,
         },
     };
     const existing = findToolResult(source, callId, identity);

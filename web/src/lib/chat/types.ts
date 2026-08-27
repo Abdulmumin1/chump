@@ -16,6 +16,9 @@ export type TranscriptBlock = {
     duration?: number;
     startedAt?: number;
     completedAt?: number;
+    observedStartedAt?: number;
+    observedCompletedAt?: number;
+    step?: number;
     isDiff?: boolean;
     diffContent?: string;
     imageSrc?: string;

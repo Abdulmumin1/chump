@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.4
+
+### Patch Changes
+
+- Add support for GLM-5.3-Flash across providers
+
 ## 0.5.3
 
 ### Patch Changes

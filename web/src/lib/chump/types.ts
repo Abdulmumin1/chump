@@ -126,6 +126,8 @@ export type ToolCallMessagePart = {
 		duration?: number;
 		presentation_started_at?: number;
 		presentation_completed_at?: number;
+		presentation_observed_started_at?: number;
+		presentation_observed_completed_at?: number;
 	};
 };
 
@@ -143,6 +145,8 @@ export type ToolResultMessagePart = {
 		duration?: number;
 		presentation_started_at?: number;
 		presentation_completed_at?: number;
+		presentation_observed_started_at?: number;
+		presentation_observed_completed_at?: number;
 	};
 };
 

@@ -255,6 +255,14 @@ function mergeToolResultIntoCall(
         parentBlock.completedAt,
         block.completedAt,
     );
+    parentBlock.observedStartedAt = earliestTimestamp(
+        parentBlock.observedStartedAt,
+        block.observedStartedAt,
+    );
+    parentBlock.observedCompletedAt = latestTimestamp(
+        parentBlock.observedCompletedAt,
+        block.observedCompletedAt,
+    );
     if (block.metadata) {
         parentBlock.metadata = block.metadata;
         parentBlock.isDiff =
@@ -466,6 +474,13 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
                     : undefined,
             startedAt: finiteNumber(toolCall?.presentation_started_at),
             completedAt: finiteNumber(toolCall?.presentation_completed_at),
+            observedStartedAt: finiteNumber(
+                toolCall?.presentation_observed_started_at,
+            ),
+            observedCompletedAt: finiteNumber(
+                toolCall?.presentation_observed_completed_at,
+            ),
+            step: finiteNumber(toolCall?.step),
             isDiff,
             diffContent,
         };
@@ -491,6 +506,13 @@ function formatPartBlock(part: MessagePart): TranscriptBlock {
                     : undefined,
             startedAt: finiteNumber(toolResult?.presentation_started_at),
             completedAt: finiteNumber(toolResult?.presentation_completed_at),
+            observedStartedAt: finiteNumber(
+                toolResult?.presentation_observed_started_at,
+            ),
+            observedCompletedAt: finiteNumber(
+                toolResult?.presentation_observed_completed_at,
+            ),
+            step: finiteNumber(toolResult?.step),
             toolName,
             originalToolName: toolName,
         };

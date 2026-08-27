@@ -1,4 +1,5 @@
 import type { TranscriptBlock } from "$lib/chat/types";
+import { isTerminalActivityBlock } from "$lib/chat/transcript";
 
 const COMPACT_ACTION_TYPE_LIMIT = 3;
 const TOOL_REVEAL_DELAY_MS = 1_000;
@@ -25,8 +26,9 @@ export function toolPresentation(
         block.status === "ready" ||
         block.status === "running";
     if (running) {
-        return block.startedAt !== undefined &&
-            now < block.startedAt + TOOL_REVEAL_DELAY_MS
+        const startedAt = presentationStartedAt(block);
+        return startedAt !== undefined &&
+            now < startedAt + TOOL_REVEAL_DELAY_MS
             ? "hidden"
             : "visible";
     }
@@ -38,15 +40,13 @@ export function toolPresentation(
         block.hasResult === true;
     if (!terminal) return "visible";
 
-    if (
-        block.startedAt !== undefined &&
-        block.completedAt !== undefined
-    ) {
-        const runtime = block.completedAt - block.startedAt;
+    const timing = presentationTiming(block);
+    if (timing) {
+        const runtime = timing.completedAt - timing.startedAt;
         if (runtime < TOOL_REVEAL_DELAY_MS) {
             return "collapsible";
         }
-        if (now < block.completedAt + TOOL_COMPLETION_HOLD_MS) {
+        if (now < timing.completedAt + TOOL_COMPLETION_HOLD_MS) {
             return "visible";
         }
     }
@@ -59,14 +59,69 @@ export function nextToolPresentationDeadline(
     now: number,
 ): number | undefined {
     const presentation = toolPresentation(block, now);
-    if (presentation === "hidden" && block.startedAt !== undefined) {
-        return block.startedAt + TOOL_REVEAL_DELAY_MS;
+    const startedAt = presentationStartedAt(block);
+    if (presentation === "hidden" && startedAt !== undefined) {
+        return startedAt + TOOL_REVEAL_DELAY_MS;
     }
-    if (presentation === "visible" && block.completedAt !== undefined) {
-        const deadline = block.completedAt + TOOL_COMPLETION_HOLD_MS;
+    const timing = presentationTiming(block);
+    if (presentation === "visible" && timing) {
+        const deadline = timing.completedAt + TOOL_COMPLETION_HOLD_MS;
         return deadline > now ? deadline : undefined;
     }
     return undefined;
+}
+
+function presentationStartedAt(block: TranscriptBlock): number | undefined {
+    return block.observedStartedAt ?? block.startedAt;
+}
+
+function presentationTiming(
+    block: TranscriptBlock,
+): { startedAt: number; completedAt: number } | null {
+    if (
+        block.observedStartedAt !== undefined &&
+        block.observedCompletedAt !== undefined
+    ) {
+        return {
+            startedAt: block.observedStartedAt,
+            completedAt: block.observedCompletedAt,
+        };
+    }
+    if (block.startedAt !== undefined && block.completedAt !== undefined) {
+        return {
+            startedAt: block.startedAt,
+            completedAt: block.observedCompletedAt ?? block.completedAt,
+        };
+    }
+    return null;
+}
+
+export function isCollapsibleActivityBlock(
+    block: TranscriptBlock,
+    blocks: TranscriptBlock[],
+    now: number,
+): boolean {
+    if (!isTerminalActivityBlock(block)) return false;
+    if (block.kind === "reasoning") return true;
+    if (hasActiveToolSibling(block, blocks)) return false;
+    return toolPresentation(block, now) === "collapsible";
+}
+
+function hasActiveToolSibling(
+    block: TranscriptBlock,
+    blocks: TranscriptBlock[],
+): boolean {
+    if (block.step === undefined) return false;
+
+    return blocks.some(
+        (candidate) =>
+            candidate !== block &&
+            candidate.step === block.step &&
+            (candidate.kind === "tool-call" || candidate.kind === "tool-result") &&
+            (candidate.status === "streaming" ||
+                candidate.status === "ready" ||
+                candidate.status === "running"),
+    );
 }
 
 export function summarizeTerminalActivity(

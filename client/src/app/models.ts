@@ -53,6 +53,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "deepseek-v4-pro",
     "glm-5",
     "glm-5.1",
+    "glm-5.3-flash",
     "mimo-v2.5",
     "mimo-v2.5-pro",
     "minimax-m2.5",
@@ -66,6 +67,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "anthropic/claude-sonnet-4.5",
     "deepseek/deepseek-v4-pro",
     "qwen/qwen3.6-plus",
+    "z-ai/glm-5.3-flash",
   ]),
   google: new Set([
     "gemini-3.7-flash",
@@ -89,6 +91,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "grok-code-fast-1",
   ]),
   workers_ai: new Set([
+    "@cf/zai-org/glm-5.3-flash",
     "@cf/zai-org/glm-5.2",
     "@cf/zai-org/glm-4.7-flash",
     "@cf/nvidia/nemotron-3-120b-a12b",
@@ -309,6 +312,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         reasoning: true,
         limit: { context: 202_752, output: 32_768 },
       },
+      "glm-5.3-flash": {
+        id: "glm-5.3-flash",
+        name: "GLM-5.3-Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 131_072 },
+      },
       "mimo-v2.5": {
         id: "mimo-v2.5",
         name: "MiMo V2.5",
@@ -344,6 +353,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         name: "Qwen3.6 Plus",
         reasoning: true,
         limit: { context: 262_144, output: 65_536 },
+      },
+      "z-ai/glm-5.3-flash": {
+        id: "z-ai/glm-5.3-flash",
+        name: "GLM-5.3-Flash",
+        reasoning: true,
+        limit: { context: 1_310_720, output: 131_072 },
       },
     },
   },
@@ -497,6 +512,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "workers_ai",
     name: "Cloudflare Workers AI",
     models: {
+      "@cf/zai-org/glm-5.3-flash": {
+        id: "@cf/zai-org/glm-5.3-flash",
+        name: "GLM-5.3 Flash",
+        reasoning: true,
+        limit: { context: 1_310_720, output: 131_072 },
+      },
       "@cf/zai-org/glm-5.2": {
         id: "@cf/zai-org/glm-5.2",
         name: "GLM-5.2",
@@ -874,6 +895,7 @@ function modelRank(provider: string, model: string): number {
     ],
     opencode_go: [
       "deepseek-v4-flash",
+      "glm-5.3-flash",
       "qwen3.6-plus",
       "glm-5.1",
       "minimax-m2.7",
@@ -924,6 +946,7 @@ function modelRank(provider: string, model: string): number {
       "grok-4-fast",
     ],
     workers_ai: [
+      "@cf/zai-org/glm-5.3-flash",
       "@cf/zai-org/glm-5.2",
       "@cf/moonshotai/kimi-k2.7-code",
       "@cf/zai-org/glm-4.7-flash",

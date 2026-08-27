@@ -704,6 +704,7 @@ export function createSessionController(
         const payload = chumpEvent?.data ?? rawPayload;
         const occurredAt =
             eventTimestampMilliseconds(payload) ?? Date.now();
+        const observedAt = Date.now();
 
         if (chumpEvent?.type === "turn_error") {
             discardPresentation(true);
@@ -805,6 +806,7 @@ export function createSessionController(
             event.event,
             payload,
             occurredAt,
+            observedAt,
         );
         if (event.event === "user_message") {
             state.steeringQueue = removeSteeredQueueItem(

@@ -76,6 +76,7 @@ export function applyLiveEventToMessages(
     type: string,
     data: Record<string, unknown> | null,
     occurredAt?: number,
+    observedAt?: number,
 ): StoredMessage[] {
     if (!data) return source;
     const chumpEvent = parseChumpEvent(type, data);
@@ -83,7 +84,13 @@ export function applyLiveEventToMessages(
     data = chumpEvent?.data ?? data;
 
     if (isToolLifecycleEvent(type)) {
-        return applyToolLifecycleEvent(source, type, data, occurredAt);
+        return applyToolLifecycleEvent(
+            source,
+            type,
+            data,
+            occurredAt,
+            observedAt,
+        );
     }
 
     const next = [...source];
