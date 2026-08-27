@@ -22,7 +22,6 @@
     }>();
 
     let expanded = $state(false);
-    let fullHeight = $state(0);
     let activeZoomImage = $state<string | null>(null);
 
     function portal(node: HTMLElement) {
@@ -49,7 +48,19 @@
     }
 
     const THRESHOLD = 240;
-    let isLong = $derived(fullHeight > THRESHOLD);
+    let containerEl = $state<HTMLDivElement | null>(null);
+    let isLong = $state(false);
+
+    $effect(() => {
+        if (!containerEl) return;
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                isLong = entry.target.scrollHeight > THRESHOLD;
+            }
+        });
+        observer.observe(containerEl);
+        return () => observer.disconnect();
+    });
     let textContent = $derived(
         blocks
             .map(
@@ -104,12 +115,11 @@
 
         <div
             class="relative z-10 pr-1.5 transition-all duration-300"
-            style={!expanded && isLong
-                ? `max-height: ${THRESHOLD}px; overflow: hidden;`
-                : "max-height: 10000px; overflow: hidden;"}
+            class:max-h-[240px]={!expanded}
+            class:overflow-hidden={!expanded}
         >
             <div
-                bind:clientHeight={fullHeight}
+                bind:this={containerEl}
                 class="flex flex-col gap-2 px-3.5 py-1.5"
             >
                 {#each blocks as block, index (`${block.kind}-${index}`)}

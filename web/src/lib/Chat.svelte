@@ -83,6 +83,12 @@
         getLoopbackPermissionState,
         loopbackPermissionMessage,
     } from "$lib/chump/loopback-permission";
+    import {
+        readRecentProjectAccess,
+        recordProjectAccess,
+        sortProjectsByRecent,
+        type ProjectAccessMap,
+    } from "$lib/chump/recent-projects";
 
     let { data }: { data: any } = $props();
     const initialServerUrl = () => data?.initialServerUrl ?? "";
@@ -191,6 +197,12 @@
     let connectSessionIdDraft = $state(initialSessionId());
     let projects = $state<LocalServiceProject[]>([]);
     let activeProjectId = $state("");
+    let projectAccessMap = $state<ProjectAccessMap>(
+        browser ? readRecentProjectAccess(localStorage) : {},
+    );
+    const sortedProjects = $derived(
+        sortProjectsByRecent(projects, projectAccessMap),
+    );
     let isLoadingProject = $state(false);
     let isRegisteringProject = $state(false);
     let isPickingProjectDirectory = $state(false);
@@ -1040,13 +1052,14 @@
             }
 
             const requestedProjectId = connection.projectId?.trim() ?? "";
+            const sortedCandidateProjects = sortProjectsByRecent(nextProjects, projectAccessMap);
             const preferredProjectId = nextProjects.some(
                 (project) => project.id === requestedProjectId,
             )
                 ? requestedProjectId
-                : nextProjects.some((project) => project.id === activeProjectId)
+                : sortedCandidateProjects.some((project) => project.id === activeProjectId)
                   ? activeProjectId
-                  : (nextProjects[0]?.id ?? "");
+                  : (sortedCandidateProjects[0]?.id ?? "");
             if (preferredProjectId) {
                 await selectProject(preferredProjectId, {
                     preferredSessionId: options.preferredSessionId,
@@ -1174,6 +1187,7 @@
             let preferredSessionId = options.preferredSessionId?.trim() || "";
             if (browser) {
                 sessionStorage.setItem("chump:active-project", projectId);
+                projectAccessMap = recordProjectAccess(localStorage, projectId);
                 preferredSessionId ||=
                     sessionStorage.getItem(projectSessionStorageKey(projectId)) ?? "";
             }
@@ -1343,7 +1357,7 @@
             {health}
             {serverUrl}
             {workingSessionIds}
-            {projects}
+            projects={sortedProjects}
             {activeProjectId}
             {isLoadingProject}
             {isRegisteringProject}
@@ -1381,7 +1395,7 @@
                     {health}
                     {serverUrl}
                     {workingSessionIds}
-                    {projects}
+                    projects={sortedProjects}
                     {activeProjectId}
                     {isLoadingProject}
                     {isRegisteringProject}
@@ -1588,7 +1602,7 @@
 />
 
 <CommandPalette
-    {projects}
+    projects={sortedProjects}
     {activeProjectId}
     onSelectProject={(projectId) => void selectProject(projectId)}
     onOpenProjectRegistration={() => void openProjectFromPicker()}
