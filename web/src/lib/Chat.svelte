@@ -42,6 +42,7 @@
         sessionTitle,
         steerCurrentTurn,
         streamChat,
+        terminalTargetIdentity,
         type ChumpApiTarget,
     } from "$lib/chump/api";
     import type {
@@ -225,6 +226,12 @@
             ? { kind: "direct", serverUrl }
             : null;
     });
+    const workspaceTargetKey = $derived(
+        apiTarget ? terminalTargetIdentity(apiTarget) : "disconnected",
+    );
+    // Terminal and browser tabs belong to the workspace, not one session.
+    // Keep their pane mounted while a different session hydrates.
+    const showWorkspace = $derived(Boolean(sessionState || isLoadingSession));
     const canSend = $derived(
         Boolean(
             apiTarget &&
@@ -1532,7 +1539,7 @@
 
     {#snippet workspaceStatePane()}
         {#await import("$lib/WorkspaceState.svelte") then { default: WorkspaceState }}
-            {#key activeSessionId}
+            {#key workspaceTargetKey}
                 <WorkspaceState
                     state={sessionState}
                     target={apiTarget}
@@ -1545,7 +1552,7 @@
         {/await}
     {/snippet}
 
-    {#if sessionState && isDesktopViewport}
+    {#if showWorkspace && isDesktopViewport}
         <PaneGroup direction="horizontal" class="min-h-0 min-w-0 flex-1">
             <Pane defaultSize={58} minSize={25}>
                 {@render chatPane()}
@@ -1565,7 +1572,7 @@
         </PaneGroup>
     {:else}
         {@render chatPane()}
-        {#if sessionState}
+        {#if showWorkspace}
             {@render workspaceStatePane()}
         {/if}
     {/if}
