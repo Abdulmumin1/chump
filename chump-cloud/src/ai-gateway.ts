@@ -34,6 +34,13 @@ export const SUPPORTED_MODELS: Record<string, UpstreamTarget> = {
     provider: "google",
     gatewayProvider: "google-ai-studio",
     endpoint: "v1beta/openai/chat/completions",
+    model: "gemini-3.8-flash",
+    byokAlias: "default2",
+  },
+  "gemini-3.7-flash": {
+    provider: "google",
+    gatewayProvider: "google-ai-studio",
+    endpoint: "v1beta/openai/chat/completions",
     model: "gemini-3.7-flash",
     byokAlias: "default2",
   },

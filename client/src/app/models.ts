@@ -23,6 +23,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5.4",
   ]),
   openai: new Set([
+    "gpt-6-astra",
     "gpt-5.6",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -36,6 +37,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
   chump_cloud: new Set([
     "deepseek-v4-pro",
     "deepseek-v4-flash",
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
   ]),
   opencode: new Set([
@@ -70,6 +72,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "z-ai/glm-5.3-flash",
   ]),
   google: new Set([
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
@@ -115,6 +118,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "codex",
     name: "Codex",
     models: {
+      "gpt-6-astra": {
+        id: "gpt-6-astra",
+        name: "GPT-6 Astra",
+        reasoning: true,
+        limit: { context: 1_050_000, output: 128_000 },
+      },
       "gpt-5.6": {
         id: "gpt-5.6",
         name: "GPT-5.6",
@@ -221,6 +230,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         name: "DeepSeek V4 Flash",
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
+      },
+      "gemini-3.7-flash": {
+        id: "gemini-3.8-flash",
+        name: "Gemini 3.8 Flash",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
       },
       "gemini-3.7-flash": {
         id: "gemini-3.7-flash",
@@ -413,6 +428,12 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "google",
     name: "Google",
     models: {
+      "gemini-3.8-flash": {
+        id: "gemini-3.8-flash",
+        name: "Gemini 3.8 Flash",
+        reasoning: true,
+        limit: { context: 1_048_576, output: 65_536 },
+      },
       "gemini-3.7-flash": {
         id: "gemini-3.7-flash",
         name: "Gemini 3.7 Flash",
@@ -870,6 +891,7 @@ function isUsableChatModel(provider: string, model: ModelInfo): boolean {
 function modelRank(provider: string, model: string): number {
   const priorities: Record<string, string[]> = {
     openai: [
+      "gpt-6-astra",
       "gpt-5.6",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
@@ -881,6 +903,7 @@ function modelRank(provider: string, model: string): number {
     chump_cloud: [
       "deepseek-v4-pro",
       "deepseek-v4-flash",
+      "gemini-3.8-flash",
       "gemini-3.7-flash",
     ],
     opencode: [
@@ -926,6 +949,7 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.4",
     ],
     google: [
+      "gemini-3.8-flash",
       "gemini-3.7-flash",
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",

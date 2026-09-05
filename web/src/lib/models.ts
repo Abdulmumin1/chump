@@ -5,6 +5,7 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "codex",
     name: "Codex",
     models: {
+      "gpt-6-astra": { id: "gpt-6-astra", name: "GPT-6 Astra", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
       "gpt-5.6": { id: "gpt-5.6", name: "GPT-5.6", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
       "gpt-5.6-sol": { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
       "gpt-5.6-terra": { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", reasoning: true, limit: { context: 1_050_000, output: 128_000 } },
@@ -59,6 +60,7 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "google",
     name: "Google",
     models: {
+      "gemini-3.8-flash": { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", reasoning: true, limit: { context: 1_048_576, output: 65_536 } },
       "gemini-3.7-flash": {
         id: "gemini-3.7-flash",
         name: "Gemini 3.7 Flash",
@@ -89,6 +91,8 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "workers_ai",
     name: "Cloudflare Workers AI",
     models: {
+      "@cf/zai-org/glm-5.3-flash": { id: "@cf/zai-org/glm-5.3-flash", name: "GLM-5.3 Flash", reasoning: true, limit: { context: 1_310_720, output: 131_072 } },
+      "@cf/zai-org/glm-5.2": { id: "@cf/zai-org/glm-5.2", name: "GLM-5.2", reasoning: true, limit: { context: 262_144 } },
       "@cf/zai-org/glm-4.7-flash": {
         id: "@cf/zai-org/glm-4.7-flash",
         name: "GLM 4.7 Flash",
@@ -133,6 +137,7 @@ export const FALLBACK_MODELS: Record<string, any> = {
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
       },
+      "gemini-3.8-flash": { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", reasoning: true, limit: { context: 1_048_576, output: 65_536 } },
       "gemini-3.7-flash": {
         id: "gemini-3.7-flash",
         name: "Gemini 3.7 Flash",
@@ -187,6 +192,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4-pro",
+    "gpt-6-astra",
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
@@ -199,8 +205,9 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5-nano",
     "gpt-5-codex",
   ]),
-  chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash", "gemini-3.7-flash"]),
+  chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash", "gemini-3.8-flash", "gemini-3.7-flash"]),
   google: new Set([
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
@@ -213,6 +220,8 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
   ]),
   anthropic: new Set(["claude-sonnet-4-20250514"]),
   workers_ai: new Set([
+    "@cf/zai-org/glm-5.3-flash",
+    "@cf/zai-org/glm-5.2",
     "@cf/zai-org/glm-4.7-flash",
     "@cf/nvidia/nemotron-3-120b-a12b",
     "@cf/moonshotai/kimi-k2.5",
@@ -273,6 +282,7 @@ function isUsableChatModel(provider: string, model: any): boolean {
 function modelRank(provider: string, model: string): number {
   const priorities: Record<string, string[]> = {
     openai: [
+      "gpt-6-astra",
       "gpt-5.6",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
@@ -303,6 +313,7 @@ function modelRank(provider: string, model: string): number {
       "gpt-5-codex",
     ],
     google: [
+      "gemini-3.8-flash",
       "gemini-3.7-flash",
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
@@ -314,6 +325,8 @@ function modelRank(provider: string, model: string): number {
       "gemini-2.5-flash-lite",
     ],
     workers_ai: [
+      "@cf/zai-org/glm-5.3-flash",
+      "@cf/zai-org/glm-5.2",
       "@cf/moonshotai/kimi-k2.7-code",
       "@cf/moonshotai/kimi-k2.6",
       "@cf/moonshotai/kimi-k2.5",
@@ -323,6 +336,7 @@ function modelRank(provider: string, model: string): number {
     chump_cloud: [
       "deepseek-v4-pro",
       "deepseek-v4-flash",
+      "gemini-3.8-flash",
       "gemini-3.7-flash",
     ],
     deepseek: [

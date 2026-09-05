@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.5
+
+### Patch Changes
+
+- Add support for Gemini 3.8 Flash, GPT-6 Astra, and GLM-5.3-Flash from models.dev.
+
 ## 0.5.4
 
 ### Patch Changes

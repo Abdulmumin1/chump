@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.3.4
+
+- Add support for Gemini 3.8 Flash, GPT-6 Astra, and GLM-5.3-Flash from models.dev.
+
 ## 0.3.3
 
 - Replace binary chat attachments with server-managed file paths, support arbitrary browser file uploads, expose authenticated attachment previews, and give Chump an isolated temporary-work directory.

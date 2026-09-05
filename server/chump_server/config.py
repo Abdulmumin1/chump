@@ -35,11 +35,11 @@ DEFAULT_ALLOWED_ORIGINS: tuple[str, ...] = (
 DEFAULT_MODELS = {
     "codex": "gpt-5.4",
     "github_copilot": "gpt-5.4",
-    "openai": "gpt-5.4",
+    "openai": "gpt-6-astra",
     "chump_cloud": "deepseek-v4-flash",
-    "google": "gemini-3.7-flash",
+    "google": "gemini-3.8-flash",
     "anthropic": "claude-sonnet-4-20250514",
-    "workers_ai": "@cf/zai-org/glm-5.2",
+    "workers_ai": "@cf/zai-org/glm-5.3-flash",
     "deepseek": "deepseek-v4-pro",
     "openrouter": "anthropic/claude-sonnet-4.5",
     "groq": "openai/gpt-oss-120b",
@@ -63,6 +63,7 @@ PROVIDER_MODELS = {
         "gpt-5.4",
     },
     "openai": {
+        "gpt-6-astra",
         "gpt-5.6",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
@@ -77,8 +78,10 @@ PROVIDER_MODELS = {
         "deepseek-v4-pro",
         "deepseek-v4-flash",
         "gemini-3.7-flash",
+        "gemini-3.8-flash",
     },
     "google": {
+        "gemini-3.8-flash",
         "gemini-3.7-flash",
         "gemini-3.5-flash-lite",
         "gemini-3.5-flash",
@@ -90,6 +93,7 @@ PROVIDER_MODELS = {
         "claude-sonnet-4-20250514",
     },
     "workers_ai": {
+        "@cf/zai-org/glm-5.3-flash",
         "@cf/zai-org/glm-5.2",
         "@cf/zai-org/glm-4.7-flash",
         "@cf/nvidia/nemotron-3-120b-a12b",

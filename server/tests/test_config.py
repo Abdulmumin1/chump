@@ -41,6 +41,7 @@ def test_normalize_model_name_accepts_provider_model_pair():
 @pytest.mark.parametrize(
     "model",
     [
+        "gemini-3.8-flash",
         "gemini-3.7-flash",
         "gemini-3.5-flash-lite",
         "gemini-3.5-flash",
@@ -55,7 +56,7 @@ def test_normalize_model_name_rejects_limited_access_google_models():
         normalize_model_name("google", "gemini-3.5-flash-cyber")
 
 
-@pytest.mark.parametrize("model", ["deepseek-v4-flash", "gemini-3.7-flash"])
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "gemini-3.8-flash"])
 def test_normalize_model_name_accepts_chump_cloud_provider_model_pair(model):
     assert normalize_model_name("chump_cloud", model) == model
 
@@ -227,7 +228,7 @@ def test_load_config_uses_latest_google_default_model(monkeypatch, tmp_path):
 
     config = load_config()
 
-    assert config.model == "gemini-3.7-flash"
+    assert config.model == "gemini-3.8-flash"
 
 
 def test_load_config_uses_opencode_go_default_model(monkeypatch, tmp_path):

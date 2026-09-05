@@ -22,7 +22,7 @@ export const PROVIDERS = {
   },
   openai: {
     label: "OpenAI",
-    defaultModel: "gpt-5.4",
+    defaultModel: "gpt-6-astra",
     fields: [
       { key: "OPENAI_API_KEY", label: "OpenAI API key", secret: true },
       { key: "OPENAI_BASE_URL", label: "Base URL", optional: true },
@@ -59,7 +59,7 @@ export const PROVIDERS = {
   },
   google: {
     label: "Google",
-    defaultModel: "gemini-3.7-flash",
+    defaultModel: "gemini-3.8-flash",
     fields: [{ key: "GOOGLE_API_KEY", label: "Google API key", secret: true }],
   },
   groq: {
@@ -86,7 +86,7 @@ export const PROVIDERS = {
   },
   workers_ai: {
     label: "Cloudflare Workers AI",
-    defaultModel: "@cf/zai-org/glm-5.2",
+    defaultModel: "@cf/zai-org/glm-5.3-flash",
     fields: [
       { key: "CLOUDFLARE_ACCOUNT_ID", label: "Cloudflare account ID" },
       {
