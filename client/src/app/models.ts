@@ -231,7 +231,7 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
       },
-      "gemini-3.7-flash": {
+      "gemini-3.8-flash": {
         id: "gemini-3.8-flash",
         name: "Gemini 3.8 Flash",
         reasoning: true,
