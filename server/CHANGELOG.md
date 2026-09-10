@@ -1,5 +1,11 @@
 # chump-server
 
+## 0.3.5
+
+- Accept image attachments for GLM-5.3-Flash on Workers AI, matching its vision support in the models.dev catalog.
+- Add DeepSeek V4.1 Flash to Chump Cloud with image input, and route Gemini 3.8 Flash through the cloud gateway instead of rejecting it.
+- Remove DeepSeek V4 Pro from Chump Cloud, DeepSeek, OpenCode Go, OpenRouter, and ZenMux catalogs as DeepSeek routes it to V4.1 Flash upstream; the DeepSeek provider default is now DeepSeek V4 Flash.
+
 ## 0.3.4
 
 - Add support for Gemini 3.8 Flash, GPT-6 Astra, and GLM-5.3-Flash from models.dev.

@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.6
+
+### Patch Changes
+
+- Update the Chump Cloud catalog: add DeepSeek V4.1 Flash and Gemini 3.8 Flash, remove DeepSeek V4 Pro everywhere as DeepSeek routes it to V4.1 Flash, and accept image attachments for GLM-5.3-Flash on Workers AI.
+
 ## 0.5.5
 
 ### Patch Changes
