@@ -125,15 +125,15 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "chump_cloud",
     name: "Chump Cloud",
     models: {
-      "deepseek-v4-pro": {
-        id: "deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
-        reasoning: true,
-        limit: { context: 1_000_000, output: 384_000 },
-      },
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
         name: "DeepSeek V4 Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "deepseek-v4.1-flash": {
+        id: "deepseek-v4.1-flash",
+        name: "DeepSeek V4.1 Flash",
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
       },
@@ -150,12 +150,6 @@ export const FALLBACK_MODELS: Record<string, any> = {
     id: "deepseek",
     name: "DeepSeek",
     models: {
-      "deepseek-v4-pro": {
-        id: "deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
-        reasoning: true,
-        limit: { context: 1_000_000, output: 384_000 },
-      },
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
         name: "DeepSeek V4 Flash",
@@ -205,7 +199,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5-nano",
     "gpt-5-codex",
   ]),
-  chump_cloud: new Set(["deepseek-v4-pro", "deepseek-v4-flash", "gemini-3.8-flash", "gemini-3.7-flash"]),
+  chump_cloud: new Set(["deepseek-v4-flash", "deepseek-v4.1-flash", "gemini-3.8-flash", "gemini-3.7-flash"]),
   google: new Set([
     "gemini-3.8-flash",
     "gemini-3.7-flash",
@@ -228,7 +222,7 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "@cf/moonshotai/kimi-k2.6",
     "@cf/moonshotai/kimi-k2.7-code",
   ]),
-  deepseek: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+  deepseek: new Set(["deepseek-v4-flash"]),
 };
 
 function modelCatalogProviderId(provider: string): string {
@@ -334,13 +328,12 @@ function modelRank(provider: string, model: string): number {
       "@cf/nvidia/nemotron-3-120b-a12b",
     ],
     chump_cloud: [
-      "deepseek-v4-pro",
       "deepseek-v4-flash",
+      "deepseek-v4.1-flash",
       "gemini-3.8-flash",
       "gemini-3.7-flash",
     ],
     deepseek: [
-      "deepseek-v4-pro",
       "deepseek-v4-flash",
     ],
   };

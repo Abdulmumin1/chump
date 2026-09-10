@@ -74,7 +74,7 @@ export const PROVIDERS = {
   },
   deepseek: {
     label: "DeepSeek",
-    defaultModel: "deepseek-v4-pro",
+    defaultModel: "deepseek-v4-flash",
     fields: [
       { key: "DEEPSEEK_API_KEY", label: "DeepSeek API key", secret: true },
     ],

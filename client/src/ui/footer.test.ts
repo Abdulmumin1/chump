@@ -51,7 +51,7 @@ test("shows an explicit thinking state when provider reasoning is null", () => {
     {
       ...status,
       provider: "chump_cloud",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4.1-flash",
       reasoning: null,
     },
     null,

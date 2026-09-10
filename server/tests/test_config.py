@@ -56,7 +56,9 @@ def test_normalize_model_name_rejects_limited_access_google_models():
         normalize_model_name("google", "gemini-3.5-flash-cyber")
 
 
-@pytest.mark.parametrize("model", ["deepseek-v4-flash", "gemini-3.8-flash"])
+@pytest.mark.parametrize(
+    "model", ["deepseek-v4-flash", "deepseek-v4.1-flash", "gemini-3.8-flash"]
+)
 def test_normalize_model_name_accepts_chump_cloud_provider_model_pair(model):
     assert normalize_model_name("chump_cloud", model) == model
 
@@ -127,7 +129,7 @@ def test_workers_ai_accepts_glm_5_2():
 def test_normalize_model_name_uses_provider_default_when_not_strict():
     assert (
         normalize_model_name("deepseek", "@cf/moonshotai/kimi-k2.6", strict=False)
-        == "deepseek-v4-pro"
+        == "deepseek-v4-flash"
     )
 
 

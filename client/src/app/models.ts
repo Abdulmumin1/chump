@@ -35,8 +35,8 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "gpt-5.4-nano",
   ]),
   chump_cloud: new Set([
-    "deepseek-v4-pro",
     "deepseek-v4-flash",
+    "deepseek-v4.1-flash",
     "gemini-3.8-flash",
     "gemini-3.7-flash",
   ]),
@@ -52,7 +52,6 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
   ]),
   opencode_go: new Set([
     "deepseek-v4-flash",
-    "deepseek-v4-pro",
     "glm-5",
     "glm-5.1",
     "glm-5.3-flash",
@@ -67,7 +66,6 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "openai/gpt-5.5",
     "openai/gpt-5.4",
     "anthropic/claude-sonnet-4.5",
-    "deepseek/deepseek-v4-pro",
     "qwen/qwen3.6-plus",
     "z-ai/glm-5.3-flash",
   ]),
@@ -100,12 +98,11 @@ const SUPPORTED_MODELS: Record<string, Set<string>> = {
     "@cf/nvidia/nemotron-3-120b-a12b",
     "@cf/moonshotai/kimi-k2.7-code",
   ]),
-  deepseek: new Set(["deepseek-v4-pro", "deepseek-v4-flash"]),
+  deepseek: new Set(["deepseek-v4-flash"]),
   zenmux: new Set([
     "openai/gpt-5.5",
     "openai/gpt-5.4",
     "anthropic/claude-sonnet-4.5",
-    "deepseek/deepseek-v4-pro",
     "qwen/qwen3.6-plus",
     "x-ai/grok-4.1-fast",
     "z-ai/glm-5.1",
@@ -219,15 +216,15 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "chump_cloud",
     name: "Chump Cloud",
     models: {
-      "deepseek-v4-pro": {
-        id: "deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
-        reasoning: true,
-        limit: { context: 1_000_000, output: 384_000 },
-      },
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
         name: "DeepSeek V4 Flash",
+        reasoning: true,
+        limit: { context: 1_000_000, output: 384_000 },
+      },
+      "deepseek-v4.1-flash": {
+        id: "deepseek-v4.1-flash",
+        name: "DeepSeek V4.1 Flash",
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
       },
@@ -306,12 +303,6 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
         name: "DeepSeek V4 Flash",
-        reasoning: true,
-        limit: { context: 1_000_000, output: 384_000 },
-      },
-      "deepseek-v4-pro": {
-        id: "deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
         reasoning: true,
         limit: { context: 1_000_000, output: 384_000 },
       },
@@ -398,12 +389,6 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         name: "Claude Sonnet 4.5",
         reasoning: true,
         limit: { context: 1_000_000, output: 64_000 },
-      },
-      "deepseek/deepseek-v4-pro": {
-        id: "deepseek/deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
-        reasoning: true,
-        limit: { context: 1_048_576, output: 393_216 },
       },
       "qwen/qwen3.6-plus": {
         id: "qwen/qwen3.6-plus",
@@ -567,12 +552,6 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
     id: "deepseek",
     name: "DeepSeek",
     models: {
-      "deepseek-v4-pro": {
-        id: "deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
-        reasoning: true,
-        limit: { context: 1_000_000, output: 384_000 },
-      },
       "deepseek-v4-flash": {
         id: "deepseek-v4-flash",
         name: "DeepSeek V4 Flash",
@@ -602,12 +581,6 @@ const FALLBACK_MODELS: Record<string, ModelProvider> = {
         name: "Claude Sonnet 4.5",
         reasoning: true,
         limit: { context: 1_000_000, output: 64_000 },
-      },
-      "deepseek/deepseek-v4-pro": {
-        id: "deepseek/deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
-        reasoning: true,
-        limit: { context: 1_000_000, output: 384_000 },
       },
       "qwen/qwen3.6-plus": {
         id: "qwen/qwen3.6-plus",
@@ -901,8 +874,8 @@ function modelRank(provider: string, model: string): number {
       "gpt-5.4-mini",
     ],
     chump_cloud: [
-      "deepseek-v4-pro",
       "deepseek-v4-flash",
+      "deepseek-v4.1-flash",
       "gemini-3.8-flash",
       "gemini-3.7-flash",
     ],
@@ -923,7 +896,6 @@ function modelRank(provider: string, model: string): number {
       "glm-5.1",
       "minimax-m2.7",
       "mimo-v2.5-pro",
-      "deepseek-v4-pro",
       "qwen3.5-plus",
       "glm-5",
       "minimax-m2.5",
@@ -933,7 +905,6 @@ function modelRank(provider: string, model: string): number {
       "anthropic/claude-sonnet-4.5",
       "openai/gpt-5.5",
       "openai/gpt-5.4",
-      "deepseek/deepseek-v4-pro",
       "qwen/qwen3.6-plus",
     ],
     codex: [
@@ -976,12 +947,11 @@ function modelRank(provider: string, model: string): number {
       "@cf/zai-org/glm-4.7-flash",
       "@cf/nvidia/nemotron-3-120b-a12b",
     ],
-    deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
+    deepseek: ["deepseek-v4-flash"],
     zenmux: [
       "anthropic/claude-sonnet-4.5",
       "openai/gpt-5.5",
       "openai/gpt-5.4",
-      "deepseek/deepseek-v4-pro",
       "qwen/qwen3.6-plus",
       "x-ai/grok-4.1-fast",
       "z-ai/glm-5.1",

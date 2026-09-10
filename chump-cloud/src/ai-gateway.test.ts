@@ -32,6 +32,24 @@ test("builds DeepSeek requests with the explicit default BYOK alias", () => {
   });
 });
 
+test("routes new chump cloud models to their upstream names", () => {
+  assert.deepEqual(SUPPORTED_MODELS["deepseek-v4.1-flash"], {
+    provider: "deepseek",
+    gatewayProvider: "deepseek",
+    endpoint: "chat/completions",
+    model: "deepseek-v4.1-flash",
+    byokAlias: "default",
+  });
+  assert.deepEqual(SUPPORTED_MODELS["gemini-3.8-flash"], {
+    provider: "google",
+    gatewayProvider: "google-ai-studio",
+    endpoint: "v1beta/openai/chat/completions",
+    model: "gemini-3.8-flash",
+    byokAlias: "default2",
+  });
+  assert.ok(!("deepseek-v4-pro" in SUPPORTED_MODELS));
+});
+
 test("builds Gemini requests with the explicit Google BYOK alias", () => {
   const messages = [
     { role: "tool", tool_call_id: "call_1", content: "Image loaded." },

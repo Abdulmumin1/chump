@@ -40,7 +40,7 @@ DEFAULT_MODELS = {
     "google": "gemini-3.8-flash",
     "anthropic": "claude-sonnet-4-20250514",
     "workers_ai": "@cf/zai-org/glm-5.3-flash",
-    "deepseek": "deepseek-v4-pro",
+    "deepseek": "deepseek-v4-flash",
     "openrouter": "anthropic/claude-sonnet-4.5",
     "groq": "openai/gpt-oss-120b",
     "xai": "grok-code-fast-1",
@@ -75,8 +75,8 @@ PROVIDER_MODELS = {
         "gpt-5.4-nano",
     },
     "chump_cloud": {
-        "deepseek-v4-pro",
         "deepseek-v4-flash",
+        "deepseek-v4.1-flash",
         "gemini-3.7-flash",
         "gemini-3.8-flash",
     },
@@ -100,14 +100,12 @@ PROVIDER_MODELS = {
         "@cf/moonshotai/kimi-k2.7-code",
     },
     "deepseek": {
-        "deepseek-v4-pro",
         "deepseek-v4-flash",
     },
     "openrouter": {
         "openai/gpt-5.5",
         "openai/gpt-5.4",
         "anthropic/claude-sonnet-4.5",
-        "deepseek/deepseek-v4-pro",
         "qwen/qwen3.6-plus",
     },
     "groq": {
@@ -134,7 +132,6 @@ PROVIDER_MODELS = {
     },
     "opencode_go": {
         "deepseek-v4-flash",
-        "deepseek-v4-pro",
         "glm-5",
         "glm-5.1",
         "mimo-v2.5",
@@ -148,7 +145,6 @@ PROVIDER_MODELS = {
         "openai/gpt-5.5",
         "openai/gpt-5.4",
         "anthropic/claude-sonnet-4.5",
-        "deepseek/deepseek-v4-pro",
         "qwen/qwen3.6-plus",
         "x-ai/grok-4.1-fast",
         "z-ai/glm-5.1",

@@ -97,6 +97,10 @@ def test_model_input_modalities_are_declared_centrally():
     assert model_input_modalities(
         "workers_ai", "@cf/moonshotai/kimi-k2.6"
     ) == ("text", "image")
+    assert model_input_modalities("workers_ai", "@cf/zai-org/glm-5.3-flash") == (
+        "text",
+        "image",
+    )
     assert model_input_modalities("workers_ai", "@cf/zai-org/glm-5.7") == (
         "text",
     )

@@ -34,7 +34,13 @@ from ..providers.xai import xai_model
 
 IMAGE_INPUT_MODELS = {
     "anthropic": frozenset({"claude-sonnet-4-20250514"}),
-    "chump_cloud": frozenset({"gemini-3.7-flash", "gemini-3.8-flash"}),
+    "chump_cloud": frozenset(
+        {
+            "deepseek-v4.1-flash",
+            "gemini-3.7-flash",
+            "gemini-3.8-flash",
+        }
+    ),
     "codex": frozenset(
         {
             "gpt-5.4",
@@ -79,7 +85,11 @@ IMAGE_INPUT_MODELS = {
         {"anthropic/claude-sonnet-4.5", "openai/gpt-5.4", "openai/gpt-5.5"}
     ),
     "workers_ai": frozenset(
-        {"@cf/moonshotai/kimi-k2.6", "@cf/moonshotai/kimi-k2.7-code"}
+        {
+            "@cf/moonshotai/kimi-k2.6",
+            "@cf/moonshotai/kimi-k2.7-code",
+            "@cf/zai-org/glm-5.3-flash",
+        }
     ),
     "xai": frozenset({"grok-4-fast", "grok-4.3", "grok-4-1-fast"}),
     "zenmux": frozenset(

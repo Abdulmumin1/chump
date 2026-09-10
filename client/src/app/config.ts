@@ -85,7 +85,7 @@ export function getResolvedConfig(workspaceRoot: string): ResolvedConfig {
     groq: "openai/gpt-oss-120b",
     xai: "grok-code-fast-1",
     workers_ai: "@cf/zai-org/glm-5.3-flash",
-    deepseek: "deepseek-v4-pro",
+    deepseek: "deepseek-v4-flash",
     zenmux: "anthropic/claude-sonnet-4.5",
   };
 
