@@ -33,6 +33,16 @@
     });
 
     let isViewImage = $derived(block.originalToolName === "view_image");
+    let isReadFile = $derived(
+        block.originalToolName === "read_file" ||
+            block.originalToolName === "view_file",
+    );
+
+    let showsImageResult = $derived.by(() => {
+        if (block.error) return false;
+        if (isViewImage) return true;
+        return isReadFile && stringifyValue(block.result).includes("image=1");
+    });
     let isMcpTool = $derived(block.originalToolName === "mcp");
 
     let mcpActionLabel = $derived.by(() => {
@@ -318,7 +328,7 @@
                                 </div>
                             {/if}
                         </div>
-                        {#if isViewImage && !block.error}
+                        {#if showsImageResult}
                             <div class="text-[12px] font-mono leading-relaxed text-text-warning">
                                 Image loaded and sent to the model.
                             </div>

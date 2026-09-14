@@ -14,7 +14,6 @@ from ._utils import (
     _workspace_key,
 )
 from .read_file import bind_read_file
-from .view_image import bind_view_image
 from .write_file import bind_write_file
 from .apply_patch import bind_apply_patch
 from .bash import bind_bash
@@ -179,7 +178,6 @@ def build_tools(
         remember_file_read=remember_file_read,
         resolve_read_context=resolve_read_context,
     )
-    view_image = bind_view_image(guard=guard, wrap_tool=wrap_tool)
 
     write_file = bind_write_file(
         guard=guard,
@@ -237,7 +235,6 @@ def build_tools(
 
     tools = {
         "read_file": read_file,
-        "view_image": view_image,
         "write_file": write_file,
         "apply_patch": apply_patch,
         "skill": skill,

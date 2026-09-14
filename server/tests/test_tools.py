@@ -13,7 +13,7 @@ from chump_server.patch_tool import AddFilePatch, UpdateFilePatch, parse_patch
 from chump_server.safety import PathResolver, SafetyError
 from chump_server.tools.bash import bind_bash, resolve_command_timeout
 from chump_server.tools.search import bind_search
-from chump_server.tools.view_image import bind_view_image, detect_image_type
+from chump_server.tools.read_file import bind_read_file, detect_image_type
 from chump_server.tools._utils import (
     BASH_OUTPUT_BYTE_LIMIT,
     BASH_OUTPUT_LINE_LIMIT,
@@ -72,7 +72,7 @@ class DiffMetadataTests(unittest.TestCase):
         self.assertEqual(len(diff["changes"]), DEFAULT_DIFF_CHANGE_LIMIT)
 
 
-class ViewImageTests(unittest.IsolatedAsyncioTestCase):
+class ReadFileImageTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
@@ -80,7 +80,18 @@ class ViewImageTests(unittest.IsolatedAsyncioTestCase):
         async def wrap_tool(_name, _payload, runner):
             return await runner()
 
-        self.tool = bind_view_image(PathResolver(self.root), wrap_tool)
+        async def remember_file_read(_path, _file_path):
+            return None
+
+        async def resolve_read_context(_file_path):
+            return "", {"loaded": []}
+
+        self.tool = bind_read_file(
+            PathResolver(self.root),
+            wrap_tool,
+            remember_file_read,
+            resolve_read_context,
+        )
 
     async def asyncTearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -99,8 +110,9 @@ class ViewImageTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_non_image_content(self) -> None:
         (self.root / "sample.png").write_text("not an image", encoding="utf-8")
 
-        with self.assertRaisesRegex(SafetyError, "unsupported image type"):
-            await self.tool.run(path="sample.png")
+        result = await self.tool.run(path="sample.png")
+
+        self.assertEqual(result[0], "1: not an image")
 
     def test_detects_webp_by_container_signature(self) -> None:
         self.assertEqual(

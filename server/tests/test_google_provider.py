@@ -126,7 +126,7 @@ async def test_chump_cloud_projects_image_tool_results_for_gateway_chat():
             ToolResultPart(
                 tool_result=ToolResult(
                     tool_call_id="call_1",
-                    tool_name="view_image",
+                    tool_name="read_file",
                     result=ToolOutput(
                         content=[
                             TextPart(text="Image loaded."),
@@ -167,7 +167,7 @@ async def test_chump_cloud_projects_history_for_each_selected_model(monkeypatch)
             ToolResultPart(
                 tool_result=ToolResult(
                     tool_call_id="call_1",
-                    tool_name="view_image",
+                    tool_name="read_file",
                     result=output,
                 )
             )

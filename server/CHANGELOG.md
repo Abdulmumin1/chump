@@ -1,5 +1,9 @@
 # chump-server
 
+## 0.3.6
+
+- Merge the `view_image` tool into `read_file`: reading a PNG, JPEG, GIF, or WebP file now returns the image directly to the model, and the separate `view_image` tool is removed.
+
 ## 0.3.5
 
 - Accept image attachments for GLM-5.3-Flash on Workers AI, matching its vision support in the models.dev catalog.
