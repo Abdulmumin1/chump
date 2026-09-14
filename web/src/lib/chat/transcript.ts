@@ -55,20 +55,32 @@ export function buildTranscript(source: StoredMessage[]): TranscriptMessage[] {
                     continue;
                 }
 
-                blocks.push(formatPartBlock(part));
+                const block = formatPartBlock(part);
+                if (block.kind === "text" && !block.text.trim()) continue;
+                blocks.push(block);
             }
 
             if (blocks.length > 0) {
                 const reasoningOnly = blocks.every(
                     (block) => block.kind === "reasoning",
                 );
-                items.push({
-                    id: `${index}-${reasoningOnly ? "reasoning" : "assistant"}`,
-                    role: reasoningOnly ? "reasoning" : "assistant",
-                    label: reasoningOnly ? "Reasoning" : "Assistant",
-                    blocks,
-                    live: (message as { live?: boolean }).live,
-                });
+                const live = (message as { live?: boolean }).live;
+                const previous = items.at(-1);
+                if (!reasoningOnly && previous?.role === "assistant") {
+                    // Steps of the same turn are stored as separate assistant
+                    // messages; keep them as one transcript item so adjacent
+                    // tool activity collapses into a single accordion.
+                    previous.blocks.push(...blocks);
+                    previous.live = previous.live || live;
+                } else {
+                    items.push({
+                        id: `${index}-${reasoningOnly ? "reasoning" : "assistant"}`,
+                        role: reasoningOnly ? "reasoning" : "assistant",
+                        label: reasoningOnly ? "Reasoning" : "Assistant",
+                        blocks,
+                        live,
+                    });
+                }
             }
             continue;
         }

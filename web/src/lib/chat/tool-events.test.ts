@@ -799,6 +799,81 @@ describe("live tool lifecycle events", () => {
         expect(JSON.stringify(block)).not.toContain("<skill_content");
     });
 
+    it("merges consecutive stored assistant steps into one collapsible item", () => {
+        const messages: StoredMessage[] = [
+            {
+                role: "assistant",
+                content: [
+                    { type: "text", text: "Checking the tree." },
+                    {
+                        type: "tool_call",
+                        tool_call: {
+                            id: "call_1",
+                            name: "bash",
+                            arguments: { command: "git status" },
+                        },
+                    },
+                ],
+            },
+            {
+                role: "tool",
+                content: [
+                    {
+                        type: "tool_result",
+                        tool_result: {
+                            tool_call_id: "call_1",
+                            tool_name: "bash",
+                            result: "clean",
+                            is_error: false,
+                        },
+                    },
+                ],
+            },
+            {
+                role: "assistant",
+                content: [
+                    {
+                        type: "tool_call",
+                        tool_call: {
+                            id: "call_2",
+                            name: "bash",
+                            arguments: { command: "git push" },
+                        },
+                    },
+                ],
+            },
+            {
+                role: "tool",
+                content: [
+                    {
+                        type: "tool_result",
+                        tool_result: {
+                            tool_call_id: "call_2",
+                            tool_name: "bash",
+                            result: "pushed",
+                            is_error: false,
+                        },
+                    },
+                ],
+            },
+        ];
+
+        const transcript = buildTranscript(messages);
+
+        expect(transcript).toHaveLength(1);
+        expect(transcript[0]?.role).toBe("assistant");
+        expect(transcript[0]?.blocks.map((block) => block.kind)).toEqual([
+            "text",
+            "tool-call",
+            "tool-call",
+        ]);
+        expect(
+            transcript[0]?.blocks.every((block) =>
+                isTerminalActivityBlock(block) || block.kind === "text",
+            ),
+        ).toBe(true);
+    });
+
     it("replays manual skill prompts as compact slash commands", () => {
         const transcript = buildTranscript([
             {
