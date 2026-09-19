@@ -1,5 +1,11 @@
 # chump-agent
 
+## 0.5.7
+
+### Patch Changes
+
+- Fix startup failures caused by a client/server version mismatch: bundled release binaries now package the exact `chump-server` version the client expects, and a healthy-but-mismatched server now fails with a clear error instead of a 30-second timeout followed by killing the server.
+
 ## 0.5.6
 
 ### Patch Changes
