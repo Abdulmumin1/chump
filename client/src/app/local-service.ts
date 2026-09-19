@@ -384,11 +384,15 @@ async function waitForHealthyRegistration(
     const registration = await store.read();
     if (registration) {
       const health = await readServiceHealth(registration.url);
-      if (
-        serviceHealthMatchesRegistration(health, registration) &&
-        serviceVersionIsCompatible(commandSource, registration.serverVersion)
-      ) {
-        return registration;
+      if (serviceHealthMatchesRegistration(health, registration)) {
+        if (serviceVersionIsCompatible(commandSource, registration.serverVersion)) {
+          return registration;
+        }
+        throw new Error(
+          `server ${registration.serverVersion} is running at ${registration.url}, ` +
+            `but this client expects ${CHUMP_SERVER_VERSION}; ` +
+            "reinstall Chump or set CHUMP_SERVER_BIN to a matching server",
+        );
       }
     }
     await sleep(100);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import os
 import re
@@ -786,6 +787,20 @@ def main() -> None:
     )
     try:
         server.serve(host=config.host, port=config.port)
+    except OSError as error:
+        if error.errno == errno.EADDRINUSE:
+            raise SystemExit(
+                f"chump-server cannot bind {config.host}:{config.port}: "
+                "address already in use (is another Chump server running?)"
+            ) from error
+        raise
+    except RuntimeError as error:
+        if "service registration already exists" in str(error):
+            raise SystemExit(
+                "chump-server cannot start: another Chump service is already "
+                f"registered at {registration_store.path}"
+            ) from error
+        raise
     finally:
         if registration is not None:
             registration_store.clear(registration.instance_id)
