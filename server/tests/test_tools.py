@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import os
 from pathlib import Path
 import sys
 import re
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chump_server.patch_tool import AddFilePatch, UpdateFilePatch, parse_patch
 from chump_server.safety import PathResolver, SafetyError
+from chump_server.shell_env import reset_login_environment
 from chump_server.tools.bash import bind_bash, resolve_command_timeout
 from chump_server.tools.search import bind_search
 from chump_server.tools.read_file import bind_read_file, detect_image_type
@@ -153,7 +156,10 @@ class BashTimeoutTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(current_abort_signal=None),
             )
 
-            result = await tool.run(command="printf custom-timeout", timeout=2)
+            with patch.dict(os.environ, {"CHUMP_SHELL": "/bin/sh"}):
+                reset_login_environment()
+                result = await tool.run(command="printf custom-timeout", timeout=2)
+                reset_login_environment()
 
         self.assertEqual(result, "custom-timeout")
 

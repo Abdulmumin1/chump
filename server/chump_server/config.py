@@ -597,6 +597,15 @@ def apply_auth_environment(
             and key not in os.environ
         ):
             os.environ[key] = value
+            _injected_auth_env_keys.add(key)
+
+
+_injected_auth_env_keys: set[str] = set()
+
+
+def injected_auth_env_keys() -> frozenset[str]:
+    """Provider credential keys Chump added to ``os.environ`` itself."""
+    return frozenset(_injected_auth_env_keys)
 
 
 def string_value(value: Any) -> str | None:

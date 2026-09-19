@@ -1,5 +1,10 @@
 # chump-server
 
+## 0.3.7
+
+- Report clear startup errors when the configured port is already in use or another Chump service is already registered, instead of crashing with an unhandled traceback.
+- Run the `bash` tool through the user's login shell with their real environment, and keep provider credentials from leaking into shell commands so they cannot shadow the user's own tooling.
+
 ## 0.3.6
 
 - Merge the `view_image` tool into `read_file`: reading a PNG, JPEG, GIF, or WebP file now returns the image directly to the model, and the separate `view_image` tool is removed.

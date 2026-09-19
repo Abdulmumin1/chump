@@ -324,15 +324,26 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
-      - name: Build latest server runtime
+      - name: Build matching server runtime
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform }}
         run: |
+          set -euo pipefail
+
+          # `sync-version.mjs` compiles this same changelog heading into
+          # CHUMP_SERVER_VERSION, so bundling this exact tag keeps the client's
+          # expectation and the bundled server in lockstep.
+          server_version=$(sed -nE 's/^## ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' server/CHANGELOG.md | head -n 1)
+          if [[ -z "$server_version" ]]; then
+            echo "server/CHANGELOG.md does not start with a stable version heading" >&2
+            exit 1
+          fi
+
           git fetch origin '+refs/tags/chump-server-v*:refs/tags/chump-server-v*' --force
-          server_tag=$(git tag --list 'chump-server-v*' --sort=-version:refname | head -n 1)
-          if [[ -z "$server_tag" || "$server_tag" == "null" ]]; then
-            echo "No chump-server tag found" >&2
+          server_tag="chump-server-v$server_version"
+          if ! git rev-parse -q --verify "refs/tags/$server_tag" >/dev/null; then
+            echo "Expected server tag $server_tag was not found" >&2
             exit 1
           fi
 
