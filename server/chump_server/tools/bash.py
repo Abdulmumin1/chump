@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
 from ai_query import Field, tool
 from ai_query.types import AbortError
 
 from ..config import ChumpConfig, chump_temp_dir
 from ..safety import PathResolver, validate_command
+from ..shell_env import resolve_shell, shell_command, tool_environment
 from ._utils import _terminate_process, _truncate_command_output
 
 
@@ -65,19 +65,33 @@ def bind_bash(
             abort_signal = getattr(agent, "current_abort_signal", None)
             if abort_signal:
                 abort_signal.throw_if_aborted()
-            process = await asyncio.create_subprocess_shell(
-                command,
-                cwd=str(directory),
-                env={
-                    **os.environ,
+            environment = await tool_environment()
+            environment.update(
+                {
                     "TMPDIR": str(chump_temp_dir()),
                     "TMP": str(chump_temp_dir()),
                     "TEMP": str(chump_temp_dir()),
-                },
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
+                }
             )
+            shell = resolve_shell()
+            if shell is None:
+                process = await asyncio.create_subprocess_shell(
+                    command,
+                    cwd=str(directory),
+                    env=environment,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=True,
+                )
+            else:
+                process = await asyncio.create_subprocess_exec(
+                    *shell_command(shell, command, directory),
+                    cwd=str(directory),
+                    env=environment,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=True,
+                )
 
             communicate_task = asyncio.create_task(process.communicate())
             timeout_task = asyncio.create_task(asyncio.sleep(timeout_seconds))
